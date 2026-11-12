@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .box { fill: #1b1f29; stroke: #343b4b; stroke-width: 1.5; }
+      .title { font-size: 18px; font-weight: 700; fill: #eef1f6; }
+      .sub { font-size: 14px; fill: #8f99ac; }
+      .mono { font-family: Cascadia Code, Consolas, Menlo, monospace; }
+      .tag { font-size: 12px; font-weight: 600; }
+      .flow { fill: none; stroke-width: 2.5; stroke-dasharray: 8 8; animation: dash 1.2s linear infinite; }
+      @keyframes dash { to { stroke-dashoffset: -16; } }
+      @media (prefers-reduced-motion: reduce) { .flow { animation: none; } }
+    </style>
+  </defs>
+
+  <rect width="1200" height="360" rx="18" fill="#12151c"/>
+  <text x="40" y="52" font-size="15" font-weight="600" fill="#f0a35a" letter-spacing="2">SEVERAL MAYAS, SEVERAL AGENTS</text>
+
+  <rect class="box" x="40" y="86" width="260" height="88" rx="14"/>
+  <circle cx="70" cy="118" r="7" fill="#7fd1a8"/>
+  <text class="title" x="86" y="124">Agent A</text>
+  <text class="sub" x="64" y="154">Claude Code, rigging a hero</text>
+
+  <rect class="box" x="40" y="206" width="260" height="88" rx="14"/>
+  <circle cx="70" cy="238" r="7" fill="#b48cf2"/>
+  <text class="title" x="86" y="244">Agent B</text>
+  <text class="sub" x="64" y="274">Codex, cleaning up props</text>
+
+  <path class="flow" d="M 302 130 C 520 130, 640 116, 858 116" stroke="#7fd1a8"/>
+  <rect x="470" y="104" width="190" height="26" rx="13" fill="#12151c" stroke="#2f5a46"/>
+  <text class="mono" x="565" y="122" font-size="13" fill="#7fd1a8" text-anchor="middle">use_session 4120</text>
+
+  <path class="flow" d="M 302 250 C 520 250, 640 200, 858 200" stroke="#b48cf2"/>
+  <rect x="470" y="222" width="190" height="26" rx="13" fill="#12151c" stroke="#4a3a66"/>
+  <text class="mono" x="565" y="240" font-size="13" fill="#b48cf2" text-anchor="middle">use_session 7788</text>
+
+  <g>
+    <rect class="box" x="860" y="80" width="300" height="72" rx="12" stroke="#2f5a46"/>
+    <text class="title mono" x="884" y="110" font-size="16">Maya · 4120</text>
+    <text class="sub mono" x="884" y="134" font-size="13">hero_rig.ma</text>
+    <text class="tag" x="1140" y="110" fill="#7fd1a8" text-anchor="end">A</text>
+  </g>
+  <g>
+    <rect class="box" x="860" y="164" width="300" height="72" rx="12" stroke="#4a3a66"/>
+    <text class="title mono" x="884" y="194" font-size="16">Maya · 7788</text>
+    <text class="sub mono" x="884" y="218" font-size="13">props_kit.ma</text>
+    <text class="tag" x="1140" y="194" fill="#b48cf2" text-anchor="end">B</text>
+  </g>
+  <g opacity="0.6">
+    <rect class="box" x="860" y="248" width="300" height="72" rx="12"/>
+    <text class="title mono" x="884" y="278" font-size="16">Maya · 9012</text>
+    <text class="sub mono" x="884" y="302" font-size="13">untitled, waiting</text>
+  </g>
+
+  <text class="sub" x="40" y="330" font-size="13">Every GUI Maya registers itself in ~/.bmaya-mcp/sessions. Each agent keeps its own pick, so nobody steps on anyone.</text>
+</svg>

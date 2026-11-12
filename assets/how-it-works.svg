@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d6678"/>
+    </marker>
+    <style>
+      .box { fill: #1b1f29; stroke: #343b4b; stroke-width: 1.5; }
+      .title { font-size: 20px; font-weight: 700; fill: #eef1f6; }
+      .sub { font-size: 14px; fill: #8f99ac; }
+      .mono { font-family: Cascadia Code, Consolas, Menlo, monospace; }
+      .label { font-size: 13px; fill: #aab3c5; }
+      .chip { fill: #232836; stroke: #343b4b; }
+      .chiptext { font-size: 13px; fill: #c9d0dc; }
+      .wire { stroke: #5d6678; stroke-width: 2; fill: none; }
+      .p1 { animation: go1 2.4s linear infinite; }
+      .p3 { animation: go2 2.4s linear infinite; animation-delay: .4s; }
+      .p4 { animation: go2 2.4s linear infinite; animation-delay: 1.2s; }
+      @keyframes go1 { 0% { transform: translateX(0); opacity: 0; } 10%, 90% { opacity: 1; } 100% { transform: translateX(110px); opacity: 0; } }
+      @keyframes go2 { 0% { transform: translateX(0); opacity: 0; } 10%, 90% { opacity: 1; } 100% { transform: translateX(110px); opacity: 0; } }
+      @media (prefers-reduced-motion: reduce) { .p1, .p3, .p4 { animation: none; opacity: 0; } }
+    </style>
+  </defs>
+
+  <rect width="1200" height="400" rx="18" fill="#12151c"/>
+  <text x="40" y="52" font-size="15" font-weight="600" fill="#f0a35a" letter-spacing="2">HOW IT WORKS</text>
+
+  <rect class="box" x="40" y="90" width="250" height="150" rx="14"/>
+  <text class="title" x="64" y="130">Your agent</text>
+  <text class="sub" x="64" y="160">Claude Code</text>
+  <text class="sub" x="64" y="182">Claude Desktop, Codex</text>
+  <text class="sub" x="64" y="204">or any MCP client</text>
+
+  <line class="wire" x1="292" y1="165" x2="400" y2="165" marker-end="url(#arrow)"/>
+  <text class="label mono" x="346" y="152" text-anchor="middle">stdio</text>
+  <circle class="p1" cx="296" cy="165" r="4" fill="#7fd1a8"/>
+  <circle class="p1" cx="296" cy="165" r="4" fill="#7fd1a8" style="animation-delay: 1.2s"/>
+
+  <rect class="box" x="404" y="90" width="270" height="150" rx="14"/>
+  <text class="title mono" x="428" y="130" font-size="19">bmaya-mcp</text>
+  <text class="sub" x="428" y="160">11 tools, compact JSON</text>
+  <text class="sub" x="428" y="182">finds every running Maya</text>
+  <text class="sub" x="428" y="204">remembers which one is yours</text>
+
+  <line class="wire" x1="676" y1="165" x2="784" y2="165" marker-end="url(#arrow)"/>
+  <text class="label mono" x="730" y="146" text-anchor="middle">TCP</text>
+  <text class="label mono" x="730" y="190" text-anchor="middle" font-size="11">127.0.0.1</text>
+  <text class="label mono" x="730" y="205" text-anchor="middle" font-size="11">+ token</text>
+  <circle class="p3" cx="680" cy="165" r="4" fill="#f0a35a"/>
+  <circle class="p4" cx="680" cy="165" r="4" fill="#f0a35a"/>
+
+  <rect x="788" y="78" width="372" height="290" rx="16" fill="#1a1f2b" stroke="#f0a35a" stroke-opacity="0.5" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="808" y="102" font-size="12" font-weight="600" fill="#f0a35a" letter-spacing="1.5">INSIDE MAYA</text>
+
+  <rect class="box" x="808" y="116" width="332" height="98" rx="12"/>
+  <text class="title mono" x="830" y="150" font-size="18">bmaya_bridge</text>
+  <text class="sub" x="830" y="176">plain stdlib Python, starts with Maya</text>
+  <text class="sub" x="830" y="198">random port, never a fixed one</text>
+
+  <line class="wire" x1="974" y1="216" x2="974" y2="244" marker-end="url(#arrow)"/>
+
+  <rect class="box" x="808" y="248" width="332" height="100" rx="12"/>
+  <text class="title" x="830" y="280" font-size="17">Main thread</text>
+  <rect class="chip" x="830" y="294" width="140" height="24" rx="12"/>
+  <text class="chiptext" x="900" y="311" text-anchor="middle">one at a time</text>
+  <rect class="chip" x="978" y="294" width="144" height="24" rx="12"/>
+  <text class="chiptext" x="1050" y="311" text-anchor="middle">one undo chunk</text>
+
+  <rect class="box" x="40" y="280" width="634" height="88" rx="14"/>
+  <text x="64" y="314" font-size="15" font-weight="600" fill="#eef1f6">Black box recorder</text>
+  <text class="sub" x="64" y="342">Every command is written to a journal and flushed to disk</text>
+  <text class="sub" x="64" y="360" font-size="13">before it runs. If Maya crashes, the last line says what it was doing.</text>
+  <line class="wire" x1="806" y1="320" x2="678" y2="320" stroke-dasharray="4 4" marker-end="url(#arrow)"/>
+</svg>
