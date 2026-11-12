@@ -11,8 +11,8 @@ UNAUTHORIZED = "Unauthorized"
 UNKNOWN_COMMAND = "UnknownCommand"
 BAD_REQUEST = "BadRequest"
 
-# Any other error type is a Python exception name. bmaya_cli/tools/common.py keeps a copy of
-# this set; a test checks that they match.
+# Any other error type is a Python exception name. bmaya_cli/errors.py keeps a copy of this
+# set; a test checks that they match.
 BRIDGE_ERROR_TYPES = frozenset({BRIDGE_ERROR, TIMEOUT, UNAUTHORIZED, UNKNOWN_COMMAND, BAD_REQUEST})
 
 MAX_ERROR_STDOUT = 2000

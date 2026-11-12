@@ -107,7 +107,8 @@ class Dispatcher:
                 f"'{command}' is still running in Maya after {self.timeout:g} seconds. "
                 "Its result will not be returned."
             ),
-            "hint": "Ping the session until busy is false, then inspect the scene before retrying.",
+            "hint": "It was not cancelled, so do not send it again. `bmaya sessions` shows busy "
+            "until it ends; then inspect the scene.",
         }
         return late
 

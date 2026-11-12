@@ -167,8 +167,8 @@ def check_get_object_info() -> str:
     assert root["anim"]["items"][0] == {"attr": "rotateZ", "keys": 2, "range": [1, 24]}, root
 
     expect_error("get_object_info", "|", name="dup")
-    expect_error("get_object_info", "get_scene_info", name="nothing_here")
-    expect_error("get_object_info", "get_scene_info", name="")
+    expect_error("get_object_info", "bmaya scene", name="nothing_here")
+    expect_error("get_object_info", "bmaya scene", name="")
     return "transform, mesh, skin, joint, anim, ambiguous and missing names ok"
 
 
@@ -242,7 +242,7 @@ def check_audit_mesh() -> str:
     cmds.select(clear=True)
     whole = assert_read_only("audit_mesh")
     assert whole["source"] == "scene" and whole["total"] >= 6, whole
-    expect_error("audit_mesh", "get_scene_info", names="missing_mesh")
+    expect_error("audit_mesh", "bmaya scene", names="missing_mesh")
     return f"broken mesh flagged ({len(broken['issues'])} issues), clean mesh clean"
 
 
@@ -433,6 +433,49 @@ def check_shared_maya() -> str:
     return "undo stops at other clients and UI edits, scene_file guards a shared Maya"
 
 
+def check_stop() -> str:
+    from bmaya_bridge import lifecycle
+    from bmaya_bridge.journal import Journal
+    from bmaya_bridge.server import BridgeServer
+
+    journal = Journal(WORK_DIR / "logs-stop", crash_log=False)
+    bridge = BridgeServer(journal, schedule=lambda callback: callback())
+    asked: list[bool] = []
+
+    def send(client: str, command: str, **params: object) -> dict[str, Any]:
+        request = {"id": 1, "client": client, "command": command, "params": params}
+        return bridge.handle(request)
+
+    try:
+        cmds.file(new=True, force=True)
+        with_window = send("claude-1", "stop")
+        assert not with_window["ok"] and "window" in with_window["error"]["message"], with_window
+
+        lifecycle.set_exit(lambda: asked.append(True))
+        made = send("claude-1", "execute_maya_code", code="cmds.polyCube(name='unsaved')")
+        assert made["ok"], made
+        unsaved = send("claude-1", "stop")
+        assert not unsaved["ok"] and "unsaved" in unsaved["error"]["message"], unsaved
+        assert "bmaya file save" in unsaved["error"]["hint"], unsaved
+
+        cmds.file(modified=False)
+        stopped = send("claude-1", "stop")
+        assert stopped["ok"] and stopped["result"]["stopped"] is True, stopped
+        assert stopped["result"]["scene"] == "untitled", stopped
+        assert asked == [True]
+
+        shared = send("codex-2", "stop")
+        assert not shared["ok"] and "claude-1" in shared["error"]["message"], shared
+        assert asked == [True], "a refused stop still ended Maya"
+        cmds.polyCube(name="unsaved_again")
+        assert send("codex-2", "stop", force=True)["ok"]
+        assert asked == [True, True]
+    finally:
+        lifecycle.set_exit(None)
+        journal.close()
+    return "stop refuses a Maya with a window, unsaved work and a shared Maya"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("bridge dispatch", check_bridge_dispatch),
     ("shared maya", check_shared_maya),
@@ -448,6 +491,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("export_fbx", check_export_fbx),
     ("scene_file", check_scene_file),
     ("undo", check_undo),
+    ("stop", check_stop),
 ]
 
 

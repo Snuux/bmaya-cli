@@ -47,7 +47,8 @@ def execute_maya_code(params: dict[str, Any]) -> dict[str, Any]:
     if not code.strip():
         raise BridgeError(
             "No code given.",
-            hint="Pass Python source in 'code'. cmds, mel and om are preloaded; "
+            hint="Pass Python source as an argument, with -f FILE or on stdin. "
+            "cmds, mel and om are preloaded; "
             "assign to a variable named result to return a value.",
         )
 

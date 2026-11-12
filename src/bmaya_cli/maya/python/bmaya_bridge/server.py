@@ -307,11 +307,7 @@ class BridgeServer:
                     )
                     self._send(connection, response)
                     break
-                label = str(request.get("client") or client)
-                if label != client:
-                    self.clients.disconnected(client)
-                    self.clients.connected(label)
-                    client = label
+                client = str(request.get("client") or client)
                 try:
                     response = self.handle(request)
                 except Exception as exc:
@@ -323,7 +319,6 @@ class BridgeServer:
         finally:
             with self._lock:
                 self._clients.discard(connection)
-            self.clients.disconnected(client)
             _close_quietly(connection)
             self.journal.event("client_disconnect", peer=peer_port, client=client)
 

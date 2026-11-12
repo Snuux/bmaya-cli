@@ -88,13 +88,13 @@ def resolve(name: str) -> str:
     if not name:
         raise BridgeError(
             "No object name given.",
-            hint="Pass a node name. Use get_scene_info to list the nodes in the scene.",
+            hint="Pass a node name. `bmaya scene` lists the nodes in the scene.",
         )
     matches = cmds.ls(name, long=True) or []
     if not matches:
         raise BridgeError(
             f"No object named '{name}' in the scene.",
-            hint=f"Use get_scene_info with query='{short_name(name)}' to find similar names.",
+            hint=f"`bmaya scene --query {short_name(name)}` finds similar names.",
         )
     if len(matches) > 1:
         shown = ", ".join(matches[:10])

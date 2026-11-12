@@ -43,7 +43,8 @@ COMMANDS: dict[str, Handler] = {
     "execute_maya_code": execute.execute_maya_code,
     "scene_file": scene.scene_file,
     "undo": scene.undo,
+    "stop": scene.stop,
 }
 
 # Undo cannot run inside an open undo chunk, and scene file operations are not undoable.
-NO_UNDO_CHUNK = frozenset({"undo", "scene_file", *UNRECORDED})
+NO_UNDO_CHUNK = frozenset({"undo", "scene_file", "stop", *UNRECORDED})

@@ -43,44 +43,26 @@ def is_selection(top_name: str, caller: str) -> bool:
 
 
 class ClientTable:
-    """Clients are labels that ran a command; pings and bare connections do not count."""
+    """Clients are labels that ran a command lately. Every command comes over its own short
+    connection, so open connections say nothing; pings do not count either."""
 
     def __init__(self, recent_seconds: float = RECENT_CLIENT_SECONDS) -> None:
         self.recent_seconds = recent_seconds
         self._lock = threading.Lock()
         self._last_command: dict[str, float] = {}
-        self._connections: dict[str, int] = {}
-        self._last_active = time.monotonic()
-
-    def connected(self, label: str) -> None:
-        if not label:
-            return
-        with self._lock:
-            self._connections[label] = self._connections.get(label, 0) + 1
-
-    def disconnected(self, label: str) -> None:
-        if not label:
-            return
-        with self._lock:
-            left = self._connections.get(label, 0) - 1
-            if left > 0:
-                self._connections[label] = left
-                return
-            self._connections.pop(label, None)
-            if label in self._last_command:
-                self._last_active = time.monotonic()
 
     def touch(self, label: str) -> None:
         if not label:
             return
         with self._lock:
-            now = time.monotonic()
-            self._last_command[label] = now
-            self._last_active = now
+            self._last_command[label] = time.monotonic()
 
     def count(self) -> int:
+        now = time.monotonic()
         with self._lock:
-            return self._count()
+            return sum(
+                1 for seen in self._last_command.values() if now - seen <= self.recent_seconds
+            )
 
     def others_recent(self, label: str) -> list[tuple[str, float]]:
         now = time.monotonic()
@@ -90,15 +72,6 @@ class ClientTable:
             ]
         recent = [(other, age) for other, age in ages if age <= self.recent_seconds]
         return sorted(recent, key=lambda item: item[1])
-
-    def idle_seconds(self) -> float:
-        with self._lock:
-            if self._count():
-                return 0.0
-            return time.monotonic() - self._last_active
-
-    def _count(self) -> int:
-        return sum(1 for label in self._connections if label in self._last_command)
 
 
 _acting_client = ""

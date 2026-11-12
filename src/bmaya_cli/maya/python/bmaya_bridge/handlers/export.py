@@ -102,7 +102,7 @@ def bake_range(params: dict[str, Any]) -> tuple[float, float]:
     if end < start:
         raise BridgeError(
             f"Bake range end {end} is before start {start}.",
-            hint="Pass start <= end, or 0 for both to use the playback range.",
+            hint="Pass --start <= --end, or neither to use the playback range.",
         )
     return start, end
 
@@ -156,7 +156,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     if preset not in PRESETS:
         raise BridgeError(
             f"Unknown FBX preset '{preset}'.",
-            hint="Use one of: " + ", ".join(PRESETS) + ", or leave it empty for unity.",
+            hint="Use --preset with one of: " + ", ".join(PRESETS) + ". The default is unity.",
         )
     path = target_path(text_param(params, "path"))
     selection_only = bool_param(params, "selection_only")
@@ -168,7 +168,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
         if not nodes:
             raise BridgeError(
                 "selection_only is set but nothing is selected.",
-                hint="Select the objects to export first, or set selection_only to false.",
+                hint="Select the objects to export first, or drop --selection.",
             )
     else:
         roots = cmds.ls(assemblies=True, long=True) or []

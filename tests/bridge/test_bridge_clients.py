@@ -50,19 +50,18 @@ def test_caller_without_a_label_is_never_blocked() -> None:
     assert clients.undo_blocker("polyCube", "") == ""
 
 
-def test_only_connected_labels_that_ran_a_command_are_counted() -> None:
-    table = ClientTable()
-    table.connected("pinger")
+def test_labels_that_ran_a_command_lately_are_counted() -> None:
+    table = ClientTable(recent_seconds=0.2)
     assert table.count() == 0
-    table.connected("worker")
+    table.touch("")
+    assert table.count() == 0
     table.touch("worker")
+    table.touch("worker")
+    table.touch("other")
+    assert table.count() == 2
+    time.sleep(0.3)
+    table.touch("other")
     assert table.count() == 1
-    table.connected("worker")
-    assert table.count() == 1
-    table.disconnected("worker")
-    assert table.count() == 1
-    table.disconnected("worker")
-    assert table.count() == 0
 
 
 def test_others_recent_leaves_out_the_caller_and_old_clients() -> None:
@@ -73,17 +72,6 @@ def test_others_recent_leaves_out_the_caller_and_old_clients() -> None:
     table.touch("second")
     assert [label for label, _ in table.others_recent("first")] == ["second"]
     assert table.others_recent("nobody")[0][1] < 0.2
-
-
-def test_idle_time_runs_only_while_no_client_is_connected() -> None:
-    table = ClientTable()
-    table.connected("worker")
-    table.touch("worker")
-    time.sleep(0.05)
-    assert table.idle_seconds() == 0.0
-    table.disconnected("worker")
-    time.sleep(0.05)
-    assert 0.04 < table.idle_seconds() < 1.0
 
 
 def test_handler_sees_the_acting_client_and_its_neighbours(
@@ -112,13 +100,10 @@ def test_ping_counts_clients_that_ran_commands(make_bridge: Callable[..., Bridge
     first.call("echo")
     second.call("echo")
     assert watcher.call("ping")["result"]["clients"] == 2
-    assert first.call("ping")["result"]["clients"] == 2
-    second.close()
-    deadline = time.monotonic() + 5.0
-    while watcher.call("ping")["result"]["clients"] != 1:
-        assert time.monotonic() < deadline
-        time.sleep(0.01)
     first.close()
+    second.close()
+    # A command line client hangs up after every command and still counts.
+    assert watcher.call("ping")["result"]["clients"] == 2
     watcher.close()
 
 

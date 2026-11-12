@@ -5,7 +5,7 @@ from typing import Any
 
 from maya import cmds
 
-from bmaya_bridge import clients
+from bmaya_bridge import clients, lifecycle
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     anim_curves,
@@ -235,8 +235,8 @@ def get_object_info(params: dict[str, Any]) -> dict[str, Any]:
 def require_path(path: str, action: str) -> str:
     if not path:
         raise BridgeError(
-            f"scene_file action '{action}' needs a path.",
-            hint="Pass an absolute file path, for example C:/projects/char.ma.",
+            f"'{action}' needs a file path.",
+            hint=f"For example: bmaya file {action} C:/projects/char.ma.",
         )
     return os.path.abspath(os.path.expanduser(path)).replace("\\", "/")
 
@@ -256,8 +256,7 @@ def refuse_unsaved(action: str, force: bool) -> None:
         return
     raise BridgeError(
         f"The current scene has unsaved changes, so '{action}' was refused.",
-        hint="Save first with scene_file action='save', "
-        "or repeat with force=true to discard the changes.",
+        hint="Save first with `bmaya file save`, or repeat with --force to discard the changes.",
     )
 
 
@@ -281,9 +280,8 @@ def refuse_shared(action: str, force: bool) -> None:
     label, age = others[0]
     raise BridgeError(
         f"Client '{label}' used this Maya {int(age)} seconds ago, so '{action}' was refused: "
-        "it would replace the scene they work in.",
-        hint="Work in the current scene, or repeat with force=true only if the user asked "
-        "to replace it.",
+        "it would take away the scene they work in.",
+        hint="Work in the current scene, or repeat with --force only if the user asked for it.",
     )
 
 
@@ -336,9 +334,24 @@ def scene_file(params: dict[str, Any]) -> dict[str, Any]:
         return result
 
     raise BridgeError(
-        f"Unknown scene_file action '{action}'.",
+        f"Unknown file action '{action}'.",
         hint="Use one of: new, open, save, import.",
     )
+
+
+def stop(params: dict[str, Any]) -> dict[str, Any]:
+    force = bool_param(params, "force")
+    if not lifecycle.can_exit():
+        raise BridgeError(
+            "This Maya has a window and belongs to the user, so it is not stopped from the "
+            "command line.",
+            hint="Ask the user to close it. `bmaya stop` ends a Maya started with `bmaya start`.",
+        )
+    refuse_shared("stop", force)
+    refuse_unsaved("stop", force)
+    state = scene_state()
+    lifecycle.request_exit()
+    return {"stopped": True, **state}
 
 
 def undo_owner(blocker: str, entry: str) -> str:
@@ -362,7 +375,7 @@ def undo(params: dict[str, Any]) -> dict[str, Any]:
     if not cmds.undoInfo(query=True, state=True):
         raise BridgeError(
             "Undo is turned off in this Maya session.",
-            hint="Turn it on with execute_maya_code: cmds.undoInfo(state=True).",
+            hint="Turn it on: bmaya exec 'cmds.undoInfo(state=True)'.",
         )
     force = bool_param(params, "force")
     caller = clients.acting_client()
@@ -395,8 +408,8 @@ def undo(params: dict[str, Any]) -> dict[str, Any]:
     if blocker and not undone:
         if blocker == clients.MAYA_UI:
             hint = (
-                "Ask the user first. force=true undoes changes made in the Maya UI on top of "
-                "your step together with it."
+                "Ask the user first. `bmaya undo --force` undoes changes made in the Maya UI "
+                "on top of your step together with it."
             )
         else:
             hint = "Undoing it would revert their work. Ask the user how to proceed."

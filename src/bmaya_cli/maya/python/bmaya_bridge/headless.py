@@ -5,21 +5,20 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from collections.abc import Callable
 
-from bmaya_bridge import server
+from bmaya_bridge import lifecycle, server
 
 POLL_SECONDS = 1.0
-IDLE = "idle"
-STOPPED = "stopped"
+REPLY_GRACE_SECONDS = 0.5
 
 
 class MainLoop:
     """Runs bridge commands on the calling thread; batch Maya has no idle queue to do it."""
 
-    def __init__(self, idle_exit: float = 0.0, poll: float = POLL_SECONDS) -> None:
-        self.idle_exit = idle_exit
+    def __init__(self, poll: float = POLL_SECONDS) -> None:
         self.poll = poll
         self._jobs: queue.Queue[Callable[[], None]] = queue.Queue()
         self._stopping = threading.Event()
@@ -30,29 +29,20 @@ class MainLoop:
     def stop(self) -> None:
         self._stopping.set()
 
-    def run(self, idle_seconds: Callable[[], float]) -> str:
+    def run(self) -> None:
         while not self._stopping.is_set():
             try:
                 callback = self._jobs.get(timeout=self.poll)
             except queue.Empty:
-                if self.idle_exit > 0 and idle_seconds() >= self.idle_exit:
-                    return IDLE
                 continue
             try:
                 callback()
             except Exception:
                 traceback.print_exc()
-        return STOPPED
-
-
-def idle_seconds() -> float:
-    bridge = server.current()
-    return bridge.clients.idle_seconds() if bridge is not None else 0.0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bmaya_bridge.headless")
-    parser.add_argument("--idle-exit", type=float, default=0.0)
     parser.add_argument("--scene", default="")
     args = parser.parse_args(argv)
 
@@ -65,19 +55,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.scene:
         cmds.file(args.scene, open=True, force=True, ignoreVersion=True)
 
-    loop = MainLoop(args.idle_exit)
+    loop = MainLoop()
+    lifecycle.set_exit(loop.stop)
     port = server.start(schedule=loop.schedule, headless=True)
     print(f"bmaya headless bridge listening on {server.HOST}:{port} (session {os.getpid()})")
     sys.stdout.flush()
     try:
-        reason = loop.run(idle_seconds)
+        loop.run()
+        # The stop command ends the loop from inside its own handler; let its reply leave first.
+        time.sleep(REPLY_GRACE_SECONDS)
     except KeyboardInterrupt:
-        reason = STOPPED
-    bridge = server.current()
-    if reason == IDLE and bridge is not None:
-        bridge.journal.event("idle_exit", seconds=args.idle_exit)
-        print(f"bmaya: no client for {args.idle_exit:g} seconds, exiting")
+        pass
     server.stop()
+    print("bmaya headless bridge stopped")
     sys.stdout.flush()
     maya.standalone.uninitialize()
     return 0

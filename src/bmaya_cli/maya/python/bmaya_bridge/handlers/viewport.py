@@ -65,7 +65,7 @@ def parse_frames(raw: str) -> list[float]:
         except ValueError as exc:
             raise BridgeError(
                 f"Bad frame number '{part}' in frames.",
-                hint="Pass frames as comma-separated numbers, for example '1,12,24'.",
+                hint="Pass frames as comma-separated numbers, for example --frames 1,12,24.",
             ) from exc
     return frames
 
@@ -91,7 +91,7 @@ def camera_transform(name: str) -> str:
         return path
     raise BridgeError(
         f"'{name}' is not a camera.",
-        hint="Use get_scene_info with node_type='camera' to list cameras.",
+        hint="`bmaya scene --type camera` lists the cameras.",
     )
 
 
@@ -234,7 +234,7 @@ def default_camera() -> str:
     if not cameras:
         raise BridgeError(
             "The scene has no camera to render from.",
-            hint="Create one with execute_maya_code: cmds.camera().",
+            hint="Create one: bmaya exec 'cmds.camera()'.",
         )
     return cmds.listRelatives(cameras[0], parent=True, fullPath=True)[0]
 
@@ -305,7 +305,7 @@ def ogs_frame(camera_path: str, at: float, path: str, size: tuple[int, int]) -> 
         raise BridgeError(
             f"The offscreen renderer did not write frame {frame(at)}.",
             hint="Maya's hardware renderer may have no usable GPU here. Use a Maya with a UI, "
-            "or inspect the scene with get_scene_info and audit_mesh.",
+            "or inspect the scene with `bmaya scene` and `bmaya audit`.",
         )
     gui = qt_gui()
     try:

@@ -52,7 +52,7 @@ def target_meshes(names: str) -> tuple[list[str], str]:
     if not meshes:
         raise BridgeError(
             f"No meshes found in the given {source}.",
-            hint="Pass mesh or group names in 'names', or leave it empty to audit all meshes.",
+            hint="Pass mesh or group names, or none to audit every mesh in the scene.",
         )
     return meshes, source
 
