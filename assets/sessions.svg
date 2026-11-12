@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="296" viewBox="0 52 1200 296" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 52 1200 400" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
   <defs>
     <style>
       .box { fill: #1b1f29; stroke: #343b4b; stroke-width: 1.5; }
@@ -12,40 +12,52 @@
     </style>
   </defs>
 
-  <rect y="52" width="1200" height="296" rx="18" fill="#12151c"/>
+  <rect y="52" width="1200" height="400" rx="18" fill="#12151c"/>
 
-  <rect class="box" x="40" y="86" width="260" height="88" rx="14"/>
-  <circle cx="70" cy="118" r="7" fill="#7fd1a8"/>
-  <text class="title" x="86" y="124">Agent A</text>
-  <text class="sub" x="64" y="154">Claude Code, rigging a hero</text>
+  <rect class="box" x="40" y="84" width="260" height="84" rx="14"/>
+  <circle cx="70" cy="116" r="7" fill="#7fd1a8"/>
+  <text class="title" x="86" y="122">Agent A</text>
+  <text class="sub" x="64" y="150">Claude Code, rigging a hero</text>
 
-  <rect class="box" x="40" y="206" width="260" height="88" rx="14"/>
-  <circle cx="70" cy="238" r="7" fill="#b48cf2"/>
-  <text class="title" x="86" y="244">Agent B</text>
-  <text class="sub" x="64" y="274">Codex, cleaning up props</text>
+  <rect class="box" x="40" y="196" width="260" height="84" rx="14"/>
+  <circle cx="70" cy="228" r="7" fill="#b48cf2"/>
+  <text class="title" x="86" y="234">Agent B</text>
+  <text class="sub" x="64" y="262">Codex, cleaning up props</text>
 
-  <path class="flow" d="M 302 130 C 520 130, 640 116, 858 116" stroke="#7fd1a8"/>
-  <rect x="470" y="104" width="190" height="26" rx="13" fill="#12151c" stroke="#2f5a46"/>
-  <text class="mono" x="565" y="122" font-size="13" fill="#7fd1a8" text-anchor="middle">use_session 4120</text>
+  <rect class="box" x="40" y="308" width="260" height="84" rx="14"/>
+  <circle cx="70" cy="340" r="7" fill="#f2b866"/>
+  <text class="title" x="86" y="346">Agent C</text>
+  <text class="sub" x="64" y="374">Claude Code, UVs for the props</text>
 
-  <path class="flow" d="M 302 250 C 520 250, 640 200, 858 200" stroke="#b48cf2"/>
-  <rect x="470" y="222" width="190" height="26" rx="13" fill="#12151c" stroke="#4a3a66"/>
-  <text class="mono" x="565" y="240" font-size="13" fill="#b48cf2" text-anchor="middle">use_session 7788</text>
+  <path class="flow" d="M 302 126 L 858 126" stroke="#7fd1a8"/>
+  <rect x="470" y="113" width="190" height="26" rx="13" fill="#12151c" stroke="#2f5a46"/>
+  <text class="mono" x="565" y="131" font-size="13" fill="#7fd1a8" text-anchor="middle">use_session 4120</text>
+
+  <path class="flow" d="M 302 238 C 520 238, 640 244, 858 244" stroke="#b48cf2"/>
+  <rect x="470" y="227" width="190" height="26" rx="13" fill="#12151c" stroke="#4a3a66"/>
+  <text class="mono" x="565" y="245" font-size="13" fill="#b48cf2" text-anchor="middle">use_session 7788</text>
+
+  <path class="flow" d="M 302 350 C 520 350, 640 284, 858 284" stroke="#f2b866"/>
+  <rect x="470" y="305" width="190" height="26" rx="13" fill="#12151c" stroke="#6b5330"/>
+  <text class="mono" x="565" y="323" font-size="13" fill="#f2b866" text-anchor="middle">use_session 7788</text>
 
   <g>
-    <rect class="box" x="860" y="80" width="300" height="72" rx="12" stroke="#2f5a46"/>
-    <text class="title mono" x="884" y="110" font-size="16">Maya · 4120</text>
-    <text class="sub mono" x="884" y="134" font-size="13">hero_rig.ma</text>
+    <rect class="box" x="860" y="84" width="300" height="84" rx="12" stroke="#2f5a46"/>
+    <text class="title mono" x="884" y="118" font-size="16">Maya · 4120</text>
+    <text class="sub mono" x="884" y="144" font-size="13">hero_rig.ma</text>
   </g>
   <g>
-    <rect class="box" x="860" y="164" width="300" height="72" rx="12" stroke="#4a3a66"/>
-    <text class="title mono" x="884" y="194" font-size="16">Maya · 7788</text>
-    <text class="sub mono" x="884" y="218" font-size="13">props_kit.ma</text>
+    <rect class="box" x="860" y="196" width="300" height="132" rx="12" stroke="#4a3a66"/>
+    <text class="title mono" x="884" y="228" font-size="16">Maya · 7788</text>
+    <text class="sub mono" x="884" y="252" font-size="13">props_kit.ma</text>
+    <rect x="884" y="266" width="92" height="24" rx="12" fill="#12151c" stroke="#6b5330"/>
+    <text class="tag mono" x="930" y="282" fill="#f2b866" text-anchor="middle">2 clients</text>
+    <text class="sub" x="884" y="312" font-size="13">undo reverts only your own steps</text>
   </g>
   <g opacity="0.6">
-    <rect class="box" x="860" y="248" width="300" height="72" rx="12"/>
-    <text class="title mono" x="884" y="278" font-size="16">Maya · 9012</text>
-    <text class="sub mono" x="884" y="302" font-size="13">untitled, waiting</text>
+    <rect class="box" x="860" y="348" width="300" height="72" rx="12" stroke-dasharray="6 5"/>
+    <text class="title mono" x="884" y="378" font-size="16">Maya · 9012</text>
+    <text class="sub mono" x="884" y="402" font-size="13">headless, started on demand</text>
   </g>
 
 </svg>

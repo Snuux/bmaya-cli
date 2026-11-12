@@ -37,7 +37,7 @@
   <rect class="box" x="404" y="90" width="270" height="150" rx="14"/>
   <text class="title mono" x="428" y="130" font-size="19">bmaya-mcp</text>
   <text class="sub" x="428" y="160">11 tools, compact JSON</text>
-  <text class="sub" x="428" y="182">finds every running Maya</text>
+  <text class="sub" x="428" y="182">finds a running Maya or starts one</text>
   <text class="sub" x="428" y="204">remembers which one is yours</text>
 
   <line class="wire" x1="676" y1="165" x2="784" y2="165" marker-end="url(#arrow)"/>
@@ -52,7 +52,7 @@
 
   <rect class="box" x="808" y="116" width="332" height="98" rx="12"/>
   <text class="title mono" x="830" y="150" font-size="18">bmaya_bridge</text>
-  <text class="sub" x="830" y="176">plain stdlib Python, starts with Maya</text>
+  <text class="sub" x="830" y="176">plain stdlib Python, with or without the UI</text>
   <text class="sub" x="830" y="198">random port, never a fixed one</text>
 
   <line class="wire" x1="974" y1="216" x2="974" y2="244" marker-end="url(#arrow)"/>
