@@ -71,12 +71,12 @@ class Dispatcher:
         self._undo_chunk = undo_chunk
         self._queue: collections.deque[Job] = collections.deque()
         self._queue_lock = threading.Lock()
-        self._run_lock = threading.Lock()
+        self._run_lock = threading.RLock()
         self._running: Job | None = None
 
     @property
     def busy(self) -> bool:
-        return self._running is not None
+        return self._running is not None or bool(self._queue)
 
     def submit(
         self,
@@ -110,12 +110,17 @@ class Dispatcher:
         return late
 
     def _run_next(self) -> None:
-        with self._queue_lock:
-            if not self._queue:
-                return
-            job = self._queue.popleft()
         with self._run_lock:
-            self._run(job)
+            if self._running is not None:
+                # Re-entered from inside a handler that pumped Maya's idle queue.
+                # The outer call keeps draining, so leave the queue to it.
+                return
+            while True:
+                with self._queue_lock:
+                    if not self._queue:
+                        return
+                    job = self._queue.popleft()
+                self._run(job)
 
     def _run(self, job: Job) -> None:
         self._running = job

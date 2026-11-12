@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from bmaya_bridge.dispatch import Dispatcher
+from bmaya_bridge.dispatch import Dispatcher, Job
 from bmaya_bridge.journal import MAX_PARAM_CHARS, Journal, truncate_params
 
 from .conftest import UndoRecorder, read_journal
@@ -29,6 +31,42 @@ def test_start_is_on_disk_before_the_command_runs(journal: Journal) -> None:
     assert records[1]["error"] is None
     assert records[1]["ms"] >= 0
     assert all("t" in record for record in records)
+
+
+def test_reentrant_drain_does_not_deadlock(journal: Journal) -> None:
+    pending: list[Callable[[], None]] = []
+    dispatcher = Dispatcher(journal, pending.append, UndoRecorder())
+
+    def pump_idle_queue(params: dict[str, Any]) -> dict[str, Any]:
+        for callback in list(pending):
+            callback()
+        return {}
+
+    replies: list[Job] = []
+    first = threading.Thread(
+        target=lambda: replies.append(dispatcher.submit(1, "a", "pump", pump_idle_queue, {}))
+    )
+    second = threading.Thread(
+        target=lambda: replies.append(dispatcher.submit(2, "b", "plain", lambda params: {}, {}))
+    )
+    first.start()
+    while len(pending) < 1:
+        time.sleep(0.01)
+    second.start()
+    while len(pending) < 2:
+        time.sleep(0.01)
+    assert dispatcher.busy
+    drain = threading.Thread(target=pending[0], name="fake-main")
+    drain.start()
+    drain.join(5)
+    first.join(5)
+    second.join(5)
+    assert not drain.is_alive()
+    assert sorted(job.request_id for job in replies) == [1, 2]
+    assert all(job.ok for job in replies)
+    events = [record["event"] for record in read_journal(journal.path)]
+    assert events == ["start", "end", "start", "end"]
+    assert not dispatcher.busy
 
 
 def test_crashed_session_shape(home: Path) -> None:
