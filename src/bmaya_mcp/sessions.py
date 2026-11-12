@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -9,10 +10,13 @@ from typing import Any
 
 from bmaya_mcp.client import BridgeClient, BridgeCommandError, BridgeConnectionError
 from bmaya_mcp.journal import find_session_log
+from bmaya_mcp.launch import Launcher, LaunchError
 
 logger = logging.getLogger(__name__)
 
 PING_TIMEOUT = 3.0
+LAUNCH_WAIT = 40.0
+LAUNCH_POLL = 0.5
 
 
 class SessionError(Exception):
@@ -34,6 +38,8 @@ class Session:
     maya_version: str
     scene: str
     busy: bool
+    clients: int = 0
+    headless: bool = False
 
     @property
     def scene_name(self) -> str:
@@ -45,13 +51,17 @@ class Session:
         return f"{self.id} ({self.scene_name}, Maya {self.maya_version})"
 
     def to_dict(self, current: bool = False) -> dict[str, Any]:
-        return {
+        info: dict[str, Any] = {
             "id": self.id,
             "scene": self.scene,
             "maya_version": self.maya_version,
             "busy": self.busy,
+            "clients": self.clients,
             "current": current,
         }
+        if self.headless:
+            info["headless"] = True
+        return info
 
 
 class SessionManager:
@@ -60,10 +70,14 @@ class SessionManager:
         home: Path | None = None,
         label: str | None = None,
         ping_timeout: float = PING_TIMEOUT,
+        launcher: Launcher | None = None,
+        launch_wait: float = LAUNCH_WAIT,
     ) -> None:
         self.home = home or bmaya_home()
         self.label = label
         self.ping_timeout = ping_timeout
+        self.launcher = launcher
+        self.launch_wait = launch_wait
         self.current: str | None = None
         self._last_used: str | None = None
         self._clients: dict[str, BridgeClient] = {}
@@ -115,7 +129,7 @@ class SessionManager:
         if self.current is not None:
             return next(session for session in sessions if session.id == self.current)
         if not sessions:
-            raise SessionError(self._no_session_message())
+            sessions = self._autostart()
         if len(sessions) > 1:
             raise SessionError(
                 "Several Maya sessions are running: "
@@ -123,6 +137,32 @@ class SessionManager:
                 + ". Call use_session with one id."
             )
         return sessions[0]
+
+    def _autostart(self) -> list[Session]:
+        if self.launcher is None:
+            raise SessionError(self._no_session_message())
+        try:
+            launch = self.launcher.start()
+        except LaunchError as exc:
+            raise SessionError(str(exc)) from exc
+        deadline = time.monotonic() + self.launch_wait
+        while time.monotonic() < deadline:
+            sessions = self.discover()
+            if sessions:
+                self.launcher.clear()
+                return sessions
+            if not launch.alive():
+                self.launcher.clear()
+                where = f" Its output is in {launch.log}." if launch.log else ""
+                raise SessionError(
+                    f"Maya ({launch.describe()}) was started but exited before the bridge came "
+                    f"up.{where} Run `bmaya-mcp doctor`."
+                )
+            time.sleep(LAUNCH_POLL)
+        raise SessionError(
+            f"No Maya was running, so one is starting ({launch.describe()}). "
+            "Call the tool again in about 15 seconds."
+        )
 
     def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
         session = self.resolve()
@@ -162,6 +202,7 @@ class SessionManager:
             maya_version=str(data.get("maya_version", "")),
             scene=str(data.get("scene", "")),
             busy=False,
+            headless=bool(data.get("headless", False)),
         )
         probe = BridgeClient(
             port,
@@ -191,6 +232,8 @@ class SessionManager:
             maya_version=str(info.get("maya_version", session.maya_version)),
             scene=str(info.get("scene", session.scene)),
             busy=bool(info.get("busy", False)),
+            clients=int(info.get("clients", 0)),
+            headless=bool(info.get("headless", False)),
         )
 
     def _prune(self, path: Path, session_id: str) -> None:

@@ -62,6 +62,7 @@ class FakeBridge:
         self.scene = scene
         self.requests: list[dict[str, Any]] = []
         self.silent = False
+        self.clients = 0
         self._port = port
         self._listener: socket.socket | None = None
         self._connections: list[socket.socket] = []
@@ -150,6 +151,8 @@ class FakeBridge:
                 "maya_version": self.maya_version,
                 "scene": self.scene,
                 "busy": False,
+                "clients": self.clients,
+                "headless": False,
             }
             return {"id": request["id"], "ok": True, "result": result}
         handler = self.handlers.get(command)

@@ -20,7 +20,12 @@ LAUNCHERS = {
 
 
 def launch_params(home: Path, launch: str) -> StdioServerParameters:
-    env = {**os.environ, "BMAYA_MCP_HOME": str(home), "PYTHONPATH": str(SRC)}
+    env = {
+        **os.environ,
+        "BMAYA_MCP_HOME": str(home),
+        "PYTHONPATH": str(SRC),
+        "BMAYA_MCP_AUTOSTART": "off",
+    }
     return StdioServerParameters(command=sys.executable, args=["-c", launch], env=env)
 
 

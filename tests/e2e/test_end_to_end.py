@@ -105,6 +105,7 @@ def test_normal_call_and_session_listing(home: Path, spawn: Spawn) -> None:
                 "scene": "C:/work/crate.ma",
                 "maya_version": "2027",
                 "busy": False,
+                "clients": 0,
                 "current": False,
             }
         ],
@@ -165,6 +166,7 @@ def test_two_agents_share_one_bridge(home: Path, spawn: Spawn) -> None:
     commands = [r for r in journal_of(home, bridge) if r["event"] in ("start", "end")]
     assert [r["event"] for r in commands] == ["start", "end", "start", "end"]
     assert {r["client"] for r in commands if r["event"] == "start"} == set(agents)
+    assert call(agents["agent-a"], "list_sessions")["sessions"][0]["clients"] == 2
 
 
 def test_two_bridges_need_use_session(home: Path, spawn: Spawn) -> None:

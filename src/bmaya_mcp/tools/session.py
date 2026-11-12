@@ -8,7 +8,7 @@ from bmaya_mcp.tools.common import dump
 
 def register(server: MCPServer, manager: SessionManager) -> None:
     @server.tool(
-        description="List running Maya sessions (id, scene, Maya version, busy, current).",
+        description="List running Maya sessions (id, scene, Maya version, busy, clients, current).",
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
         structured_output=False,
     )
