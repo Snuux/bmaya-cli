@@ -1,12 +1,12 @@
 import functools
 import json
 import logging
-import os
 import socket
 import struct
-import subprocess
 import threading
 from typing import Any
+
+from bmaya_cli.identity import client_label
 
 logger = logging.getLogger(__name__)
 
@@ -32,40 +32,9 @@ class BridgeConnectionError(Exception):
         self.timed_out = timed_out
 
 
-def parent_process_name() -> str | None:
-    ppid = os.getppid()
-    try:
-        if os.name == "nt":
-            output = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {ppid}", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            ).stdout.strip()
-            if not output.startswith('"'):
-                return None
-            name = output.split('","')[0].strip('"')
-        else:
-            name = subprocess.run(
-                ["ps", "-o", "comm=", "-p", str(ppid)],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    name = os.path.basename(name)
-    if name.lower().endswith(".exe"):
-        name = name[:-4]
-    return name.lower() or None
-
-
 @functools.cache
 def default_client_label() -> str:
-    return f"{parent_process_name() or 'agent'}-{os.getpid()}"
+    return client_label()
 
 
 class BridgeClient:

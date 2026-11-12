@@ -11,7 +11,8 @@ from fake_bridge import FakeBridge
 from bmaya_cli import launch
 from bmaya_cli.install import install
 from bmaya_cli.launch import Launch, Launcher, LaunchError, MayaInstall, find_maya
-from bmaya_cli.sessions import SessionError, SessionManager
+from bmaya_cli.sessions import MayaStarting, SessionError, SessionManager
+from bmaya_cli.state import StateStore
 
 
 class FakeProcess:
@@ -96,8 +97,6 @@ def test_headless_launch_runs_the_bridge_in_mayapy(
             str(bin_dir / launch.executable("mayapy")),
             "-m",
             "bmaya_bridge.headless",
-            "--idle-exit",
-            "600",
         ]
     ]
     assert json.loads(launcher.lock_path.read_text(encoding="utf-8"))["pid"] == os.getpid()
@@ -175,6 +174,36 @@ def test_gui_launch_needs_the_installed_module(
     assert spawned == [[str(bin_dir / launch.executable("maya"))]]
 
 
+def test_start_can_open_a_scene(
+    tmp_path: Path, no_override: None, spawned: list[list[str]]
+) -> None:
+    bin_dir = make_install(tmp_path / "apps", "Maya2027")
+    app_dir = tmp_path / "maya"
+    install(app_dir)
+    roots = [tmp_path / "apps"]
+    Launcher(tmp_path / "one", search_roots=roots, scene="C:/a.ma").start()
+    Launcher(tmp_path / "two", "gui", roots, app_dir, scene="C:/a.ma").start()
+    assert spawned[0][-2:] == ["--scene", "C:/a.ma"]
+    assert spawned[1] == [str(bin_dir / launch.executable("maya")), "-file", "C:/a.ma"]
+
+
+def test_lock_is_dropped_once_the_started_maya_registered(
+    tmp_path: Path, no_override: None, spawned: list[list[str]]
+) -> None:
+    make_install(tmp_path / "apps", "Maya2027")
+    launcher = Launcher(tmp_path / "home", search_roots=[tmp_path / "apps"])
+    started = launcher.start()
+    sessions = tmp_path / "home" / "sessions"
+    sessions.mkdir()
+    (sessions / f"{started.pid}.json").write_text("{}", encoding="utf-8")
+    old = time.time() - launch.LOCK_SECONDS - 120
+    os.utime(launcher.lock_path, (old, old))
+    assert launcher.pending() is None
+    assert not launcher.lock_path.exists()
+    launcher.start()
+    assert len(spawned) == 2
+
+
 class FakeLauncher:
     def __init__(self, pid: int = 0, error: str = "") -> None:
         self.pid = pid or os.getpid()
@@ -201,7 +230,7 @@ def manager_with(home: Path, launcher: FakeLauncher, wait: float = 0.6) -> Sessi
     return SessionManager(home, label="test-1", launcher=launcher, launch_wait=wait)  # type: ignore[arg-type]
 
 
-def test_tool_call_starts_maya_when_none_runs(home: Path, make_bridge: BridgeFactory) -> None:
+def test_command_starts_maya_when_none_runs(home: Path, make_bridge: BridgeFactory) -> None:
     launcher = FakeLauncher()
     launcher.bridge = make_bridge({"get_scene_info": lambda params: {"total": 0}})
     launcher.home = home
@@ -214,7 +243,7 @@ def test_tool_call_starts_maya_when_none_runs(home: Path, make_bridge: BridgeFac
 
 def test_slow_start_asks_to_call_again(home: Path) -> None:
     launcher = FakeLauncher()
-    with pytest.raises(SessionError, match="starting .headless, pid .*Call the tool again"):
+    with pytest.raises(MayaStarting, match="starting .headless, pid .*Run the command again"):
         manager_with(home, launcher).resolve()
 
 
@@ -256,6 +285,27 @@ def test_lost_session_is_reported_before_a_new_maya_starts(
     with pytest.raises(SessionError, match="starting"):
         manager.resolve()
     assert launcher.starts == 1
+
+
+def test_start_adds_a_maya_next_to_a_running_one_and_makes_it_current(
+    home: Path, make_bridge: BridgeFactory
+) -> None:
+    make_bridge().write_registry(home, 111)
+    launcher = FakeLauncher()
+    launcher.bridge = make_bridge({"get_scene_info": lambda params: {"who": "new"}})
+    launcher.home = home
+    store = StateStore(home, "test-1")
+    manager = SessionManager(home, label="test-1", launcher=launcher, store=store)  # type: ignore[arg-type]
+    assert manager.start(wait=2.0).id == "555"
+    assert launcher.cleared == 1
+    later = SessionManager(home, label="test-1", store=store)
+    assert later.call("get_scene_info", {}) == {"who": "new"}
+
+
+def test_start_that_takes_too_long_asks_to_check_later(home: Path) -> None:
+    manager = manager_with(home, FakeLauncher())
+    with pytest.raises(MayaStarting, match="bmaya sessions"):
+        manager.start(wait=0.2)
 
 
 def test_sessions_report_clients_and_headless(home: Path, make_bridge: BridgeFactory) -> None:

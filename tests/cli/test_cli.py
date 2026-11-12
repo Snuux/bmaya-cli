@@ -6,7 +6,7 @@ import pytest
 from bmaya_bridge.journal import Journal
 from bmaya_bridge.server import BridgeServer
 
-from bmaya_cli import cli
+from bmaya_cli import admin
 from bmaya_cli.cli import build_parser, main
 from bmaya_cli.launch import MayaInstall
 
@@ -21,9 +21,9 @@ def live_bridge(home: Path) -> Iterator[BridgeServer]:
     bridge_journal.close()
 
 
-def test_no_command_means_serve() -> None:
-    assert build_parser().parse_args([]).command is None
-    assert build_parser().parse_args(["serve"]).command == "serve"
+def test_no_command_prints_the_overview(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([]) == 0
+    assert "bmaya COMMAND --help" in capsys.readouterr().out
 
 
 def test_command_flags_parse() -> None:
@@ -37,10 +37,6 @@ def test_command_flags_parse() -> None:
     demo = parser.parse_args(["demo"])
     assert demo.out == Path("demo")
     assert parser.parse_args(["demo", "--out", "x"]).out == Path("x")
-    headless = parser.parse_args(["headless"])
-    assert (headless.maya, headless.scene, headless.idle_exit) == ("", "", 0)
-    custom = parser.parse_args(["headless", "--maya", "D:/Maya2027", "--idle-exit", "60"])
-    assert (custom.maya, custom.idle_exit) == ("D:/Maya2027", 60)
 
 
 def test_unknown_command_is_rejected() -> None:
@@ -95,14 +91,21 @@ def test_logs_crashes_lists_unfinished_command_and_crash_log(
     assert "333" not in out
 
 
-def test_doctor_without_maya_fails(
-    home: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_doctor_fails_only_when_no_maya_runs_and_none_can_start(
+    home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setattr(admin, "find_maya", lambda: None)
     assert main(["doctor", "--maya-app-dir", str(tmp_path / "maya")]) == 1
     out = capsys.readouterr().out
     assert "Module: not installed" in out
-    assert "No live Maya session" in out
+    assert "none can be started" in out
     assert f"Logs: {home / 'logs'}" in out
+    monkeypatch.setattr(admin, "find_maya", lambda: MayaInstall(Path("D:/Maya2027/bin"), "2027"))
+    assert main(["doctor", "--maya-app-dir", str(tmp_path / "maya")]) == 0
+    assert "`bmaya start`, or any command, starts one" in capsys.readouterr().out
 
 
 def test_doctor_pings_live_sessions_and_drops_stale_ones(
@@ -114,7 +117,7 @@ def test_doctor_pings_live_sessions_and_drops_stale_ones(
 ) -> None:
     stale = home / "sessions" / "4242.json"
     stale.write_text(json.dumps({"pid": 4242, "port": 1, "token": "x"}), encoding="utf-8")
-    monkeypatch.setattr(cli, "pid_alive", lambda pid: pid == live_bridge.pid)
+    monkeypatch.setattr(admin, "pid_alive", lambda pid: pid == live_bridge.pid)
     app_dir = tmp_path / "maya"
     main(["install", "--maya-app-dir", str(app_dir)])
     capsys.readouterr()
@@ -149,28 +152,3 @@ def test_demo_without_maya_explains_what_to_do(
     out = capsys.readouterr().out
     assert "Cannot run the demo: No Maya" in out
     assert "bmaya doctor" in out
-
-
-def test_headless_without_a_maya_install_fails(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(cli, "find_maya", lambda override="": None)
-    assert main(["headless", "--maya", "D:/nowhere"]) == 1
-    assert "No Maya installation found in D:/nowhere" in capsys.readouterr().err
-
-
-def test_headless_runs_the_found_maya(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    found = MayaInstall(Path("D:/Maya2027/bin"), "2027")
-    runs: list[tuple[MayaInstall, int, str]] = []
-
-    def fake_run(install: MayaInstall, idle_exit: int, scene: str) -> int:
-        runs.append((install, idle_exit, scene))
-        return 0
-
-    monkeypatch.setattr(cli, "find_maya", lambda override="": found)
-    monkeypatch.setattr(cli, "run_headless", fake_run)
-    assert main(["headless", "--scene", "C:/a.ma", "--idle-exit", "30"]) == 0
-    assert runs == [(found, 30, "C:/a.ma")]
-    assert "Starting Maya 2027 without a UI" in capsys.readouterr().out

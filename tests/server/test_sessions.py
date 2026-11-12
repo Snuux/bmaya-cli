@@ -7,6 +7,7 @@ from fake_bridge import DROP, FakeBridge, free_port
 
 from bmaya_cli.client import BridgeConnectionError
 from bmaya_cli.sessions import SessionError, SessionManager, bmaya_home
+from bmaya_cli.state import StateStore
 
 
 def test_home_follows_environment(home: Path) -> None:
@@ -40,7 +41,7 @@ def test_several_sessions_require_a_choice(
     message = str(info.value)
     assert "111 (hero.ma, Maya 2027)" in message
     assert "222 (prop.ma, Maya 2026)" in message
-    assert "use_session" in message
+    assert "bmaya use ID" in message
 
 
 def test_use_session_wins_over_everything(
@@ -159,3 +160,86 @@ def test_connection_drop_with_live_maya_is_not_called_a_crash(
     with pytest.raises(BridgeConnectionError, match="still running"):
         manager.call("undo", {"steps": 1})
     assert (home / "sessions" / "111.json").exists()
+
+
+def stored(home: Path, override: str = "") -> SessionManager:
+    return SessionManager(home, label="test-1", store=StateStore(home, "test-1"), override=override)
+
+
+def test_chosen_session_is_remembered_by_the_next_process(
+    home: Path, make_bridge: BridgeFactory
+) -> None:
+    first = make_bridge({"get_scene_info": lambda params: {"who": "a"}})
+    second = make_bridge({"get_scene_info": lambda params: {"who": "b"}})
+    first.write_registry(home, 111)
+    second.write_registry(home, 222)
+    stored(home).use_session("222")
+    assert stored(home).call("get_scene_info", {}) == {"who": "b"}
+    other = SessionManager(home, label="test-2", store=StateStore(home, "test-2"))
+    with pytest.raises(SessionError, match="Several Maya sessions"):
+        other.resolve()
+
+
+def test_session_flag_wins_for_one_command_only(home: Path, make_bridge: BridgeFactory) -> None:
+    first = make_bridge({"get_scene_info": lambda params: {"who": "a"}})
+    second = make_bridge({"get_scene_info": lambda params: {"who": "b"}})
+    first.write_registry(home, 111)
+    second.write_registry(home, 222)
+    stored(home).use_session("111")
+    assert stored(home, override="222").call("get_scene_info", {}) == {"who": "b"}
+    assert stored(home).current == "111"
+    with pytest.raises(SessionError, match="No live session '999'"):
+        stored(home, override="999").resolve()
+
+
+def test_lost_session_is_reported_once_across_processes(
+    home: Path, make_bridge: BridgeFactory
+) -> None:
+    bridge = make_bridge({"get_scene_info": lambda params: {}})
+    bridge.write_registry(home, 111)
+    stored(home).call("get_scene_info", {})
+    bridge.stop()
+    with pytest.raises(SessionError, match="exited or crashed") as info:
+        stored(home).resolve()
+    assert "last command sent to it was get_scene_info" in str(info.value)
+    assert "bmaya start" in str(info.value)
+    with pytest.raises(SessionError, match="No Maya with the bmaya bridge"):
+        stored(home).resolve()
+
+
+def test_session_that_was_stopped_is_not_called_a_crash(
+    home: Path, make_bridge: BridgeFactory
+) -> None:
+    logs = home / "logs"
+    logs.mkdir()
+    (logs / "20261112-100000-111.log").write_text(
+        '{"event": "bridge_start"}\n{"event": "bridge_stop"}\n', encoding="utf-8"
+    )
+    bridge = make_bridge({"get_scene_info": lambda params: {}})
+    bridge.write_registry(home, 111)
+    stored(home).call("get_scene_info", {})
+    bridge.stop()
+    with pytest.raises(SessionError, match="was stopped or closed") as info:
+        stored(home).resolve()
+    assert "crashed" not in str(info.value)
+
+
+def test_forgetting_a_session_clears_the_stored_choice(
+    home: Path, make_bridge: BridgeFactory
+) -> None:
+    make_bridge().write_registry(home, 111)
+    manager = stored(home)
+    manager.use_session("111")
+    manager.forget("111")
+    assert stored(home).current is None
+
+
+def test_reply_that_never_comes_says_not_to_resend(home: Path, make_bridge: BridgeFactory) -> None:
+    bridge = make_bridge()
+    bridge.write_registry(home, 111)
+    manager = SessionManager(home, label="test-1", ping_timeout=0.3)
+    session = manager.resolve()
+    error = manager._explain_failure(session, BridgeConnectionError("late", timed_out=True))
+    assert isinstance(error, BridgeConnectionError)
+    assert error.timed_out
+    assert "do not send it again" in str(error)

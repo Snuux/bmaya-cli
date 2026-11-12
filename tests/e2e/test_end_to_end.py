@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import subprocess
@@ -8,20 +7,17 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
-from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import CallToolResult
 
 from bmaya_cli.journal import find_crashes, find_session_log, read_records
-from bmaya_cli.server import create_server
-from bmaya_cli.sessions import SessionManager
 
 REPO = Path(__file__).resolve().parents[2]
-BRIDGE_PATH = REPO / "src" / "bmaya_cli" / "maya" / "python"
+SRC = REPO / "src"
+BRIDGE_PATH = SRC / "bmaya_cli" / "maya" / "python"
 BRIDGE_SCRIPT = Path(__file__).with_name("bridge_process.py")
 
 
@@ -58,9 +54,19 @@ class BridgeProcess:
 Spawn = Callable[..., BridgeProcess]
 
 
+@dataclass
+class Run:
+    code: int
+    out: str
+    err: str
+
+    @property
+    def json(self) -> dict[str, Any]:
+        return json.loads(self.out)
+
+
 @pytest.fixture
-def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("BMAYA_HOME", str(tmp_path))
+def home(tmp_path: Path) -> Path:
     return tmp_path
 
 
@@ -78,14 +84,25 @@ def spawn(home: Path) -> Iterator[Spawn]:
         bridge.close()
 
 
-def mcp_server(home: Path, label: str = "agent-a") -> MCPServer:
-    return create_server(SessionManager(home, label=label, ping_timeout=3.0))
-
-
-def call(server: MCPServer, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-    result = asyncio.run(server.call_tool(name, arguments or {}))
-    assert isinstance(result, CallToolResult)
-    return json.loads(result.content[0].text)
+def bmaya(home: Path, *argv: str, client: str = "agent-a", stdin: str | None = None) -> Run:
+    """Runs the real command line, one process per command, as an agent's shell would."""
+    env = {
+        **os.environ,
+        "BMAYA_HOME": str(home),
+        "BMAYA_CLIENT": client,
+        "BMAYA_AUTOSTART": "off",
+        "PYTHONPATH": str(SRC),
+    }
+    done = subprocess.run(
+        [sys.executable, "-m", "bmaya_cli", *argv],
+        input=stdin,
+        stdin=subprocess.DEVNULL if stdin is None else None,
+        capture_output=True,
+        encoding="utf-8",
+        env=env,
+        timeout=60,
+    )
+    return Run(done.returncode, done.stdout, done.stderr)
 
 
 def journal_of(home: Path, bridge: BridgeProcess) -> list[dict[str, Any]]:
@@ -96,9 +113,10 @@ def journal_of(home: Path, bridge: BridgeProcess) -> list[dict[str, Any]]:
 
 def test_normal_call_and_session_listing(home: Path, spawn: Spawn) -> None:
     bridge = spawn()
-    server = mcp_server(home)
-    listing = call(server, "list_sessions")
-    assert listing == {
+    listing = bmaya(home, "sessions")
+    assert listing.code == 0
+    assert listing.err == ""
+    assert listing.json == {
         "sessions": [
             {
                 "id": bridge.id,
@@ -110,95 +128,116 @@ def test_normal_call_and_session_listing(home: Path, spawn: Spawn) -> None:
             }
         ],
         "current": None,
+        "client": "agent-a",
     }
-    reply = call(server, "execute_maya_code", {"code": "print('hi')\nresult = 6 * 7"})
-    assert reply == {"stdout": "hi\n", "result": 42, "truncated": False}
+    reply = bmaya(home, "exec", "print('hi')\nresult = 6 * 7")
+    assert reply.out == '{"stdout":"hi\\n","result":42,"truncated":false}\n'
     started = [record for record in journal_of(home, bridge) if record["event"] == "start"]
     assert started[0]["client"] == "agent-a"
     assert started[0]["command"] == "execute_maya_code"
 
 
+def test_code_with_quotes_and_other_alphabets_survives_stdin(home: Path, spawn: Spawn) -> None:
+    spawn()
+    code = "name = 'ящик \"большой\"'\nprint(name)\nresult = [name, len(name)]\n"
+    reply = bmaya(home, "exec", stdin=code)
+    assert reply.code == 0
+    assert reply.json == {
+        "stdout": 'ящик "большой"\n',
+        "result": ['ящик "большой"', 14],
+        "truncated": False,
+    }
+    assert "ящик" in reply.out
+
+
 def test_errors_read_as_message_and_hint(home: Path, spawn: Spawn) -> None:
     spawn()
-    server = mcp_server(home)
-    with pytest.raises(ToolError) as missing:
-        call(server, "get_object_info", {"name": "barrel"})
-    assert str(missing.value).endswith(
-        ": No object named 'barrel' in the scene. Use get_scene_info to find similar names."
+    missing = bmaya(home, "object", "barrel")
+    assert missing.code == 1
+    assert missing.out == ""
+    assert missing.err == (
+        "error: No object named 'barrel' in the scene.\nhint: `bmaya scene` lists the nodes.\n"
     )
-    with pytest.raises(ToolError) as failed:
-        call(server, "execute_maya_code", {"code": "print('made 2 cubes')\nraise ValueError('no')"})
-    assert str(failed.value).endswith(
-        ": ValueError: no The error is on line 2 of the submitted code.\n"
-        "Printed before the error:\nmade 2 cubes\n"
+    failed = bmaya(home, "exec", "print('made 2 cubes')\nraise ValueError('no')")
+    assert failed.code == 1
+    assert failed.err == (
+        "error: ValueError: no\n"
+        "hint: The error is on line 2 of the submitted code.\n"
+        "printed before the error:\n"
+        "made 2 cubes\n"
     )
 
 
 def test_timeout_reply_then_session_recovers(home: Path, spawn: Spawn) -> None:
     spawn(timeout=0.5)
-    server = mcp_server(home)
-    with pytest.raises(ToolError, match="still running in Maya after 0.5 seconds"):
-        call(server, "execute_maya_code", {"code": "import time\ntime.sleep(1.5)"})
-    assert call(server, "list_sessions")["sessions"][0]["busy"] is True
-    deadline = time.monotonic() + 5
-    while call(server, "list_sessions")["sessions"][0]["busy"]:
+    slow = bmaya(home, "exec", "import time\ntime.sleep(2.5)")
+    assert slow.code == 3
+    assert "still running in Maya after 0.5 seconds" in slow.err
+    assert "do not send it again" in slow.err
+    assert bmaya(home, "sessions").json["sessions"][0]["busy"] is True
+    deadline = time.monotonic() + 10
+    while bmaya(home, "sessions").json["sessions"][0]["busy"]:
         assert time.monotonic() < deadline
         time.sleep(0.1)
-    assert call(server, "execute_maya_code", {"code": "result = 'back'"})["result"] == "back"
+    assert bmaya(home, "exec", "result = 'back'").json["result"] == "back"
 
 
 def test_two_agents_share_one_bridge(home: Path, spawn: Spawn) -> None:
     bridge = spawn()
-    agents = {"agent-a": mcp_server(home, "agent-a"), "agent-b": mcp_server(home, "agent-b")}
     replies: dict[str, Any] = {}
 
     def work(label: str) -> None:
         code = f"import time\ntime.sleep(0.3)\nresult = '{label}'"
-        replies[label] = call(agents[label], "execute_maya_code", {"code": code})
+        replies[label] = bmaya(home, "exec", code, client=label).json
 
-    threads = [threading.Thread(target=work, args=(label,)) for label in agents]
+    threads = [threading.Thread(target=work, args=(label,)) for label in ("agent-a", "agent-b")]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(15)
+        thread.join(30)
     assert replies["agent-a"]["result"] == "agent-a"
     assert replies["agent-b"]["result"] == "agent-b"
     commands = [r for r in journal_of(home, bridge) if r["event"] in ("start", "end")]
     assert [r["event"] for r in commands] == ["start", "end", "start", "end"]
-    assert {r["client"] for r in commands if r["event"] == "start"} == set(agents)
-    assert call(agents["agent-a"], "list_sessions")["sessions"][0]["clients"] == 2
+    assert {r["client"] for r in commands if r["event"] == "start"} == {"agent-a", "agent-b"}
+    assert bmaya(home, "sessions").json["sessions"][0]["clients"] == 2
 
 
-def test_two_bridges_need_use_session(home: Path, spawn: Spawn) -> None:
-    spawn(scene="C:/work/crate.ma")
+def test_two_bridges_need_a_choice_that_each_agent_keeps(home: Path, spawn: Spawn) -> None:
+    crate = spawn(scene="C:/work/crate.ma")
     barrel = spawn(scene="C:/work/barrel.ma")
-    server = mcp_server(home)
-    with pytest.raises(ToolError, match="Several Maya sessions are running"):
-        call(server, "get_scene_info")
-    chosen = call(server, "use_session", {"session": barrel.id})
+    undecided = bmaya(home, "scene")
+    assert undecided.code == 1
+    assert "Several Maya sessions are running" in undecided.err
+    chosen = bmaya(home, "use", barrel.id).json
     assert chosen["current"] is True
     assert chosen["scene"] == "C:/work/barrel.ma"
-    assert call(server, "get_scene_info")["file"] == "C:/work/barrel.ma"
+    assert bmaya(home, "scene").json["file"] == "C:/work/barrel.ma"
+    assert bmaya(home, "scene", "--session", crate.id).json["file"] == "C:/work/crate.ma"
+    assert bmaya(home, "scene", client="agent-b").code == 1
+    bmaya(home, "use", crate.id, client="agent-b")
+    assert bmaya(home, "scene", client="agent-b").json["file"] == "C:/work/crate.ma"
+    assert bmaya(home, "scene").json["file"] == "C:/work/barrel.ma"
 
 
 def test_bridge_killed_mid_command(home: Path, spawn: Spawn) -> None:
     bridge = spawn()
-    server = mcp_server(home)
-    call(server, "get_scene_info")
+    assert bmaya(home, "scene").code == 0
     registry_file = home / "sessions" / f"{bridge.pid}.json"
     assert registry_file.exists()
 
-    with pytest.raises(ToolError) as lost:
-        call(server, "execute_maya_code", {"code": "import os\nos._exit(3)"})
+    lost = bmaya(home, "exec", "import os\nos._exit(3)")
     bridge.process.wait(10)
 
-    message = str(lost.value)
     log = find_session_log(home / "logs", bridge.pid)
     assert log is not None
-    assert f"Maya session {bridge.id} exited or crashed." in message
-    assert "The last command sent to it was execute_maya_code." in message
-    assert f"Its journal is {log.path}" in message
+    assert lost.code == 1
+    assert lost.out == ""
+    assert f"Maya session {bridge.id} exited or crashed." in lost.err
+    assert "The last command sent to it was execute_maya_code." in lost.err
+    assert f"Its journal is {log.path}" in lost.err
     assert not registry_file.exists()
+    assert "No Maya with the bmaya bridge is running" in bmaya(home, "scene").err
 
     records = read_records(log.path)
     assert records[-1]["event"] == "start"
@@ -208,3 +247,16 @@ def test_bridge_killed_mid_command(home: Path, spawn: Spawn) -> None:
     assert [crash.log.pid for crash in crashes] == [bridge.pid]
     assert crashes[0].pending is not None
     assert crashes[0].pending["params"]["code"] == "import os\nos._exit(3)"
+
+
+def test_session_that_died_between_commands_is_reported_once(home: Path, spawn: Spawn) -> None:
+    bridge = spawn()
+    assert bmaya(home, "scene").code == 0
+    bridge.process.kill()
+    bridge.process.wait(10)
+    lost = bmaya(home, "scene")
+    assert lost.code == 1
+    assert f"Maya session {bridge.id} exited or crashed." in lost.err
+    assert "The last command sent to it was get_scene_info." in lost.err
+    again = bmaya(home, "scene")
+    assert again.err.startswith("error: No Maya with the bmaya bridge is running.")

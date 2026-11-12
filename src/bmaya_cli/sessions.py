@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from bmaya_cli.client import BridgeClient, BridgeCommandError, BridgeConnectionError
-from bmaya_cli.journal import find_session_log
-from bmaya_cli.launch import Launcher, LaunchError
+from bmaya_cli.journal import find_session_log, read_records, stopped_cleanly
+from bmaya_cli.launch import Launch, Launcher, LaunchError
+from bmaya_cli.state import ClientState, StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,10 @@ LAUNCH_POLL = 0.5
 
 class SessionError(Exception):
     pass
+
+
+class MayaStarting(SessionError):
+    """Maya was started and is not up yet; the same command works a little later."""
 
 
 def bmaya_home() -> Path:
@@ -71,17 +76,24 @@ class SessionManager:
         label: str | None = None,
         ping_timeout: float = PING_TIMEOUT,
         launcher: Launcher | None = None,
-        launch_wait: float = LAUNCH_WAIT,
+        launch_wait: float | None = None,
+        store: StateStore | None = None,
+        override: str = "",
     ) -> None:
         self.home = home or bmaya_home()
         self.label = label
         self.ping_timeout = ping_timeout
         self.launcher = launcher
-        self.launch_wait = launch_wait
-        self.current: str | None = None
-        self._last_used: str | None = None
+        self.launch_wait = LAUNCH_WAIT if launch_wait is None else launch_wait
+        self.override = override.strip()
+        self._store = store
+        # Each command is its own process, so what a long-lived server would keep in memory
+        # is read from the client's state file and written back.
+        state = store.load() if store is not None else ClientState()
+        self.current = state.current
+        self._last_used = state.last_used
+        self._last_command = state.last_command
         self._clients: dict[str, BridgeClient] = {}
-        self._last_command: dict[str, str] = {}
         self._lock = threading.Lock()
 
     @property
@@ -104,11 +116,103 @@ class SessionManager:
         }
 
     def use_session(self, session_id: str) -> Session:
-        session_id = session_id.strip()
+        session = self._pick(session_id.strip(), self.discover())
+        self.current = session.id
+        self._remember()
+        return session
+
+    def forget(self, session_id: str) -> None:
+        if self.current == session_id:
+            self.current = None
+        if self._last_used == session_id:
+            self._last_used = None
+        self._last_command.pop(session_id, None)
+        self._remember()
+
+    def resolve(self) -> Session:
         sessions = self.discover()
+        if self.override:
+            return self._pick(self.override, sessions)
+        alive = {session.id for session in sessions}
+        lost = self.current or self._last_used
+        if lost is not None and lost not in alive:
+            message = self._lost_message(lost)
+            # Saved before raising, or every later command would report the same loss.
+            self.forget(lost)
+            raise SessionError(message)
+        if self.current is not None:
+            return next(session for session in sessions if session.id == self.current)
+        if not sessions:
+            sessions = self._autostart()
+        if len(sessions) > 1:
+            raise SessionError(
+                "Several Maya sessions are running: "
+                + "; ".join(s.describe() for s in sessions)
+                + ". Pick one with `bmaya use ID`, or pass --session ID."
+            )
+        return sessions[0]
+
+    def start(self, wait: float) -> Session:
+        """Starts one more Maya and makes it the caller's current session."""
+        if self.launcher is None:
+            raise SessionError("Starting Maya is not set up for this command.")
+        known = {session.id for session in self.discover()}
+        session = self._await(self._launch(), known, wait)[0]
+        self.current = session.id
+        self._remember()
+        return session
+
+    def _autostart(self) -> list[Session]:
+        if self.launcher is None:
+            raise SessionError(self._no_session_message())
+        return self._await(self._launch(), set(), self.launch_wait)
+
+    def _launch(self) -> Launch:
+        assert self.launcher is not None
+        try:
+            return self.launcher.start()
+        except LaunchError as exc:
+            raise SessionError(str(exc)) from exc
+
+    def _await(self, launch: Launch, known: set[str], wait: float) -> list[Session]:
+        assert self.launcher is not None
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            # Compared by id, not by the launched pid: `maya` is a wrapper script on some systems.
+            fresh = [session for session in self.discover() if session.id not in known]
+            if fresh:
+                self.launcher.clear()
+                return fresh
+            if not launch.alive():
+                self.launcher.clear()
+                where = f" Its output is in {launch.log}." if launch.log else ""
+                raise SessionError(
+                    f"Maya ({launch.describe()}) was started but exited before the bridge came "
+                    f"up.{where} Run `bmaya doctor`."
+                )
+            time.sleep(LAUNCH_POLL)
+        raise MayaStarting(
+            f"Maya is starting ({launch.describe()}) and is not ready yet. "
+            "Run the command again in about 15 seconds; `bmaya sessions` shows when it is up."
+        )
+
+    def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
+        return self.call_session(command, params)[1]
+
+    def call_session(self, command: str, params: dict[str, Any]) -> tuple[Session, dict[str, Any]]:
+        session = self.resolve()
+        client = self._client_for(session)
+        self._last_used = session.id
+        self._last_command = {session.id: command}
+        self._remember()
+        try:
+            return session, client.request(command, params)
+        except BridgeConnectionError as exc:
+            raise self._explain_failure(session, exc) from exc
+
+    def _pick(self, session_id: str, sessions: list[Session]) -> Session:
         for session in sessions:
             if session.id == session_id:
-                self.current = session.id
                 return session
         if not sessions:
             raise SessionError(self._no_session_message())
@@ -118,61 +222,9 @@ class SessionManager:
             + "."
         )
 
-    def resolve(self) -> Session:
-        sessions = self.discover()
-        alive = {session.id for session in sessions}
-        lost = self.current or self._last_used
-        if lost is not None and lost not in alive:
-            self.current = None
-            self._last_used = None
-            raise SessionError(self._lost_message(lost))
-        if self.current is not None:
-            return next(session for session in sessions if session.id == self.current)
-        if not sessions:
-            sessions = self._autostart()
-        if len(sessions) > 1:
-            raise SessionError(
-                "Several Maya sessions are running: "
-                + "; ".join(s.describe() for s in sessions)
-                + ". Call use_session with one id."
-            )
-        return sessions[0]
-
-    def _autostart(self) -> list[Session]:
-        if self.launcher is None:
-            raise SessionError(self._no_session_message())
-        try:
-            launch = self.launcher.start()
-        except LaunchError as exc:
-            raise SessionError(str(exc)) from exc
-        deadline = time.monotonic() + self.launch_wait
-        while time.monotonic() < deadline:
-            sessions = self.discover()
-            if sessions:
-                self.launcher.clear()
-                return sessions
-            if not launch.alive():
-                self.launcher.clear()
-                where = f" Its output is in {launch.log}." if launch.log else ""
-                raise SessionError(
-                    f"Maya ({launch.describe()}) was started but exited before the bridge came "
-                    f"up.{where} Run `bmaya doctor`."
-                )
-            time.sleep(LAUNCH_POLL)
-        raise SessionError(
-            f"No Maya was running, so one is starting ({launch.describe()}). "
-            "Call the tool again in about 15 seconds."
-        )
-
-    def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
-        session = self.resolve()
-        client = self._client_for(session)
-        self._last_used = session.id
-        self._last_command[session.id] = command
-        try:
-            return client.request(command, params)
-        except BridgeConnectionError as exc:
-            raise self._explain_failure(session, exc) from exc
+    def _remember(self) -> None:
+        if self._store is not None:
+            self._store.save(ClientState(self.current, self._last_used, self._last_command))
 
     def _read_entries(self) -> list[tuple[Path, dict[str, Any]]]:
         entries: list[tuple[Path, dict[str, Any]]] = []
@@ -273,19 +325,20 @@ class SessionManager:
         except BridgeConnectionError as ping_error:
             if ping_error.refused:
                 self._prune(path, session.id)
-                self._last_used = None
-                if self.current == session.id:
-                    self.current = None
                 logger.warning("session %s is lost", session.id)
-                return SessionError(self._lost_message(session.id))
+                message = self._lost_message(session.id)
+                self.forget(session.id)
+                return SessionError(message)
         except BridgeCommandError:
             pass
         finally:
             probe.close()
         if error.timed_out:
             return BridgeConnectionError(
-                f"Maya session {session.id} did not reply in time to {last}; it may still be "
-                "busy with a long command. Wait and retry, or check the scene in Maya."
+                f"Maya session {session.id} did not reply in time to {last}. The command was "
+                "sent and may still be running, so do not send it again: `bmaya sessions` shows "
+                "busy until it ends; then inspect the scene.",
+                timed_out=True,
             )
         return BridgeConnectionError(
             f"The connection to Maya session {session.id} broke during {last}, but Maya is "
@@ -294,26 +347,32 @@ class SessionManager:
 
     def _no_session_message(self) -> str:
         return (
-            "No Maya with the bmaya bridge is running. Start Maya (the bridge starts "
-            "automatically if `bmaya install` has set up autostart; run it once if not) "
-            "and call the tool again."
+            "No Maya with the bmaya bridge is running. `bmaya start` starts one without a "
+            "window and `bmaya start --gui` one with it; a Maya the user opens also works once "
+            "`bmaya install` has been run."
         )
 
     def _lost_message(self, session_id: str) -> str:
+        if self._was_stopped(session_id):
+            return f"Maya session {session_id} was stopped or closed. {self._next_step()}"
         last = self._last_command.get(session_id)
         sent = f" The last command sent to it was {last}." if last else ""
         return (
             f"Maya session {session_id} exited or crashed.{sent} "
             f"{self._journal_note(session_id)} "
-            f"{self._after_loss()}"
+            f"Unsaved work in it is gone; tell the user. {self._next_step()}"
         )
 
-    def _after_loss(self) -> str:
+    def _was_stopped(self, session_id: str) -> bool:
+        log = find_session_log(self.home / "logs", int(session_id))
+        return log is not None and stopped_cleanly(read_records(log.path))
+
+    def _next_step(self) -> str:
         if self.launcher is None:
-            return "Ask the user to restart Maya, then call list_sessions."
+            return "`bmaya sessions` lists what is running and `bmaya start` starts a new Maya."
         return (
-            "Unsaved work in it is gone. Tell the user; the next tool call uses another running "
-            f"Maya or starts a new empty one ({self.launcher.mode})."
+            "The next command uses another running Maya or starts a new empty one "
+            f"({self.launcher.mode})."
         )
 
     def _journal_note(self, session_id: str) -> str:

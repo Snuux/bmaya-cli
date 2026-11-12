@@ -1,3 +1,4 @@
+import argparse
 import json
 import shutil
 import time
@@ -202,9 +203,9 @@ class Demo:
                 self.step("new scene", new_scene)
             self.step("build barrel", build)
             self.step("key animation", animate)
-            self.step("audit_mesh", audit, required=False)
-            self.step("get_animation_info", animation, required=False)
-            self.step("export_fbx (unity)", export, required=False)
+            self.step("audit mesh", audit, required=False)
+            self.step("read animation", animation, required=False)
+            self.step("export FBX (unity)", export, required=False)
             self.step("viewport contact sheet", screenshot, required=False)
             if not scene["fresh"]:
                 self.step("restore selection", restore_selection, required=False)
@@ -227,17 +228,19 @@ def describe_error(exc: Exception) -> str:
     return str(exc)
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    return run_demo(args.out, args.session)
+
+
 def run_demo(out_dir: Path, session_id: str = "") -> int:
-    manager = SessionManager(label=CLIENT_LABEL)
+    manager = SessionManager(label=CLIENT_LABEL, override=session_id)
     try:
-        if session_id:
-            manager.use_session(session_id)
         return Demo(manager, out_dir).run()
     except SessionError as exc:
         print(f"Cannot run the demo: {exc}")
         print(
-            "Start Maya with the bmaya module installed (`bmaya install`), "
-            "check it with `bmaya doctor`, then run the demo again. "
-            "With several Maya sessions open, pick one with --session."
+            "The demo does not start Maya. Run `bmaya start` or open Maya with the module "
+            "installed, check with `bmaya doctor`, then run the demo again. "
+            "With several Mayas running, pick one with --session."
         )
         return 1

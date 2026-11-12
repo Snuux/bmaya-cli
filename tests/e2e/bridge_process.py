@@ -52,7 +52,7 @@ def make_commands(scene: str) -> dict[str, Callable[[dict[str, Any]], dict[str, 
     def get_object_info(params: dict[str, Any]) -> dict[str, Any]:
         raise BridgeError(
             f"No object named '{params.get('name')}' in the scene.",
-            hint="Use get_scene_info to find similar names.",
+            hint="`bmaya scene` lists the nodes.",
         )
 
     def undo(params: dict[str, Any]) -> dict[str, Any]:

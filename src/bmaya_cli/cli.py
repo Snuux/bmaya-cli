@@ -1,287 +1,380 @@
 import argparse
-import json
+import importlib
 import sys
-import time
+from collections.abc import Callable
 from pathlib import Path
 
 from bmaya_cli import __version__
-from bmaya_cli.client import BridgeClient, BridgeCommandError, BridgeConnectionError
-from bmaya_cli.demo import run_demo
-from bmaya_cli.install import (
-    InstallError,
-    default_maya_app_dir,
-    install,
-    installed_version,
-    module_paths,
-    uninstall,
-)
-from bmaya_cli.journal import (
-    describe_pending,
-    find_crashes,
-    find_session_log,
-    format_record,
-    pid_alive,
-    read_records,
-    session_logs,
-)
-from bmaya_cli.launch import MAYA_ENV, MODE_ENV, OFF, autostart_mode, find_maya, run_headless
-from bmaya_cli.sessions import bmaya_home
 
 LOG_TAIL = 20
+
+DESCRIPTION = """\
+bmaya drives Autodesk Maya from the command line, for AI agents and scripts.
+
+Each command talks to a running Maya, prints one line of JSON on stdout and exits.
+Errors go to stderr as "error: ..." and "hint: ..." lines. With no Maya running,
+the first command starts one without a window; it stays up until `bmaya stop`.
+"""
+
+EPILOG = """\
+exit codes:
+  0  done
+  1  the command failed; stderr says why and what to do next
+  2  bad arguments
+  3  not ready: Maya is still starting, or still busy with a command that was
+     sent. Do not resend that command; wait and check `bmaya sessions`.
+
+a typical loop:
+  bmaya scene                               what is in the scene
+  bmaya exec "cmds.polyCube(name='crate')"  change it with maya.cmds
+  bmaya shot -o shot.png                    look at the result
+  bmaya undo                                take your last step back
+
+`bmaya COMMAND --help` explains one command. `bmaya guide` prints the manual
+for agents: the working loop, a Blender-to-Maya map and recipes.
+"""
+
+Runner = Callable[[argparse.Namespace], int]
+
+
+def lazy(module: str, name: str) -> Runner:
+    """Commands load their module on use, so `bmaya scene` does not pay for `bmaya demo`."""
+
+    def run(args: argparse.Namespace) -> int:
+        return getattr(importlib.import_module(f"bmaya_cli.{module}"), name)(args)
+
+    return run
+
+
+def examples(*lines: str) -> str:
+    return "examples:\n" + "\n".join(f"  {line}" for line in lines)
+
+
+def add_target(group: argparse._ArgumentGroup, top_level: bool) -> None:
+    default = "" if top_level else argparse.SUPPRESS
+    group.add_argument(
+        "--session",
+        default=default,
+        metavar="ID",
+        help="Maya session to talk to for this one command (see `bmaya sessions`)",
+    )
+    group.add_argument(
+        "--client",
+        default=default,
+        metavar="LABEL",
+        help="name this caller; by default it is derived from the agent that runs the command "
+        "(env BMAYA_CLIENT sets it too)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bmaya",
-        description="MCP server for Autodesk Maya. Without a command it serves MCP over stdio.",
+        description=DESCRIPTION,
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"bmaya {__version__}")
-    commands = parser.add_subparsers(dest="command", metavar="command")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND", title="commands")
 
-    commands.add_parser("serve", help="run the MCP stdio server (the default)")
+    # Accepted before and after the command name. The copy on a command has no default, so
+    # it does not wipe a value given before the name.
+    add_target(parser.add_argument_group("which Maya, and who is asking"), top_level=True)
+    maya = argparse.ArgumentParser(add_help=False)
+    add_target(maya.add_argument_group("which Maya, and who is asking"), top_level=False)
 
-    install = commands.add_parser("install", help="install the Maya module that starts the bridge")
+    def add(
+        name: str,
+        runner: str,
+        summary: str,
+        details: str = "",
+        epilog: str = "",
+        module: str = "commands",
+        for_maya: bool = True,
+    ) -> argparse.ArgumentParser:
+        command = commands.add_parser(
+            name,
+            help=summary,
+            description=details or summary,
+            epilog=epilog,
+            parents=[maya] if for_maya else [],
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        command.set_defaults(run=lazy(module, runner))
+        return command
+
+    scene = add(
+        "scene",
+        "cmd_scene",
+        "list the scene: file, units, up axis, fps, selection, nodes",
+        "Prints the scene file, unit, up axis, fps, frame range, the selection and the nodes.\n"
+        "Without filters the nodes are the top-level ones. `shown` and `total` say how many\n"
+        "matched.",
+        examples(
+            "bmaya scene",
+            "bmaya scene --query barrel            names containing 'barrel' (wildcards * ? work)",
+            "bmaya scene --type joint --limit 200  every joint",
+        ),
+    )
+    scene.add_argument("-q", "--query", default="", help="name filter, substring or wildcard")
+    scene.add_argument("-t", "--type", default="", help="Maya node type: mesh, joint, camera, ...")
+    scene.add_argument("-n", "--limit", type=int, default=0, help="most nodes to list (default 50)")
+
+    obj = add(
+        "object",
+        "cmd_object",
+        "describe one node: transform, bbox, mesh counts, materials, keys",
+        "Prints the world transform, bounding box, shape, vertex and triangle counts, UV sets,\n"
+        "materials, construction history and animated attributes of one node.",
+        examples(
+            "bmaya object crate", 'bmaya object "|props|crate"   a full path when names clash'
+        ),
+    )
+    obj.add_argument("name", help="node name or full DAG path")
+
+    execute = add(
+        "exec",
+        "cmd_exec",
+        "run Python inside Maya (cmds, mel and om are preloaded)",
+        "Runs Python on Maya's main thread as one undo step. `cmds`, `mel` and `om`\n"
+        "(OpenMaya 2) are already imported. Assign to a variable named `result` to get a value\n"
+        "back; what the code prints comes back as `stdout`.\n\n"
+        "The code comes from the argument, from -f FILE, or from stdin. Use stdin or a file for\n"
+        "anything with quotes or several lines, so the shell does not mangle it.",
+        examples(
+            'bmaya exec "result = cmds.ls(selection=True)"',
+            "bmaya exec -f build_barrel.py",
+            "bmaya exec <<'PY'                       bash, zsh",
+            'cube = cmds.polyCube(name="crate")[0]',
+            "result = cmds.ls(cube, long=True)",
+            "PY",
+            "Get-Content build.py -Raw | bmaya exec   PowerShell",
+        ),
+    )
+    execute.add_argument(
+        "code", nargs="?", default="", help="Python source; '-' or nothing reads stdin"
+    )
+    execute.add_argument("-f", "--file", default="", help="read the code from this file")
+
+    shot = add(
+        "shot",
+        "cmd_shot",
+        "save a viewport screenshot (or a contact sheet of frames) as PNG",
+        "Writes a PNG of the viewport and prints its path, width and height. Open that file to\n"
+        "look at the scene. With --frames the frames are laid out in one contact sheet, which\n"
+        "is the cheap way to review an animation. A Maya without a window renders offscreen\n"
+        "from `persp` or the camera you name; frame the subject first with\n"
+        "cmds.viewFit('persp', all=True).",
+        examples(
+            "bmaya shot -o shot.png",
+            "bmaya shot --camera front --size 1200 -o front.png",
+            "bmaya shot --frames 1,6,12,18,24 -o walk.png",
+        ),
+    )
+    shot.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
+    shot.add_argument("--camera", default="", help="camera to look through (default: the view)")
+    shot.add_argument("--frames", default="", help="comma-separated frames for a contact sheet")
+    shot.add_argument("--size", type=int, default=0, help="longest side in pixels (default 800)")
+
+    audit = add(
+        "audit",
+        "cmd_audit",
+        "check meshes for game export: n-gons, history, transforms, UVs",
+        "Reports vertex and triangle counts and the issues that matter for a game asset:\n"
+        "n-gons, non-manifold geometry, unfrozen transforms, construction history, missing\n"
+        "UVs. With no names it audits the selection, or every mesh when nothing is selected.",
+        examples("bmaya audit", "bmaya audit barrel_geo crate"),
+    )
+    audit.add_argument("names", nargs="*", help="mesh or group names")
+
+    anim = add(
+        "anim",
+        "cmd_anim",
+        "report animation: curves, key ranges, fps, skeleton, skin",
+        "Without a name it summarises the animation in the scene. With a name it lists that\n"
+        "node's curves, key ranges and tangents, and its skeleton and skin clusters.",
+        examples("bmaya anim", "bmaya anim root"),
+    )
+    anim.add_argument("name", nargs="?", default="", help="node to describe")
+
+    export = add(
+        "export",
+        "cmd_export",
+        "export FBX with a Unity, Unreal or Godot preset",
+        "Writes an FBX file. Units are not converted: the scene unit is what the importer\n"
+        "sees. The unreal preset triangulates and writes smoothing groups.",
+        examples(
+            "bmaya export hero.fbx",
+            "bmaya export out/walk.fbx --preset unreal --selection --animation --start 1 --end 24",
+        ),
+    )
+    export.add_argument("path", metavar="FILE.fbx", help="target file")
+    export.add_argument("--preset", default="", help="unity (default), unreal or godot")
+    export.add_argument("--selection", action="store_true", help="export only the selection")
+    export.add_argument("--animation", action="store_true", help="bake and export animation")
+    export.add_argument(
+        "--start", type=int, default=0, help="first frame (default: playback range)"
+    )
+    export.add_argument("--end", type=int, default=0, help="last frame (default: playback range)")
+
+    file = add(
+        "file",
+        "cmd_file",
+        "new, open, save or import a scene file",
+        "new and open replace the scene. They are refused when the scene has unsaved changes,\n"
+        "and when another client used this Maya in the last 10 minutes. --force overrides\n"
+        "both; use it only when the user asked for it.\n"
+        "save without a path saves the current file; with a path it saves as .ma or .mb.\n"
+        "import adds a .ma, .mb, .fbx or .obj file to the scene.",
+        examples(
+            "bmaya file save",
+            "bmaya file save scenes/barrel.ma",
+            "bmaya file open scenes/barrel.ma",
+            "bmaya file import props/crate.fbx",
+            "bmaya file new",
+        ),
+    )
+    file.add_argument("action", choices=["new", "open", "save", "import"])
+    file.add_argument("path", nargs="?", default="", help="scene or model file")
+    file.add_argument("--force", action="store_true", help="discard unsaved changes")
+
+    undo = add(
+        "undo",
+        "cmd_undo",
+        "undo your own last steps, never someone else's",
+        "Undoes your last `bmaya exec` steps, one per step. It stops at a change made by\n"
+        "another client or by the user in the Maya window: the result then carries\n"
+        "`blocked_by`, and with nothing undone it is an error. Ask the user before going\n"
+        "on. --force also undoes changes the user made in the Maya window on top of your\n"
+        "step; it never touches another client's steps.",
+        examples("bmaya undo", "bmaya undo 3"),
+    )
+    undo.add_argument("steps", nargs="?", type=int, default=1, help="how many steps (default 1)")
+    undo.add_argument("--force", action="store_true", help="also undo the user's UI changes")
+
+    add(
+        "sessions",
+        "cmd_sessions",
+        "list running Mayas: id, scene, busy, clients",
+        "Lists every running Maya with the bridge. `clients` counts the callers that ran a\n"
+        "command there in the last 10 minutes: more than one means you share that Maya.\n"
+        "`busy` is true while a command runs. `client` is the name you act under.",
+        examples("bmaya sessions"),
+    )
+
+    use = add(
+        "use",
+        "cmd_use",
+        "pick the Maya that your next commands talk to",
+        "Needed only when several Mayas run. The choice is remembered for this caller.",
+        examples("bmaya use 12345"),
+    )
+    use.add_argument("id", help="session id from `bmaya sessions`")
+
+    start = add(
+        "start",
+        "cmd_start",
+        "start a Maya (without a window unless --gui) and wait for it",
+        "Starts one more Maya, waits until it answers and makes it your current session. It\n"
+        "keeps running after this command returns, with no timer: stop it with `bmaya stop`.\n"
+        "You rarely need this: with no Maya running, any command starts one by itself.",
+        examples("bmaya start", "bmaya start --scene scenes/barrel.ma", "bmaya start --gui"),
+    )
+    start.add_argument("--gui", action="store_true", help="start Maya with its window")
+    start.add_argument("--scene", default="", metavar="FILE", help="scene file to open")
+
+    stop = add(
+        "stop",
+        "cmd_stop",
+        "stop a Maya that bmaya started",
+        "Ends a Maya that runs without a window. It is refused when the scene has unsaved\n"
+        "changes or another client used that Maya in the last 10 minutes; save first, or pass\n"
+        "--force. A Maya with a window is the user's and is never stopped from here.",
+        examples("bmaya file save scenes/barrel.ma", "bmaya stop", "bmaya stop 12345 --force"),
+    )
+    stop.add_argument("id", nargs="?", default="", help="session id (default: your current Maya)")
+    stop.add_argument("--force", action="store_true", help="discard unsaved changes")
+
+    add(
+        "guide",
+        "cmd_guide",
+        "print the manual for agents (plain text, not JSON)",
+        for_maya=False,
+    )
+
+    install = add(
+        "install",
+        "cmd_install",
+        "install the Maya module, so a Maya you open has the bridge",
+        module="admin",
+        for_maya=False,
+    )
     install.add_argument("--maya-app-dir", type=Path, help="Maya user folder (MAYA_APP_DIR)")
 
-    uninstall = commands.add_parser("uninstall", help="remove the installed Maya module")
+    uninstall = add(
+        "uninstall", "cmd_uninstall", "remove the Maya module", module="admin", for_maya=False
+    )
     uninstall.add_argument("--maya-app-dir", type=Path, help="Maya user folder (MAYA_APP_DIR)")
 
-    doctor = commands.add_parser("doctor", help="check the install and the running sessions")
+    doctor = add(
+        "doctor",
+        "cmd_doctor",
+        "check the install and the running Mayas (plain text)",
+        module="admin",
+        for_maya=False,
+    )
     doctor.add_argument("--maya-app-dir", type=Path, help="Maya user folder (MAYA_APP_DIR)")
 
-    logs = commands.add_parser("logs", help="show bridge journals")
+    logs = add(
+        "logs",
+        "cmd_logs",
+        "show what was sent to a Maya, and what it crashed on (plain text)",
+        module="admin",
+        for_maya=False,
+    )
     logs.add_argument("--session", type=int, help="pid of the Maya session (default: newest)")
     logs.add_argument("--tail", type=int, default=LOG_TAIL, help="records to show (default 20)")
     logs.add_argument("--crashes", action="store_true", help="list crashed sessions instead")
 
-    headless = commands.add_parser(
-        "headless", help="run a Maya without a UI and the bridge in it, until Ctrl+C"
+    demo = add(
+        "demo",
+        "cmd_demo",
+        "build, check and export a prop in a running Maya (plain text)",
+        module="demo",
+        for_maya=False,
     )
-    headless.add_argument("--maya", default="", help="Maya install folder (default: newest)")
-    headless.add_argument("--scene", default="", help="scene file to open at start")
-    headless.add_argument(
-        "--idle-exit",
-        type=int,
-        default=0,
-        metavar="SECONDS",
-        help="exit after this long without a connected client (default 0: never)",
-    )
-
-    demo = commands.add_parser("demo", help="build, check and export a prop in the live Maya")
     demo.add_argument("--out", type=Path, default=Path("demo"), help="output folder")
-    demo.add_argument("--session", default="", help="session id when several Maya run")
+    demo.add_argument("--session", default="", help="session id when several Mayas run")
     return parser
 
 
+def use_utf8() -> None:
+    """The Windows code page would otherwise mangle node names and piped code."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            continue
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    if args.command in (None, "serve"):
-        from bmaya_cli.server import main as serve
-
-        serve()
+    use_utf8()
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
         return 0
-    if args.command == "install":
-        return cmd_install(args.maya_app_dir)
-    if args.command == "uninstall":
-        return cmd_uninstall(args.maya_app_dir)
-    if args.command == "doctor":
-        return cmd_doctor(args.maya_app_dir)
-    if args.command == "logs":
-        return cmd_logs(args.session, args.tail, args.crashes)
-    if args.command == "headless":
-        return cmd_headless(args.maya, args.scene, args.idle_exit)
-    return run_demo(args.out, args.session)
-
-
-def resolve_app_dir(app_dir: Path | None) -> Path:
-    return (app_dir or default_maya_app_dir()).expanduser().resolve()
-
-
-def cmd_install(app_dir: Path | None) -> int:
-    target = resolve_app_dir(app_dir)
     try:
-        paths = install(target)
-    except (InstallError, OSError) as exc:
-        print(f"Install failed: {exc}", file=sys.stderr)
-        return 1
-    print(f"Installed bmaya {__version__} for Maya in {target}")
-    print(f"  module folder  {paths.module_dir}")
-    print(f"  module file    {paths.mod_file}")
-    print()
-    print("Next: restart Maya. The Script Editor should then show")
-    print("  bmaya bridge listening on 127.0.0.1:<port> (session <pid>)")
-    print("and `bmaya doctor` should list the session. If it does not, load the")
-    print("fallback plug-in once in Maya's Script Editor (Python) and mark it to auto-load:")
-    print('  cmds.loadPlugin("bmaya_plugin.py")')
-    print('  cmds.pluginInfo("bmaya_plugin.py", edit=True, autoload=True)')
-    return 0
+        return args.run(args)
+    except KeyboardInterrupt:
+        return 130
+    except Exception as error:
+        from bmaya_cli.commands import report_failure
 
-
-def cmd_uninstall(app_dir: Path | None) -> int:
-    target = resolve_app_dir(app_dir)
-    try:
-        removed = uninstall(target)
-    except (InstallError, OSError) as exc:
-        print(f"Uninstall failed: {exc}", file=sys.stderr)
-        return 1
-    if not removed:
-        print(f"bmaya is not installed in {target}")
-        return 0
-    for path in removed:
-        print(f"Removed {path}")
-    print("Restart Maya to stop the bridge.")
-    return 0
-
-
-def cmd_headless(maya: str, scene: str, idle_exit: int) -> int:
-    install = find_maya(override=maya)
-    if install is None:
-        where = maya or "the default install folders"
-        print(f"No Maya installation found in {where}.", file=sys.stderr)
-        print(f"Pass --maya or set {MAYA_ENV} to the Maya install folder.", file=sys.stderr)
-        return 1
-    print(f"Starting Maya {install.version} without a UI ({install.mayapy}). Ctrl+C stops it.")
-    sys.stdout.flush()
-    return run_headless(install, idle_exit, scene)
-
-
-def report_autostart() -> None:
-    mode = autostart_mode()
-    install = find_maya()
-    if install is None:
-        found = f"no Maya installation found (set {MAYA_ENV})"
-    else:
-        found = f"Maya {install.version} in {install.bin_dir}"
-    if mode == OFF:
-        print(f"Autostart: off ({MODE_ENV}); {found}")
-    else:
-        print(f"Autostart: {mode} when no Maya is running; {found}")
-
-
-def cmd_doctor(app_dir: Path | None) -> int:
-    target = resolve_app_dir(app_dir)
-    paths = module_paths(target)
-    home = bmaya_home()
-    logs = home / "logs"
-
-    print(f"bmaya {__version__}")
-    print(f"Maya user folder: {target}")
-    version = installed_version(target)
-    if version is None or not paths.module_dir.is_dir():
-        print("Module: not installed. Run `bmaya install`, then restart Maya.")
-    elif version != __version__:
-        print(f"Module: version {version} is installed but this is {__version__}.")
-        print("  Run `bmaya install` again, then restart Maya.")
-    else:
-        print(f"Module: installed, version {version}, in {paths.module_dir}")
-
-    report_autostart()
-
-    live = report_sessions(home)
-
-    crashes = find_crashes(logs)
-    if crashes:
-        crash = crashes[-1]
-        doing = crash.pending.get("command") if crash.pending else "no command"
-        print(
-            f"Last crash: session {crash.log.pid}, last record {crash.last_time}, "
-            f"while running {doing}. Details: `bmaya logs --crashes`."
-        )
-    bootstrap_log = logs / "bootstrap-error.log"
-    if bootstrap_log.is_file():
-        print(f"Bridge startup errors were logged in {bootstrap_log}")
-    print(f"Logs: {logs}")
-    if not live:
-        print(
-            "No live Maya session. Start Maya with the module installed, or run `bmaya headless`."
-        )
-        return 1
-    return 0
-
-
-def report_sessions(home: Path) -> int:
-    registry = sorted((home / "sessions").glob("*.json"))
-    live = 0
-    print(f"Sessions ({home / 'sessions'}):")
-    if not registry:
-        print("  none registered")
-    for path in registry:
-        try:
-            entry = json.loads(path.read_text(encoding="utf-8"))
-            pid = int(entry["pid"])
-            client = BridgeClient(int(entry["port"]), str(entry["token"]), "bmaya-doctor")
-        except (OSError, ValueError, KeyError, TypeError):
-            print(f"  {path.name}: unreadable registry file")
-            continue
-        if not pid_alive(pid):
-            remove_stale(path)
-            print(f"  {pid}: stale entry, Maya is gone; removed {path.name}")
-            continue
-        started = time.perf_counter()
-        try:
-            info = client.request("ping", read_timeout=3.0)
-        except BridgeConnectionError as exc:
-            print(f"  {pid}: Maya is running but the bridge did not answer ({exc})")
-            continue
-        except BridgeCommandError as exc:
-            print(f"  {pid}: the bridge refused the registry token ({exc.type})")
-            continue
-        finally:
-            client.close()
-        latency = (time.perf_counter() - started) * 1000
-        live += 1
-        scene = info.get("scene") or "untitled"
-        state = "busy" if info.get("busy") else "idle"
-        kind = "headless Maya" if info.get("headless") else "Maya"
-        print(
-            f"  {pid}: {kind} {info.get('maya_version')}, {scene}, {state}, "
-            f"{info.get('clients', 0)} clients, ping {latency:.0f} ms"
-        )
-    return live
-
-
-def remove_stale(path: Path) -> None:
-    try:
-        path.unlink()
-    except OSError:
-        pass
-
-
-def cmd_logs(session: int | None, tail: int, crashes: bool) -> int:
-    logs = bmaya_home() / "logs"
-    if crashes:
-        found = [crash for crash in find_crashes(logs) if session in (None, crash.log.pid)]
-        if not found:
-            print(f"No crashed sessions in {logs}")
-            return 0
-        for crash in found:
-            print(f"Session {crash.log.pid} crashed after {crash.last_time}")
-            print(f"  journal {crash.log.path}")
-            if crash.pending:
-                print("  unfinished command:")
-                for line in describe_pending(crash.pending):
-                    print(f"    {line}")
-            else:
-                print("  no command was running")
-            if crash.crash_tail:
-                print(f"  crash log {crash.log.crash_path}:")
-                for line in crash.crash_tail:
-                    print(f"    {line}")
-            print()
-        return 0
-
-    if session is None:
-        available = session_logs(logs)
-        log = available[-1] if available else None
-    else:
-        log = find_session_log(logs, session)
-    if log is None:
-        which = f"session {session}" if session is not None else "any session"
-        print(f"No journal for {which} in {logs}")
-        return 1
-    records = read_records(log.path)
-    shown = records[-tail:] if tail > 0 else records
-    print(f"Session {log.pid}: {log.path} ({len(shown)} of {len(records)} records)")
-    for record in shown:
-        print(f"  {format_record(record)}")
-    return 0
+        code = report_failure(error)
+        if code is None:
+            raise
+        return code

@@ -21,7 +21,6 @@ OFF = "off"
 MODES = (HEADLESS, GUI, OFF)
 MODE_ENV = "BMAYA_AUTOSTART"
 MAYA_ENV = "BMAYA_MAYA"
-IDLE_EXIT_SECONDS = 600
 LOCK_SECONDS = 180.0
 STUCK_SECONDS = 3600.0
 LOCK_NAME = "launch.json"
@@ -129,9 +128,11 @@ class Launcher:
         mode: str = HEADLESS,
         search_roots: Iterable[Path] | None = None,
         maya_app_dir: Path | None = None,
+        scene: str = "",
     ) -> None:
         self.home = home
         self.mode = mode
+        self.scene = scene
         self._search_roots = None if search_roots is None else list(search_roots)
         self._maya_app_dir = maya_app_dir
 
@@ -146,8 +147,8 @@ class Launcher:
         install = find_maya(self._search_roots)
         if install is None:
             raise LaunchError(
-                "No Maya is running and no Maya installation was found to start one. "
-                f"Set {MAYA_ENV} to the Maya install folder, or start Maya yourself."
+                "No Maya installation was found to start. "
+                f"Set {MAYA_ENV} to the Maya install folder, or open Maya yourself."
             )
         command = self.command(install)
         self.home.mkdir(parents=True, exist_ok=True)
@@ -175,9 +176,13 @@ class Launcher:
             data = json.loads(self.lock_path.read_text(encoding="utf-8"))
             launch = Launch(int(data["pid"]), str(data["mode"]), Path(str(data["log"])))
         except (OSError, ValueError, KeyError, TypeError):
-            # Another server created the lock a moment ago and has not written the pid yet.
+            # Another command created the lock a moment ago and has not written the pid yet.
             launch = Launch(0, self.mode)
         if not launch.alive() or age > (LOCK_SECONDS if launch.pid <= 0 else STUCK_SECONDS):
+            self.clear()
+            return None
+        if self.came_up(launch):
+            # The command that started it gave up waiting before it could clear the lock.
             self.clear()
             return None
         if age > LOCK_SECONDS:
@@ -185,9 +190,20 @@ class Launcher:
             raise LaunchError(
                 f"Maya ({launch.describe()}) was started {int(age // 60)} minutes ago and is "
                 f"still running, but its bridge has not come up. Its output is in {launch.log}. "
-                "Ask the user to check or close that Maya, then call the tool again."
+                "Ask the user to check or close that Maya, then run the command again."
             )
         return launch
+
+    def came_up(self, launch: Launch) -> bool:
+        sessions = self.home / "sessions"
+        if (sessions / f"{launch.pid}.json").is_file():
+            return True
+        # Where `maya` is a wrapper script, the session belongs to another pid.
+        try:
+            locked = self.lock_path.stat().st_mtime
+            return any(entry.stat().st_mtime >= locked for entry in sessions.glob("*.json"))
+        except OSError:
+            return False
 
     def clear(self) -> None:
         try:
@@ -200,12 +216,15 @@ class Launcher:
             app_dir = self._maya_app_dir or default_maya_app_dir()
             if installed_version(app_dir) is None:
                 raise LaunchError(
-                    "No Maya is running, and Maya cannot be started with the bridge because the "
-                    "module is not installed. Run `bmaya install` once, or set "
-                    f"{MODE_ENV}={HEADLESS}."
+                    "Maya with a window cannot be started with the bridge because the module is "
+                    "not installed. Run `bmaya install` once, or start one without a window "
+                    "(`bmaya start`)."
                 )
-            return [str(install.maya)]
-        return headless_command(install, IDLE_EXIT_SECONDS)
+            command = [str(install.maya)]
+            if self.scene:
+                command += ["-file", self.scene]
+            return command
+        return headless_command(install, self.scene)
 
     def spawn(self, command: list[str]) -> Launch:
         logs = self.home / "logs"
@@ -216,21 +235,11 @@ class Launcher:
         return Launch(process.pid, self.mode, log)
 
 
-def headless_command(install: MayaInstall, idle_exit: int, scene: str = "") -> list[str]:
-    command = [str(install.mayapy), "-m", "bmaya_bridge.headless", "--idle-exit", str(idle_exit)]
+def headless_command(install: MayaInstall, scene: str = "") -> list[str]:
+    command = [str(install.mayapy), "-m", "bmaya_bridge.headless"]
     if scene:
         command += ["--scene", scene]
     return command
-
-
-def run_headless(install: MayaInstall, idle_exit: int, scene: str) -> int:
-    process = subprocess.Popen(headless_command(install, idle_exit, scene), env=bridge_env())
-    while True:
-        try:
-            return process.wait()
-        except KeyboardInterrupt:
-            # Ctrl+C reaches Maya too; keep waiting while it shuts the bridge down.
-            continue
 
 
 def bridge_env() -> dict[str, str]:
@@ -242,7 +251,8 @@ def bridge_env() -> dict[str, str]:
 
 
 def spawn_detached(command: list[str], output: IO[str]) -> "subprocess.Popen[bytes]":
-    # The server's stdout is the MCP channel, so the child must never inherit it.
+    # Maya outlives this command. An inherited stdout or stderr would keep the caller's pipe
+    # open, and the shell that ran `bmaya` would wait for Maya to exit.
     options: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": output,
@@ -253,7 +263,7 @@ def spawn_detached(command: list[str], output: IO[str]) -> "subprocess.Popen[byt
         return subprocess.Popen(command, start_new_session=True, **options)
     flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     try:
-        # Outlive the agent's process tree when its job object allows it.
+        # Outlive the calling process tree when its job object allows it.
         return subprocess.Popen(
             command, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **options
         )
