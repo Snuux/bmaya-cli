@@ -17,7 +17,7 @@ def echo(params: dict[str, Any]) -> dict[str, Any]:
 
 def test_chunk_name_carries_its_owner() -> None:
     name = clients.chunk_name("claude-12", "execute_maya_code")
-    assert name == "bmaya-mcp claude-12: execute_maya_code"
+    assert name == "bmaya claude-12: execute_maya_code"
     assert clients.chunk_owner(name) == "claude-12"
 
 
@@ -128,4 +128,4 @@ def test_undo_chunk_is_named_after_the_client(make_bridge: Callable[..., BridgeS
     client = Client(bridge.port, bridge.token, name="codex-7")
     client.call("echo")
     client.close()
-    assert undo.events == ["open bmaya-mcp codex-7: echo", "close bmaya-mcp codex-7: echo"]
+    assert undo.events == ["open bmaya codex-7: echo", "close bmaya codex-7: echo"]

@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from bmaya_mcp.journal import (
+from bmaya_cli.journal import (
     describe_pending,
     find_crashes,
     find_session_log,

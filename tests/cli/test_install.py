@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from bmaya_mcp import __version__
-from bmaya_mcp.install import (
+from bmaya_cli import __version__
+from bmaya_cli.install import (
     default_maya_app_dir,
     install,
     installed_version,
@@ -22,7 +22,7 @@ def app_dir(tmp_path: Path) -> Path:
     (modules / "other").mkdir(parents=True)
     (modules / "other" / "tool.py").write_text("print('other tool')\n", encoding="utf-8")
     (modules / "other.mod").write_text("+ other 1.0 C:/other\n", encoding="utf-8")
-    (modules / "bmaya-mcp-extras.mod").write_text("+ extras 2.0 C:/extras\n", encoding="utf-8")
+    (modules / "bmaya-extras.mod").write_text("+ extras 2.0 C:/extras\n", encoding="utf-8")
     (app_dir / "2027").mkdir()
     (app_dir / "2027" / "userSetup.py").write_text("print('mine')\n", encoding="utf-8")
     return app_dir
@@ -42,15 +42,15 @@ def snapshot(app_dir: Path) -> dict[str, bytes]:
 def test_install_copies_module_and_writes_mod_file(app_dir: Path) -> None:
     before = snapshot(app_dir)
     paths = install(app_dir)
-    assert paths.module_dir == app_dir / "modules" / "bmaya-mcp"
+    assert paths.module_dir == app_dir / "modules" / "bmaya"
     assert (paths.module_dir / "python" / "bmaya_bridge" / "server.py").is_file()
     assert (paths.module_dir / "python" / "bmaya_bridge" / "handlers" / "scene.py").is_file()
     assert (paths.module_dir / "scripts" / "userSetup.py").is_file()
-    assert (paths.module_dir / "plug-ins" / "bmaya_mcp_plugin.py").is_file()
-    assert not (paths.module_dir / "bmaya-mcp.mod").exists()
+    assert (paths.module_dir / "plug-ins" / "bmaya_plugin.py").is_file()
+    assert not (paths.module_dir / "bmaya.mod").exists()
     assert not list(paths.module_dir.rglob("__pycache__"))
     assert paths.mod_file.read_text(encoding="utf-8").splitlines() == [
-        f"+ bmaya-mcp {__version__} {paths.module_dir.as_posix()}",
+        f"+ bmaya {__version__} {paths.module_dir.as_posix()}",
         "PYTHONPATH+:=python",
         "MAYA_PLUG_IN_PATH+:=plug-ins",
     ]
@@ -62,7 +62,7 @@ def test_install_again_replaces_the_previous_copy(app_dir: Path) -> None:
     paths = install(app_dir)
     leftover = paths.module_dir / "python" / "bmaya_bridge" / "old_handler.py"
     leftover.write_text("stale = True\n", encoding="utf-8")
-    paths.mod_file.write_text("+ bmaya-mcp 0.0.1 C:/old\n", encoding="utf-8")
+    paths.mod_file.write_text("+ bmaya 0.0.1 C:/old\n", encoding="utf-8")
     install(app_dir)
     assert not leftover.exists()
     assert installed_version(app_dir) == __version__
@@ -97,3 +97,15 @@ def test_windows_documents_folder_is_found(monkeypatch: pytest.MonkeyPatch) -> N
     assert documents.is_dir()
     assert default_maya_app_dir() == documents / "maya"
     assert os.path.isabs(documents)
+
+
+def test_install_removes_the_module_from_before_the_rename(tmp_path: Path) -> None:
+    modules = tmp_path / "modules"
+    legacy = modules / "bmaya-mcp"
+    (legacy / "scripts").mkdir(parents=True)
+    (legacy / "scripts" / "userSetup.py").write_text("", encoding="utf-8")
+    (modules / "bmaya-mcp.mod").write_text("+ bmaya-mcp 0.2.0 x", encoding="utf-8")
+    paths = install(tmp_path)
+    assert paths.module_dir.is_dir()
+    assert not legacy.exists()
+    assert not (modules / "bmaya-mcp.mod").exists()

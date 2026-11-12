@@ -3,8 +3,8 @@ import json
 
 from mcp.server.mcpserver import MCPServer
 
-from bmaya_mcp.server import INSTRUCTIONS, create_server
-from bmaya_mcp.sessions import SessionManager
+from bmaya_cli.server import INSTRUCTIONS, create_server
+from bmaya_cli.sessions import SessionManager
 
 EXPECTED_TOOLS = {
     "list_sessions",

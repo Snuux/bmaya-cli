@@ -26,7 +26,7 @@ def test_start_in_maya_announces_once(
     port = bootstrap.start_in_maya()
     assert port > 0
     assert bootstrap.start_in_maya() == port
-    announced = f"bmaya-mcp bridge listening on 127.0.0.1:{port} (session {os.getpid()})"
+    announced = f"bmaya bridge listening on 127.0.0.1:{port} (session {os.getpid()})"
     assert capsys.readouterr().out.splitlines() == [announced]
 
 

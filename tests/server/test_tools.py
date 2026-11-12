@@ -14,10 +14,10 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult
 
-import bmaya_mcp
-from bmaya_mcp.server import create_server
-from bmaya_mcp.sessions import SessionManager
-from bmaya_mcp.tools.common import BRIDGE_ERROR_TYPES
+import bmaya_cli
+from bmaya_cli.server import create_server
+from bmaya_cli.sessions import SessionManager
+from bmaya_cli.tools.common import BRIDGE_ERROR_TYPES
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
@@ -90,7 +90,7 @@ def test_python_exception_gets_type_prefix_and_bridge_types_do_not(
 
 def test_both_sides_agree_on_bridge_error_types() -> None:
     assert BRIDGE_ERROR_TYPES == bridge_errors.BRIDGE_ERROR_TYPES
-    assert bmaya_mcp.__version__ == bmaya_bridge.__version__
+    assert bmaya_cli.__version__ == bmaya_bridge.__version__
 
 
 def test_execute_error_carries_stdout_printed_before_it(

@@ -4,14 +4,14 @@ from pathlib import Path
 import pytest
 from fake_bridge import FakeBridge, Handler
 
-from bmaya_mcp.sessions import SessionManager
+from bmaya_cli.sessions import SessionManager
 
 BridgeFactory = Callable[..., FakeBridge]
 
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("BMAYA_MCP_HOME", str(tmp_path))
+    monkeypatch.setenv("BMAYA_HOME", str(tmp_path))
     return tmp_path
 
 

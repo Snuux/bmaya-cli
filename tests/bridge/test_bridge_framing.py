@@ -57,4 +57,4 @@ def test_maya_side_parses_as_python_39(name: str) -> None:
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module or "")
-    assert not {module for module in imported if module.split(".")[0] == "bmaya_mcp"}
+    assert not {module for module in imported if module.split(".")[0] == "bmaya_cli"}

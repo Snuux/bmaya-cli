@@ -91,8 +91,8 @@ def test_command_runs_on_main_thread_in_undo_chunk(
         "result": {"echo": {"value": 3}, "thread": "fake-main"},
     }
     assert undo.events == [
-        "open bmaya-mcp test-client: echo",
-        "close bmaya-mcp test-client: echo",
+        "open bmaya test-client: echo",
+        "close bmaya test-client: echo",
     ]
 
 
@@ -300,8 +300,8 @@ def test_commands_listed_as_no_undo_chunk_run_outside_the_chunk(
     finally:
         bridge.stop()
     assert undo.events == [
-        "open bmaya-mcp test-client: echo",
-        "close bmaya-mcp test-client: echo",
+        "open bmaya test-client: echo",
+        "close bmaya test-client: echo",
     ]
 
 

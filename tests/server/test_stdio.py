@@ -14,17 +14,17 @@ from test_tools import PNG
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 LAUNCHERS = {
-    "server": "from bmaya_mcp.server import main; main()",
-    "cli": "import sys; from bmaya_mcp.cli import main; sys.exit(main())",
+    "server": "from bmaya_cli.server import main; main()",
+    "cli": "import sys; from bmaya_cli.cli import main; sys.exit(main())",
 }
 
 
 def launch_params(home: Path, launch: str) -> StdioServerParameters:
     env = {
         **os.environ,
-        "BMAYA_MCP_HOME": str(home),
+        "BMAYA_HOME": str(home),
         "PYTHONPATH": str(SRC),
-        "BMAYA_MCP_AUTOSTART": "off",
+        "BMAYA_AUTOSTART": "off",
     }
     return StdioServerParameters(command=sys.executable, args=["-c", launch], env=env)
 

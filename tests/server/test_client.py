@@ -7,7 +7,7 @@ import pytest
 from conftest import BridgeFactory
 from fake_bridge import DROP, FakeError, free_port
 
-from bmaya_mcp.client import BridgeClient, BridgeCommandError, BridgeConnectionError
+from bmaya_cli.client import BridgeClient, BridgeCommandError, BridgeConnectionError
 
 
 def test_request_returns_result_and_sends_envelope(make_bridge: BridgeFactory) -> None:

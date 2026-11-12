@@ -1,26 +1,27 @@
 [project]
-name = "bmaya-mcp"
-version = "0.2.0"
-description = "Lightweight MCP server for Autodesk Maya with a Blender-MCP-style tool surface"
+name = "bmaya-cli"
+version = "0.3.0"
+description = "Command-line tool that lets AI agents and scripts drive Autodesk Maya"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["mcp>=2,<3"]
 
 [project.urls]
-Homepage = "https://github.com/Snuux/bmaya-mcp"
-Repository = "https://github.com/Snuux/bmaya-mcp"
-Issues = "https://github.com/Snuux/bmaya-mcp/issues"
+Homepage = "https://github.com/Snuux/bmaya-cli"
+Repository = "https://github.com/Snuux/bmaya-cli"
+Issues = "https://github.com/Snuux/bmaya-cli/issues"
 
 [project.scripts]
-bmaya-mcp = "bmaya_mcp.cli:main"
+bmaya = "bmaya_cli.cli:main"
+bmaya-cli = "bmaya_cli.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bmaya_mcp"]
+packages = ["src/bmaya_cli"]
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.9"]
@@ -35,4 +36,4 @@ select = ["E", "F", "I", "UP", "B", "ANN"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "src/bmaya_mcp/maya/python"]
+pythonpath = ["src", "src/bmaya_cli/maya/python"]

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from bmaya_mcp import journal
+from bmaya_cli import journal
 
 CRASH_CODE = "import maya.cmds as cmds\nfor i in range(10):\n    cmds.polyCube()\n" + "x = 1\n" * 6
 ALIVE = {333}
@@ -61,5 +61,5 @@ def logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("BMAYA_MCP_HOME", str(tmp_path))
+    monkeypatch.setenv("BMAYA_HOME", str(tmp_path))
     return tmp_path

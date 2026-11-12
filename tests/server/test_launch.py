@@ -8,10 +8,10 @@ import pytest
 from conftest import BridgeFactory
 from fake_bridge import FakeBridge
 
-from bmaya_mcp import launch
-from bmaya_mcp.install import install
-from bmaya_mcp.launch import Launch, Launcher, LaunchError, MayaInstall, find_maya
-from bmaya_mcp.sessions import SessionError, SessionManager
+from bmaya_cli import launch
+from bmaya_cli.install import install
+from bmaya_cli.launch import Launch, Launcher, LaunchError, MayaInstall, find_maya
+from bmaya_cli.sessions import SessionError, SessionManager
 
 
 class FakeProcess:
@@ -167,7 +167,7 @@ def test_gui_launch_needs_the_installed_module(
     launcher = Launcher(
         tmp_path / "home", "gui", search_roots=[tmp_path / "apps"], maya_app_dir=app_dir
     )
-    with pytest.raises(LaunchError, match="bmaya-mcp install"):
+    with pytest.raises(LaunchError, match="bmaya install"):
         launcher.start()
     assert spawned == []
     install(app_dir)

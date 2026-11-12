@@ -16,18 +16,18 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult
 
-from bmaya_mcp.journal import find_crashes, find_session_log, read_records
-from bmaya_mcp.server import create_server
-from bmaya_mcp.sessions import SessionManager
+from bmaya_cli.journal import find_crashes, find_session_log, read_records
+from bmaya_cli.server import create_server
+from bmaya_cli.sessions import SessionManager
 
 REPO = Path(__file__).resolve().parents[2]
-BRIDGE_PATH = REPO / "src" / "bmaya_mcp" / "maya" / "python"
+BRIDGE_PATH = REPO / "src" / "bmaya_cli" / "maya" / "python"
 BRIDGE_SCRIPT = Path(__file__).with_name("bridge_process.py")
 
 
 class BridgeProcess:
     def __init__(self, home: Path, scene: str, timeout: float) -> None:
-        env = {**os.environ, "BMAYA_MCP_HOME": str(home), "PYTHONPATH": str(BRIDGE_PATH)}
+        env = {**os.environ, "BMAYA_HOME": str(home), "PYTHONPATH": str(BRIDGE_PATH)}
         self.process = subprocess.Popen(
             [sys.executable, str(BRIDGE_SCRIPT), "--scene", scene, "--timeout", str(timeout)],
             stdin=subprocess.PIPE,
@@ -60,7 +60,7 @@ Spawn = Callable[..., BridgeProcess]
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("BMAYA_MCP_HOME", str(tmp_path))
+    monkeypatch.setenv("BMAYA_HOME", str(tmp_path))
     return tmp_path
 
 

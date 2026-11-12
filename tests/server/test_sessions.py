@@ -5,8 +5,8 @@ import pytest
 from conftest import BridgeFactory
 from fake_bridge import DROP, FakeBridge, free_port
 
-from bmaya_mcp.client import BridgeConnectionError
-from bmaya_mcp.sessions import SessionError, SessionManager, bmaya_home
+from bmaya_cli.client import BridgeConnectionError
+from bmaya_cli.sessions import SessionError, SessionManager, bmaya_home
 
 
 def test_home_follows_environment(home: Path) -> None:
@@ -16,7 +16,7 @@ def test_home_follows_environment(home: Path) -> None:
 def test_no_sessions_tells_agent_to_start_maya(manager: SessionManager) -> None:
     with pytest.raises(SessionError, match="No Maya") as info:
         manager.resolve()
-    assert "bmaya-mcp install" in str(info.value)
+    assert "bmaya install" in str(info.value)
 
 
 def test_single_session_is_used_automatically(

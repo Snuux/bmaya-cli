@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
-BRIDGE_PATH = REPO / "src" / "bmaya_mcp" / "maya" / "python"
+BRIDGE_PATH = REPO / "src" / "bmaya_cli" / "maya" / "python"
 
 cmds: Any = None
 om: Any = None

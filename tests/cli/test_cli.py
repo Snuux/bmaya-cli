@@ -6,9 +6,9 @@ import pytest
 from bmaya_bridge.journal import Journal
 from bmaya_bridge.server import BridgeServer
 
-from bmaya_mcp import cli
-from bmaya_mcp.cli import build_parser, main
-from bmaya_mcp.launch import MayaInstall
+from bmaya_cli import cli
+from bmaya_cli.cli import build_parser, main
+from bmaya_cli.launch import MayaInstall
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def test_install_and_uninstall_report_paths(
     app_dir = tmp_path / "maya"
     assert main(["install", "--maya-app-dir", str(app_dir)]) == 0
     out = capsys.readouterr().out
-    assert str(app_dir / "modules" / "bmaya-mcp.mod") in out
+    assert str(app_dir / "modules" / "bmaya.mod") in out
     assert "restart Maya" in out
     assert main(["uninstall", "--maya-app-dir", str(app_dir)]) == 0
     assert "Removed" in capsys.readouterr().out
@@ -132,8 +132,8 @@ def test_doctor_reports_version_mismatch_and_last_crash(
 ) -> None:
     app_dir = tmp_path / "maya"
     main(["install", "--maya-app-dir", str(app_dir)])
-    mod_file = app_dir / "modules" / "bmaya-mcp.mod"
-    mod_file.write_text("+ bmaya-mcp 0.0.1 C:/old\n", encoding="utf-8")
+    mod_file = app_dir / "modules" / "bmaya.mod"
+    mod_file.write_text("+ bmaya 0.0.1 C:/old\n", encoding="utf-8")
     capsys.readouterr()
     main(["doctor", "--maya-app-dir", str(app_dir)])
     out = capsys.readouterr().out
@@ -148,7 +148,7 @@ def test_demo_without_maya_explains_what_to_do(
     assert main(["demo", "--out", str(tmp_path / "demo")]) == 1
     out = capsys.readouterr().out
     assert "Cannot run the demo: No Maya" in out
-    assert "bmaya-mcp doctor" in out
+    assert "bmaya doctor" in out
 
 
 def test_headless_without_a_maya_install_fails(
