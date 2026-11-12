@@ -30,6 +30,7 @@ CHILDREN_LIMIT = 20
 HISTORY_LIMIT = 15
 ANIM_LIMIT = 40
 MAX_UNDO_STEPS = 50
+MAX_UI_ENTRIES = 200
 HISTORY_NOISE = {"groupId", "groupParts", "tweak"}
 
 FILE_TYPES = {
@@ -340,10 +341,20 @@ def scene_file(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def undo_owner(blocker: str) -> str:
-    if blocker == clients.MAYA_UI:
-        return "in the Maya UI"
-    return f"by client '{blocker}'"
+def undo_owner(blocker: str, entry: str) -> str:
+    if blocker != clients.MAYA_UI:
+        return f"was made by client '{blocker}'"
+    if entry:
+        return f"('{entry}') was made in the Maya UI"
+    return "was made in the Maya UI"
+
+
+def undo_one() -> bool:
+    try:
+        cmds.undo()
+    except RuntimeError:
+        return False
+    return True
 
 
 def undo(params: dict[str, Any]) -> dict[str, Any]:
@@ -353,28 +364,50 @@ def undo(params: dict[str, Any]) -> dict[str, Any]:
             "Undo is turned off in this Maya session.",
             hint="Turn it on with execute_maya_code: cmds.undoInfo(state=True).",
         )
+    force = bool_param(params, "force")
     caller = clients.acting_client()
     undone = 0
+    ui_entries = 0
+    forced = 0
     blocker = ""
-    for _ in range(steps):
+    entry = ""
+    while undone < steps and ui_entries < MAX_UI_ENTRIES:
         if cmds.undoInfo(query=True, undoQueueEmpty=True):
             break
-        top = cmds.undoInfo(query=True, undoName=True) or ""
-        blocker = clients.undo_blocker(top, caller)
-        if blocker:
-            break
-        try:
-            cmds.undo()
-        except RuntimeError:
+        entry = cmds.undoInfo(query=True, undoName=True) or ""
+        blocker = clients.undo_blocker(entry, caller)
+        selection = clients.is_selection(entry, caller)
+        if selection or (force and blocker == clients.MAYA_UI):
+            blocker = ""
+            if not undo_one():
+                break
+            ui_entries += 1
+            forced += 0 if selection else 1
+            continue
+        if blocker or not undo_one():
             break
         undone += 1
+    if not undone:
+        # Nothing of the caller's was reverted, so the UI entries stepped over go back too.
+        for _ in range(ui_entries):
+            cmds.redo()
+        forced = 0
     if blocker and not undone:
+        if blocker == clients.MAYA_UI:
+            hint = (
+                "Ask the user first. force=true undoes changes made in the Maya UI on top of "
+                "your step together with it."
+            )
+        else:
+            hint = "Undoing it would revert their work. Ask the user how to proceed."
         raise BridgeError(
-            f"Nothing was undone: the latest change in this Maya was made {undo_owner(blocker)}, "
+            f"Nothing was undone: the latest change in this Maya {undo_owner(blocker, entry)}, "
             "and undo only reverts your own steps.",
-            hint="Undoing it would revert their work. Ask the user how to proceed.",
+            hint=hint,
         )
     result: dict[str, Any] = {"undone": undone}
+    if forced:
+        result["ui_entries_undone"] = forced
     if blocker:
         result["blocked_by"] = blocker
     elif undone < steps:

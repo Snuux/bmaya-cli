@@ -9,6 +9,7 @@ RECENT_CLIENT_SECONDS = 600.0
 CHUNK_PREFIX = "bmaya-mcp "
 OWNER_SEPARATOR = ": "
 MAYA_UI = "maya-ui"
+SELECTION_PREFIX = "select"
 
 
 def chunk_name(client: str, command: str) -> str:
@@ -32,6 +33,13 @@ def undo_blocker(top_name: str, caller: str) -> str:
     if owner == caller:
         return ""
     return owner or MAYA_UI
+
+
+def is_selection(top_name: str, caller: str) -> bool:
+    """A selection change made in the Maya UI; undo steps over it instead of stopping."""
+    if not caller or top_name.startswith(CHUNK_PREFIX):
+        return False
+    return top_name.startswith(SELECTION_PREFIX)
 
 
 class ClientTable:

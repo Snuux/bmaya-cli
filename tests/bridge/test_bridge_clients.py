@@ -35,6 +35,15 @@ def test_undo_is_allowed_only_on_own_entries() -> None:
     assert clients.undo_blocker("polyCube", "claude-12") == MAYA_UI
 
 
+def test_selection_changes_from_the_ui_do_not_block_undo() -> None:
+    assert clients.is_selection("select -r pCube1 ;", "claude-12")
+    assert clients.is_selection("selectionMaskResetAll", "claude-12")
+    assert not clients.is_selection("move -r 1 0 0", "claude-12")
+    assert not clients.is_selection("", "claude-12")
+    assert not clients.is_selection(clients.chunk_name("select-7", "undo"), "claude-12")
+    assert not clients.is_selection("select -r pCube1 ;", "")
+
+
 def test_caller_without_a_label_is_never_blocked() -> None:
     theirs = clients.chunk_name("codex-7", "execute_maya_code")
     assert clients.undo_blocker(theirs, "") == ""

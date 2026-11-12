@@ -381,7 +381,9 @@ def check_shared_maya() -> str:
         make("claude-1", "mine_b")
         make("codex-2", "theirs")
 
+        mel.eval("select -r mine_a")
         blocked = send("claude-1", "undo", steps=3)
+        assert cmds.ls(selection=True) == ["mine_a"], "a refused undo lost the selection"
         assert not blocked["ok"] and "codex-2" in blocked["error"]["message"], blocked
         assert cmds.objExists("theirs"), "undo reverted another client's step"
 
@@ -396,8 +398,18 @@ def check_shared_maya() -> str:
         manual = send("claude-1", "undo")
         assert not manual["ok"] and "Maya UI" in manual["error"]["message"], manual
         assert cmds.objExists("by_hand"), "undo reverted a change made in the UI"
-        cmds.undo()
+        forced = send("claude-1", "undo", force=True)
+        assert forced["ok"] and forced["result"]["undone"] == 1, forced
+        assert forced["result"]["ui_entries_undone"] == 1, forced
+        assert not cmds.objExists("by_hand") and not cmds.objExists("mine_b"), forced
+        make("claude-1", "mine_b")
+        make("codex-2", "theirs")
+        never = send("claude-1", "undo", force=True)
+        assert not never["ok"] and "codex-2" in never["error"]["message"], never
+        assert send("codex-2", "undo")["ok"]
 
+        mel.eval("select -r mine_a")
+        mel.eval("select -cl")
         own = send("claude-1", "undo", steps=5)
         assert own["ok"] and own["result"]["undone"] == 2, own
         assert own["result"].get("queue_empty") is True, own

@@ -22,9 +22,10 @@ def register(server: MCPServer, manager: SessionManager) -> None:
 
     @server.tool(
         description="Undo your last `steps` (max 50) changing tool calls. Stops at a change made "
-        "by another client or in the Maya UI and reports it as `blocked_by`.",
+        "by another client or in the Maya UI and reports it as `blocked_by`. `force` also "
+        "undoes UI changes on top of your steps, never another client's.",
         annotations=DESTRUCTIVE,
         structured_output=False,
     )
-    def undo(steps: int = 1) -> str:
-        return forward_text(manager, "undo", {"steps": steps})
+    def undo(steps: int = 1, force: bool = False) -> str:
+        return forward_text(manager, "undo", {"steps": steps, "force": force})
