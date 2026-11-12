@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 from conftest import BridgeFactory
 from fake_bridge import FakeError
 from mcp.client import Client
@@ -12,16 +13,19 @@ from mcp.client.stdio import StdioServerParameters
 from test_tools import PNG
 
 SRC = Path(__file__).resolve().parents[2] / "src"
-LAUNCH = "from bmaya_mcp.server import main; main()"
+LAUNCHERS = {
+    "server": "from bmaya_mcp.server import main; main()",
+    "cli": "import sys; from bmaya_mcp.cli import main; sys.exit(main())",
+}
 
 
-def launch_params(home: Path) -> StdioServerParameters:
+def launch_params(home: Path, launch: str) -> StdioServerParameters:
     env = {**os.environ, "BMAYA_MCP_HOME": str(home), "PYTHONPATH": str(SRC)}
-    return StdioServerParameters(command=sys.executable, args=["-c", LAUNCH], env=env)
+    return StdioServerParameters(command=sys.executable, args=["-c", launch], env=env)
 
 
-async def session_roundtrip(home: Path) -> dict[str, Any]:
-    async with Client(launch_params(home)) as client:
+async def session_roundtrip(home: Path, launch: str) -> dict[str, Any]:
+    async with Client(launch_params(home, launch)) as client:
         tools = await client.list_tools()
         scene = await client.call_tool("get_scene_info", {"query": "cube"})
         shot = await client.call_tool("get_viewport_screenshot", {})
@@ -35,8 +39,9 @@ async def session_roundtrip(home: Path) -> dict[str, Any]:
         }
 
 
+@pytest.mark.parametrize("launcher", sorted(LAUNCHERS))
 def test_real_stdio_server_talks_to_fake_bridge(
-    home: Path, make_bridge: BridgeFactory, tmp_path: Path
+    home: Path, make_bridge: BridgeFactory, tmp_path: Path, launcher: str
 ) -> None:
     shot = tmp_path / "shot.png"
     shot.write_bytes(PNG)
@@ -57,7 +62,7 @@ def test_real_stdio_server_talks_to_fake_bridge(
     )
     bridge.write_registry(home, 100)
 
-    outcome = asyncio.run(session_roundtrip(home))
+    outcome = asyncio.run(session_roundtrip(home, LAUNCHERS[launcher]))
 
     assert len(outcome["tools"]) == 11
     assert "list_sessions" in outcome["instructions"]
