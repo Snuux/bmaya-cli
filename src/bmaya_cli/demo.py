@@ -9,7 +9,6 @@ from typing import Any
 from bmaya_cli.client import BridgeCommandError, BridgeConnectionError
 from bmaya_cli.sessions import SessionError, SessionManager
 
-CLIENT_LABEL = "bmaya-demo"
 FIRST_FRAME = 1
 LAST_FRAME = 24
 SHEET_FRAMES = "1,7,13,19"
@@ -233,7 +232,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
 
 def run_demo(out_dir: Path, session_id: str = "") -> int:
-    manager = SessionManager(label=CLIENT_LABEL, override=session_id)
+    manager = SessionManager(override=session_id)
     try:
         return Demo(manager, out_dir).run()
     except SessionError as exc:

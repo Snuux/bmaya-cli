@@ -2,7 +2,7 @@
 
 You control Autodesk Maya by running `bmaya` commands in a shell. This is Maya, not Blender: use `maya.cmds`, never `bpy`.
 
-Every command prints one line of JSON on stdout. An error goes to stderr as `error: ...` and `hint: ...`, and the hint says what to do next. `bmaya COMMAND --help` lists the flags of one command. The exceptions that print plain text are `guide`, `doctor`, `logs`, `install` and `demo`.
+Every command prints one line of JSON on stdout. An error goes to stderr as `error: ...` and `hint: ...`, and the hint says what to do next. `bmaya COMMAND --help` lists the flags of one command. The exceptions that print plain text are `guide`, `doctor`, `logs`, `install`, `uninstall` and `demo`.
 
 Exit codes: `0` done, `1` failed, `2` bad arguments, `3` not ready. Code 3 means Maya is still starting, or still busy with a command you already sent. Do not send that command again: wait, then check `bmaya sessions`.
 

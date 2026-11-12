@@ -286,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop = add(
         "stop",
         "cmd_stop",
-        "stop a Maya that bmaya started",
+        "stop a Maya that runs without a window",
         "Ends a Maya that runs without a window. It is refused when the scene has unsaved\n"
         "changes or another client used that Maya in the last 10 minutes; save first, or pass\n"
         "--force. A Maya with a window is the user's and is never stopped from here.",

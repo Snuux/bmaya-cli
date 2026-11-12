@@ -345,7 +345,7 @@ def stop(params: dict[str, Any]) -> dict[str, Any]:
         raise BridgeError(
             "This Maya has a window and belongs to the user, so it is not stopped from the "
             "command line.",
-            hint="Ask the user to close it. `bmaya stop` ends a Maya started with `bmaya start`.",
+            hint="Ask the user to close it. `bmaya stop` only ends a Maya without a window.",
         )
     refuse_shared("stop", force)
     refuse_unsaved("stop", force)
