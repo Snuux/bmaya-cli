@@ -55,9 +55,15 @@ class Session:
 
 
 class SessionManager:
-    def __init__(self, home: Path | None = None, label: str | None = None) -> None:
+    def __init__(
+        self,
+        home: Path | None = None,
+        label: str | None = None,
+        ping_timeout: float = PING_TIMEOUT,
+    ) -> None:
         self.home = home or bmaya_home()
         self.label = label
+        self.ping_timeout = ping_timeout
         self.current: str | None = None
         self._clients: dict[str, BridgeClient] = {}
         self._last_command: dict[str, str] = {}
@@ -155,7 +161,11 @@ class SessionManager:
             busy=False,
         )
         probe = BridgeClient(
-            port, token, self.label, connect_timeout=PING_TIMEOUT, read_timeout=PING_TIMEOUT
+            port,
+            token,
+            self.label,
+            connect_timeout=self.ping_timeout,
+            read_timeout=self.ping_timeout,
         )
         try:
             info = probe.request("ping")
@@ -209,8 +219,8 @@ class SessionManager:
             session.port,
             session.token,
             self.label,
-            connect_timeout=PING_TIMEOUT,
-            read_timeout=PING_TIMEOUT,
+            connect_timeout=self.ping_timeout,
+            read_timeout=self.ping_timeout,
         )
         try:
             probe.request("ping")

@@ -1,3 +1,4 @@
+import functools
 import json
 import logging
 import os
@@ -61,6 +62,7 @@ def parent_process_name() -> str | None:
     return name.lower() or None
 
 
+@functools.cache
 def default_client_label() -> str:
     return f"{parent_process_name() or 'agent'}-{os.getpid()}"
 
