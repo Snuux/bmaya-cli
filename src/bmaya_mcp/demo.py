@@ -52,7 +52,7 @@ cmds.sets(geo, edit=True, forceElement=engine)
 
 root = cmds.group(geo, name="barrel_root")
 if parent:
-    root = cmds.parent(root, parent)[0]
+    root = cmds.parent(root, parent, relative=True)[0]
 camera = cmds.rename(cmds.camera(focalLength=35)[0], "barrel_cam")
 if parent:
     camera = cmds.parent(camera, parent)[0]
