@@ -198,8 +198,24 @@ def check_execute_maya_code() -> str:
 
 
 def check_get_viewport_screenshot() -> str:
-    expect_error("get_viewport_screenshot", "batch")
-    return "BridgeError in batch mode as expected"
+    cmds.file(modified=False)
+    materials = sorted(cmds.ls(materials=True))
+    single = assert_read_only("get_viewport_screenshot", max_size=400)
+    assert single["offscreen"] is True and single["frames"] == [1], single
+    assert (single["width"], single["height"]) == (400, 225), single
+    assert Path(single["path"]).stat().st_size > 1000, single
+    assert not cmds.file(query=True, modified=True), "the screenshot marked the scene modified"
+    assert sorted(cmds.ls(materials=True)) == materials, "a stand-in material was left behind"
+    assert not cmds.getAttr("defaultRenderGlobals.imageFilePrefix"), "render prefix not restored"
+
+    sheet = assert_read_only("get_viewport_screenshot", frames="1,12,24", camera="top")
+    assert sheet["frames"] == [1, 12, 24] and sheet["camera"] == "top", sheet
+    assert Path(sheet["path"]).is_file(), sheet
+    leftovers = [p.name for p in Path(sheet["path"]).parent.glob("offscreen-*")]
+    assert not leftovers, leftovers
+    assert cmds.currentTime(query=True) == 1.0, "the screenshot moved the current time"
+    expect_error("get_viewport_screenshot", "camera", camera="crate")
+    return f"offscreen frame {single['width']}x{single['height']} and contact sheet ok"
 
 
 def check_audit_mesh() -> str:
@@ -343,8 +359,71 @@ def check_bridge_dispatch() -> str:
     return f"undo removed only 'second', next undo: {undone['result'].get('next')}"
 
 
+def check_shared_maya() -> str:
+    from bmaya_bridge.journal import Journal
+    from bmaya_bridge.server import BridgeServer
+
+    journal = Journal(WORK_DIR / "logs-shared", crash_log=False)
+    bridge = BridgeServer(journal, schedule=lambda callback: callback())
+
+    def send(client: str, command: str, **params: object) -> dict[str, Any]:
+        request = {"id": 1, "client": client, "command": command, "params": params}
+        return bridge.handle(request)
+
+    def make(client: str, name: str) -> None:
+        reply = send(client, "execute_maya_code", code=f"cmds.polyCube(name='{name}')")
+        assert reply["ok"], reply
+
+    try:
+        cmds.file(new=True, force=True)
+        cmds.flushUndo()
+        make("claude-1", "mine_a")
+        make("claude-1", "mine_b")
+        make("codex-2", "theirs")
+
+        blocked = send("claude-1", "undo", steps=3)
+        assert not blocked["ok"] and "codex-2" in blocked["error"]["message"], blocked
+        assert cmds.objExists("theirs"), "undo reverted another client's step"
+
+        partial = send("codex-2", "undo", steps=3)
+        assert partial["ok"], partial
+        assert partial["result"]["undone"] == 1, partial
+        assert partial["result"]["blocked_by"] == "claude-1", partial
+        assert "queue_empty" not in partial["result"], partial
+        assert cmds.objExists("mine_b") and not cmds.objExists("theirs"), partial
+
+        cmds.polySphere(name="by_hand")
+        manual = send("claude-1", "undo")
+        assert not manual["ok"] and "Maya UI" in manual["error"]["message"], manual
+        assert cmds.objExists("by_hand"), "undo reverted a change made in the UI"
+        cmds.undo()
+
+        own = send("claude-1", "undo", steps=5)
+        assert own["ok"] and own["result"]["undone"] == 2, own
+        assert own["result"].get("queue_empty") is True, own
+        assert not cmds.objExists("mine_a"), own
+
+        cmds.file(modified=False)
+        refused = send("claude-1", "scene_file", action="new")
+        assert not refused["ok"] and "codex-2" in refused["error"]["message"], refused
+        assert "force" in refused["error"]["hint"], refused
+        scene = str(WORK_DIR / "scenes" / "check.ma")
+        refused_open = send("claude-1", "scene_file", action="open", path=scene)
+        assert not refused_open["ok"] and "codex-2" in refused_open["error"]["message"]
+        forced = send("claude-1", "scene_file", action="new", force=True)
+        assert forced["ok"], forced
+
+        alone = BridgeServer(journal, schedule=lambda callback: callback())
+        request = {"id": 1, "client": "claude-1", "command": "scene_file"}
+        assert alone.handle({**request, "params": {"action": "new"}})["ok"]
+    finally:
+        journal.close()
+    return "undo stops at other clients and UI edits, scene_file guards a shared Maya"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("bridge dispatch", check_bridge_dispatch),
+    ("shared maya", check_shared_maya),
 ]
 
 CHECKS: list[tuple[str, Callable[[], str]]] = [
