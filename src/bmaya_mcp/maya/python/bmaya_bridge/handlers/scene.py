@@ -68,13 +68,18 @@ def root_of(path: str) -> str:
     return "|" + path.lstrip("|").split("|", 1)[0]
 
 
+def known_node_types() -> set[str]:
+    names = cmds.allNodeTypes(includeAbstract=True) or []
+    return {name.replace(" (abstract)", "") for name in names}
+
+
 def find_nodes(query: str, node_type: str) -> list[str]:
     roots = cmds.ls(assemblies=True, long=True) or []
     camera_roots = {root for root in roots if is_default_camera(root)}
     if not query and not node_type:
         return [root for root in roots if root not in camera_roots]
 
-    if node_type and node_type not in cmds.allNodeTypes():
+    if node_type and node_type not in known_node_types():
         raise BridgeError(
             f"Unknown node type '{node_type}'.",
             hint="Use a Maya node type such as mesh, joint, camera, transform or skinCluster.",
