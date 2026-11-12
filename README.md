@@ -77,11 +77,11 @@ Restart Maya, then check:
 bmaya-mcp doctor
 ```
 
-It reports the installed module, the Maya that autostart would use, live sessions, stale entries and the last crash.
+It reports the installed module and its version, the Maya that autostart would use, live sessions, stale entries and the last crash.
 
 The module is only for a Maya you open yourself. A [headless Maya](#headless-and-autostart) needs no install.
 
-To update: `git pull`, `uv tool install --reinstall ./bmaya-mcp`, then `bmaya-mcp install` again.
+To update: `git pull`, `uv tool install --reinstall ./bmaya-mcp`, then `bmaya-mcp install` again, and restart Maya and your MCP client. A Maya that still runs an older bridge lacks the newer behaviour; `doctor` shows the version mismatch.
 
 ## Connect your agent
 
@@ -139,7 +139,7 @@ GUI apps often don't see your shell PATH. If the client can't start `bmaya-mcp`,
 | `get_animation_info` | Curves, key ranges, tangents, fps, skeletons, skin clusters, blend shapes, anim layers. |
 | `export_fbx` | FBX with a `unity`, `unreal` or `godot` preset, optionally selection only and with baked animation. |
 | `scene_file` | `new`, `open`, `save` (save-as with a path), `import` (`.ma`, `.mb`, `.fbx`, `.obj`). `new` and `open` refuse to discard unsaved changes, or to replace the scene in a Maya another agent used in the last 10 minutes, unless `force` is set. |
-| `undo` | Undo your last N steps, one per `execute_maya_code` call. Stops at a step made by another agent or in the Maya UI and names it in `blocked_by`. |
+| `undo` | Undo your last N steps, one per `execute_maya_code` call. Stops at a step made by another agent or in the Maya UI and names it in `blocked_by`; `force` also undoes the UI changes. |
 | `list_sessions` | Running Mayas: id, scene, Maya version, busy, clients working in it, current, headless. |
 | `use_session` | Pick the Maya the next tools talk to. |
 
@@ -160,7 +160,7 @@ The server pings every entry and deletes those whose Maya is dead. A Maya that d
 Several agents can pick the same Maya. Commands still run one at a time, and the bridge keeps the agents out of each other's way:
 
 - `list_sessions` shows `clients`: how many agents are connected to that Maya and have run a command in it. Pings and listings don't count.
-- `undo` reverts only the caller's own steps. Maya has one undo queue, so an agent can undo only while its own step is on top. If the latest change came from another agent or from you in the Maya UI, undo stops there and says who made it (`blocked_by`).
+- `undo` reverts only the caller's own steps. Maya has one undo queue, so an agent can undo only while its own step is on top. If the latest change came from another agent or from you in the Maya UI, undo stops there and says who made it (`blocked_by`). Selection changes don't count: undo steps over them. With `force=true` the agent undoes your UI changes on top of its step together with the step; another agent's steps are never undone.
 - `scene_file` `new` and `open` are refused without `force` when another agent ran a command in that Maya during the last 10 minutes. `save` and `import` are not restricted.
 
 ## Headless and autostart
@@ -248,7 +248,7 @@ This is not a sandbox. Any local process that can read your home folder can read
 
 **"Maya is starting", again and again.** Look at the newest `~/.bmaya-mcp/logs/launch-*.log`: it holds the output of the Maya that was started. A missing license is the usual reason.
 
-**"Nothing was undone."** The latest change in that Maya is not yours. See [Sharing one Maya](#sharing-one-maya).
+**"Nothing was undone."** The latest change in that Maya is not the agent's. The message names it. Maya's own startup scripts can leave such an entry while Maya is still loading; let the agent repeat with `force`. See [Sharing one Maya](#sharing-one-maya).
 
 **"Several Maya sessions are running."** Call `list_sessions`, then `use_session` with an id.
 
