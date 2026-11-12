@@ -27,19 +27,19 @@
   <rect class="box" x="40" y="308" width="260" height="84" rx="14"/>
   <circle cx="70" cy="340" r="7" fill="#f2b866"/>
   <text class="title" x="86" y="346">Agent C</text>
-  <text class="sub" x="64" y="374">Claude Code, UVs for the props</text>
+  <text class="sub" x="64" y="374">Cursor, UVs for the props</text>
 
   <path class="flow" d="M 302 126 L 858 126" stroke="#7fd1a8"/>
   <rect x="470" y="113" width="190" height="26" rx="13" fill="#12151c" stroke="#2f5a46"/>
-  <text class="mono" x="565" y="131" font-size="13" fill="#7fd1a8" text-anchor="middle">use_session 4120</text>
+  <text class="mono" x="565" y="131" font-size="13" fill="#7fd1a8" text-anchor="middle">bmaya use 4120</text>
 
   <path class="flow" d="M 302 238 C 520 238, 640 244, 858 244" stroke="#b48cf2"/>
   <rect x="470" y="227" width="190" height="26" rx="13" fill="#12151c" stroke="#4a3a66"/>
-  <text class="mono" x="565" y="245" font-size="13" fill="#b48cf2" text-anchor="middle">use_session 7788</text>
+  <text class="mono" x="565" y="245" font-size="13" fill="#b48cf2" text-anchor="middle">bmaya use 7788</text>
 
   <path class="flow" d="M 302 350 C 520 350, 640 284, 858 284" stroke="#f2b866"/>
   <rect x="470" y="305" width="190" height="26" rx="13" fill="#12151c" stroke="#6b5330"/>
-  <text class="mono" x="565" y="323" font-size="13" fill="#f2b866" text-anchor="middle">use_session 7788</text>
+  <text class="mono" x="565" y="323" font-size="13" fill="#f2b866" text-anchor="middle">bmaya use 7788</text>
 
   <g>
     <rect class="box" x="860" y="84" width="300" height="84" rx="12" stroke="#2f5a46"/>
@@ -57,7 +57,9 @@
   <g opacity="0.6">
     <rect class="box" x="860" y="348" width="300" height="72" rx="12" stroke-dasharray="6 5"/>
     <text class="title mono" x="884" y="378" font-size="16">Maya · 9012</text>
-    <text class="sub mono" x="884" y="402" font-size="13">headless, started on demand</text>
+    <text class="sub mono" x="884" y="402" font-size="13">no window: bmaya start / stop</text>
   </g>
+
+  <text class="sub mono" x="40" y="428" font-size="13">each agent's choice: ~/.bmaya/clients/&lt;label&gt;.json</text>
 
 </svg>

@@ -24,21 +24,22 @@
   <rect y="50" width="1200" height="340" rx="18" fill="#12151c"/>
 
   <rect class="box" x="40" y="90" width="250" height="150" rx="14"/>
-  <text class="title" x="64" y="130">Your agent</text>
-  <text class="sub" x="64" y="160">Claude Code</text>
-  <text class="sub" x="64" y="182">Claude Desktop, Codex</text>
-  <text class="sub" x="64" y="204">or any MCP client</text>
+  <text class="title" x="64" y="130">Agent or script</text>
+  <text class="sub" x="64" y="160">Claude Code, Codex, Cursor</text>
+  <text class="sub" x="64" y="182">a shell script, CI</text>
+  <text class="sub" x="64" y="204">anything that has a shell</text>
 
   <line class="wire" x1="292" y1="165" x2="400" y2="165" marker-end="url(#arrow)"/>
-  <text class="label mono" x="346" y="152" text-anchor="middle">stdio</text>
+  <text class="label mono" x="346" y="152" text-anchor="middle">shell</text>
   <circle class="p1" cx="296" cy="165" r="4" fill="#7fd1a8"/>
   <circle class="p1" cx="296" cy="165" r="4" fill="#7fd1a8" style="animation-delay: 1.2s"/>
 
   <rect class="box" x="404" y="90" width="270" height="150" rx="14"/>
-  <text class="title mono" x="428" y="130" font-size="19">bmaya-mcp</text>
-  <text class="sub" x="428" y="160">11 tools, compact JSON</text>
-  <text class="sub" x="428" y="182">finds a running Maya or starts one</text>
-  <text class="sub" x="428" y="204">remembers which one is yours</text>
+  <text class="title mono" x="428" y="130" font-size="19">bmaya</text>
+  <text class="sub" x="428" y="158">one short process per command</text>
+  <text class="sub" x="428" y="179">one line of JSON on stdout</text>
+  <text class="sub" x="428" y="200">finds a running Maya or starts one</text>
+  <text class="sub" x="428" y="221">keeps your choice of Maya on disk</text>
 
   <line class="wire" x1="676" y1="165" x2="784" y2="165" marker-end="url(#arrow)"/>
   <text class="label mono" x="730" y="146" text-anchor="middle">TCP</text>
@@ -52,7 +53,7 @@
 
   <rect class="box" x="808" y="116" width="332" height="98" rx="12"/>
   <text class="title mono" x="830" y="150" font-size="18">bmaya_bridge</text>
-  <text class="sub" x="830" y="176">plain stdlib Python, with or without the UI</text>
+  <text class="sub" x="830" y="176">plain stdlib Python, with or without a UI</text>
   <text class="sub" x="830" y="198">random port, never a fixed one</text>
 
   <line class="wire" x1="974" y1="216" x2="974" y2="244" marker-end="url(#arrow)"/>
@@ -62,7 +63,7 @@
   <rect class="chip" x="830" y="294" width="140" height="24" rx="12"/>
   <text class="chiptext" x="900" y="311" text-anchor="middle">one at a time</text>
   <rect class="chip" x="978" y="294" width="144" height="24" rx="12"/>
-  <text class="chiptext" x="1050" y="311" text-anchor="middle">one undo chunk</text>
+  <text class="chiptext" x="1050" y="311" text-anchor="middle">undo step per exec</text>
 
   <rect class="box" x="40" y="280" width="634" height="88" rx="14"/>
   <text x="64" y="314" font-size="15" font-weight="600" fill="#eef1f6">Crash journal</text>

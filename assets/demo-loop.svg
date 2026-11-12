@@ -25,7 +25,7 @@
     <rect class="step" x="40" y="86" width="192" height="128" rx="12"/>
     <circle cx="66" cy="112" r="12" fill="#f0a35a"/><text class="num" x="66" y="117" text-anchor="middle">1</text>
     <text class="title" x="88" y="118">Build</text>
-    <text class="mono" x="58" y="152">execute_maya_code</text>
+    <text class="mono" x="58" y="152">bmaya exec</text>
     <text x="58" y="180" font-size="13" fill="#aab3c5">a low-poly barrel</text>
     <text x="58" y="198" font-size="13" fill="#aab3c5">with a material</text>
   </g>
@@ -34,7 +34,7 @@
     <rect class="step" x="267" y="86" width="192" height="128" rx="12"/>
     <circle cx="293" cy="112" r="12" fill="#f0a35a"/><text class="num" x="293" y="117" text-anchor="middle">2</text>
     <text class="title" x="315" y="118">Animate</text>
-    <text class="mono" x="285" y="152">execute_maya_code</text>
+    <text class="mono" x="285" y="152">bmaya exec</text>
     <text x="285" y="180" font-size="13" fill="#aab3c5">keys a bounce and spin</text>
     <text x="285" y="198" font-size="13" fill="#aab3c5">over frames 1-24</text>
   </g>
@@ -42,17 +42,17 @@
     <rect class="glow g3" x="490" y="82" width="200" height="136" rx="14" fill="none" stroke="#f0a35a" stroke-width="2"/>
     <rect class="step" x="494" y="86" width="192" height="128" rx="12"/>
     <circle cx="520" cy="112" r="12" fill="#f0a35a"/><text class="num" x="520" y="117" text-anchor="middle">3</text>
-    <text class="title" x="542" y="118">Audit</text>
-    <text class="mono" x="512" y="152">audit_mesh</text>
+    <text class="title" x="542" y="118">Check</text>
+    <text class="mono" x="512" y="152">bmaya audit / anim</text>
     <text x="512" y="180" font-size="13" fill="#aab3c5">n-gons, UVs, history,</text>
-    <text x="512" y="198" font-size="13" fill="#aab3c5">transforms, names</text>
+    <text x="512" y="198" font-size="13" fill="#aab3c5">names, curves and keys</text>
   </g>
   <g>
     <rect class="glow g4" x="717" y="82" width="200" height="136" rx="14" fill="none" stroke="#f0a35a" stroke-width="2"/>
     <rect class="step" x="721" y="86" width="192" height="128" rx="12"/>
     <circle cx="747" cy="112" r="12" fill="#f0a35a"/><text class="num" x="747" y="117" text-anchor="middle">4</text>
     <text class="title" x="769" y="118">Ship</text>
-    <text class="mono" x="739" y="152">export_fbx</text>
+    <text class="mono" x="739" y="152">bmaya export</text>
     <text x="739" y="180" font-size="13" fill="#aab3c5">prop.fbx with</text>
     <text x="739" y="198" font-size="13" fill="#aab3c5">the Unity preset</text>
   </g>
@@ -61,7 +61,7 @@
     <rect class="step" x="948" y="86" width="212" height="128" rx="12"/>
     <circle cx="974" cy="112" r="12" fill="#f0a35a"/><text class="num" x="974" y="117" text-anchor="middle">5</text>
     <text class="title" x="996" y="118">Look</text>
-    <text class="mono" x="966" y="152">get_viewport_screenshot</text>
+    <text class="mono" x="966" y="152">bmaya shot --frames</text>
     <text x="966" y="180" font-size="13" fill="#aab3c5">a contact sheet of</text>
     <text x="966" y="198" font-size="13" fill="#aab3c5">four frames</text>
   </g>
