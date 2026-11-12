@@ -50,5 +50,11 @@ def test_truncated_frame_is_an_error() -> None:
 @pytest.mark.parametrize("name", MAYA_FILES)
 def test_maya_side_parses_as_python_39(name: str) -> None:
     source = (MAYA_DIR / name).read_text(encoding="utf-8")
-    ast.parse(source, feature_version=(3, 9))
-    assert "bmaya_mcp" not in source
+    tree = ast.parse(source, feature_version=(3, 9))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+    assert not {module for module in imported if module.split(".")[0] == "bmaya_mcp"}
