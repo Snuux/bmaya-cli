@@ -1,6 +1,6 @@
 [project]
 name = "bmaya-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lightweight MCP server for Autodesk Maya with a Blender-MCP-style tool surface"
 readme = "README.md"
 license = "MIT"

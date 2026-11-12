@@ -2,6 +2,6 @@ from __future__ import annotations
 
 from bmaya_bridge.server import is_running, start, stop
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__", "is_running", "start", "stop"]
