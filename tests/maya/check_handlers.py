@@ -19,6 +19,7 @@ BRIDGE_PATH = REPO / "src" / "bmaya_mcp" / "maya" / "python"
 
 cmds: Any = None
 om: Any = None
+mel: Any = None
 COMMANDS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {}
 BridgeError: type[Exception] = Exception
 WORK_DIR = Path(tempfile.mkdtemp(prefix="bmaya-check-"))
@@ -145,6 +146,8 @@ def check_get_scene_info() -> str:
     assert [n["name"] for n in found["nodes"]] == ["crate"], found
     limited = call("get_scene_info", query="dup*", limit=1)
     assert limited["shown"] == 1 and limited["total"] > 1, limited
+    for abstract in ("light", "constraint", "shape"):
+        call("get_scene_info", node_type=abstract)
     expect_error("get_scene_info", "node type", node_type="notAType")
     return f"{info['total']} top nodes, joints={joints['total']}, query/limit ok"
 
@@ -253,10 +256,15 @@ def check_export_fbx() -> str:
     result = call("export_fbx", path=str(target), preset="unreal", animation=True)
     assert target.is_file() and result["size"] == target.stat().st_size > 0, result
     assert result["options"]["triangulate"] is True and result["options"]["bake"] == [1, 24]
+    assert mel.eval("FBXExportTriangulate -q") == 1, "unreal triangulate not applied"
+    assert mel.eval("FBXExportSmoothingGroups -q") == 1, "unreal smoothing groups not applied"
+    assert mel.eval("FBXExportBakeComplexEnd -q") == 24, "bake end not applied"
     assert cmds.ls(selection=True) == ["crate"], cmds.ls(selection=True)
 
     only = call("export_fbx", path=str(WORK_DIR / "crate.fbx"), selection_only=True)
     assert only["preset"] == "unity" and only["nodes"]["items"] == ["crate"], only
+    assert mel.eval("FBXExportTriangulate -q") == 0, "unity triangulate not applied"
+    assert mel.eval("FBXExportCameras -q") == 0, "cameras not turned off"
 
     cmds.select(clear=True)
     expect_error("export_fbx", "nothing is selected", path=str(target), selection_only=True)
@@ -319,7 +327,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
 
 
 def main() -> int:
-    global cmds, om, COMMANDS, BridgeError
+    global cmds, om, mel, COMMANDS, BridgeError
 
     import maya.standalone
 
@@ -330,8 +338,10 @@ def main() -> int:
     from bmaya_bridge.errors import BridgeError as bridge_error
     from bmaya_bridge.handlers import COMMANDS as commands
     from maya import cmds as maya_cmds
+    from maya import mel as maya_mel
 
     cmds = maya_cmds
+    mel = maya_mel
     om = openmaya
     COMMANDS = commands
     BridgeError = bridge_error

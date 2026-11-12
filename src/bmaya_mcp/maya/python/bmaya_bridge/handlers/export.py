@@ -17,13 +17,14 @@ from bmaya_bridge.handlers._common import (
 
 NODE_LIMIT = 30
 
+# Units are not converted: FBXExportConvertUnitString has no effect in Maya 2027, and Unity,
+# Unreal and Godot all read the file's UnitScaleFactor, which follows the scene's linear unit.
 # Unreal gets triangulation and smoothing groups so its tangent space matches a bake
 # done on the exported triangles and its importer stops warning about smoothing.
 # Unity and Godot triangulate on import, so the source quads are kept.
 PRESETS: dict[str, dict[str, Any]] = {
     "unity": {
         "up_axis": "y",
-        "units": "cm",
         "triangulate": False,
         "smoothing_groups": False,
         "tangents": True,
@@ -31,7 +32,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "unreal": {
         "up_axis": "y",
-        "units": "cm",
         "triangulate": True,
         "smoothing_groups": True,
         "tangents": True,
@@ -39,7 +39,6 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     "godot": {
         "up_axis": "y",
-        "units": "m",
         "triangulate": False,
         "smoothing_groups": False,
         "tangents": True,
@@ -114,8 +113,6 @@ def apply_options(options: dict[str, Any]) -> None:
     commands = [
         "FBXResetExport",
         f"FBXExportUpAxis {options['up_axis']}",
-        f"FBXExportConvertUnitString {options['units']}",
-        "FBXExportScaleFactor 1.0",
         f"FBXExportTriangulate -v {mel_bool(options['triangulate'])}",
         f"FBXExportSmoothingGroups -v {mel_bool(options['smoothing_groups'])}",
         f"FBXExportHardEdges -v {mel_bool(options['hard_edges'])}",
@@ -183,6 +180,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
 
     options: dict[str, Any] = dict(PRESETS[preset])
     options.update(COMMON_OPTIONS)
+    options["units"] = cmds.currentUnit(query=True, linear=True)
     options["animation"] = animation
     if animation:
         start, end = bake_range(params)
