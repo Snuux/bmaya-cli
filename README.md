@@ -167,6 +167,7 @@ Every command prints one line of JSON on stdout. Errors go to stderr as `error:`
 Exit code 3 means Maya is still starting or still busy: wait and check `bmaya sessions`, do not send the command again.
 Pass multi-line code through stdin (`bmaya exec <<'PY' ... PY`) or `bmaya exec -f FILE`, not as an argument.
 Look at your work with `bmaya shot -o shot.png` and open that file.
+If a `note:` line says a Maya was started for you, save with `bmaya file save PATH` and run `bmaya stop` when the work is done.
 ```
 
 `bmaya guide` prints the manual for agents: the working loop, a Blender-to-Maya map and recipes for modeling, UVs, materials, animation and skinning.
@@ -217,6 +218,7 @@ The commands that talk to Maya (`scene` through `stop`) accept two more flags, b
 ### Output and exit codes
 
 - stdout carries one line of compact JSON. `guide`, `doctor`, `logs`, `install`, `uninstall` and `demo` print plain text instead.
+- When a command had to start Maya, stderr carries one `note: ...` line with the new session id; the exit code is still 0.
 - An error goes to stderr as an `error: ...` line and, when there is advice, a `hint: ...` line. If the Python code in `bmaya exec` raised, the message starts with the exception name, and what the code printed before it failed follows.
 - Relative paths are resolved against the directory you run `bmaya` in.
 

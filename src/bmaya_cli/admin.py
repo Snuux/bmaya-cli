@@ -27,6 +27,8 @@ from bmaya_cli.launch import MAYA_ENV, MODE_ENV, OFF, autostart_mode, find_maya
 from bmaya_cli.sessions import bmaya_home
 
 DOCTOR_LABEL = "bmaya-doctor"
+# Every command opens its own short connections; in a tail they bury the commands.
+CONNECTION_EVENTS = ("client_connect", "client_disconnect")
 
 
 def resolve_app_dir(app_dir: Path | None) -> Path:
@@ -206,7 +208,7 @@ def cmd_logs(args: argparse.Namespace) -> int:
         which = f"session {session}" if session is not None else "any session"
         print(f"No journal for {which} in {logs}")
         return 1
-    records = read_records(log.path)
+    records = [r for r in read_records(log.path) if r.get("event") not in CONNECTION_EVENTS]
     shown = records[-args.tail :] if args.tail > 0 else records
     print(f"Session {log.pid}: {log.path} ({len(shown)} of {len(records)} records)")
     for record in shown:

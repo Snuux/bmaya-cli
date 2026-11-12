@@ -86,6 +86,7 @@ class SessionManager:
         self.launcher = launcher
         self.launch_wait = LAUNCH_WAIT if launch_wait is None else launch_wait
         self.override = override.strip()
+        self.autostarted: Session | None = None
         self._store = store
         # Each command is its own process, so what a long-lived server would keep in memory
         # is read from the client's state file and written back.
@@ -165,7 +166,9 @@ class SessionManager:
     def _autostart(self) -> list[Session]:
         if self.launcher is None:
             raise SessionError(self._no_session_message())
-        return self._await(self._launch(), set(), self.launch_wait)
+        sessions = self._await(self._launch(), set(), self.launch_wait)
+        self.autostarted = sessions[0]
+        return sessions
 
     def _launch(self) -> Launch:
         assert self.launcher is not None

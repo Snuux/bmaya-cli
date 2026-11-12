@@ -13,7 +13,8 @@ bmaya drives Autodesk Maya from the command line, for AI agents and scripts.
 
 Each command talks to a running Maya, prints one line of JSON on stdout and exits.
 Errors go to stderr as "error: ..." and "hint: ..." lines. With no Maya running,
-the first command starts one without a window; it stays up until `bmaya stop`.
+the first command starts one without a window and says so in a "note: ..." line
+on stderr; that Maya stays up until `bmaya stop`.
 """
 
 EPILOG = """\
@@ -25,10 +26,11 @@ exit codes:
      sent. Do not resend that command; wait and check `bmaya sessions`.
 
 a typical loop:
-  bmaya scene                               what is in the scene
-  bmaya exec "cmds.polyCube(name='crate')"  change it with maya.cmds
-  bmaya shot -o shot.png                    look at the result
-  bmaya undo                                take your last step back
+  bmaya scene                               # what is in the scene
+  bmaya exec "cmds.polyCube(name='crate')"  # change it with maya.cmds
+  bmaya shot -o shot.png                    # look at the result
+  bmaya undo                                # take your last step back
+  bmaya stop                                # end a Maya you started, after saving
 
 `bmaya COMMAND --help` explains one command. `bmaya guide` prints the manual
 for agents: the working loop, a Blender-to-Maya map and recipes.
@@ -112,8 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
         "matched.",
         examples(
             "bmaya scene",
-            "bmaya scene --query barrel            names containing 'barrel' (wildcards * ? work)",
-            "bmaya scene --type joint --limit 200  every joint",
+            "bmaya scene --query barrel            # names containing 'barrel'; * and ? work",
+            "bmaya scene --type joint --limit 200  # every joint",
         ),
     )
     scene.add_argument("-q", "--query", default="", help="name filter, substring or wildcard")
@@ -127,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Prints the world transform, bounding box, shape, vertex and triangle counts, UV sets,\n"
         "materials, construction history and animated attributes of one node.",
         examples(
-            "bmaya object crate", 'bmaya object "|props|crate"   a full path when names clash'
+            "bmaya object crate", 'bmaya object "|props|crate"   # a full path when names clash'
         ),
     )
     obj.add_argument("name", help="node name or full DAG path")
@@ -144,11 +146,11 @@ def build_parser() -> argparse.ArgumentParser:
         examples(
             'bmaya exec "result = cmds.ls(selection=True)"',
             "bmaya exec -f build_barrel.py",
-            "bmaya exec <<'PY'                       bash, zsh",
+            "bmaya exec <<'PY'                         # bash, zsh",
             'cube = cmds.polyCube(name="crate")[0]',
             "result = cmds.ls(cube, long=True)",
             "PY",
-            "Get-Content build.py -Raw | bmaya exec   PowerShell",
+            "Get-Content build.py -Raw | bmaya exec     # PowerShell",
         ),
     )
     execute.add_argument(

@@ -12,7 +12,7 @@ Exit codes: `0` done, `1` failed, `2` bad arguments, `3` not ready. Code 3 means
 2. Act: a dedicated command if one fits, otherwise `bmaya exec`.
 3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya anim` for keys and skeletons, `bmaya shot -o shot.png` to look. Open the PNG it names.
 
-With no Maya running, the first command starts one without a window. If it answers with exit code 3, wait about 15 seconds and run it again.
+With no Maya running, the first command starts one without a window and says so in a `note:` line on stderr. If it answers with exit code 3, wait about 15 seconds and run it again. A Maya started this way is yours to stop: when the work is done, save with `bmaya file save PATH` and run `bmaya stop`.
 
 ## Sending code
 
@@ -60,7 +60,7 @@ Relative paths are resolved against the directory you run `bmaya` in.
 
 ## Sharing a Maya
 
-- You act under a client name, shown as `client` by `bmaya sessions`. It stays the same for all your commands. `clients` above 1 on a session means another agent works there: use your own names and groups, and do not delete or rename what you did not create.
+- You act under a client name, shown as `client` by `bmaya sessions`. It stays the same for all your commands. Subagents of one agent session usually inherit that name; when several of them work in one Maya, give each its own with `--client NAME` so their undo steps stay apart. `clients` above 1 on a session means another agent works there: use your own names and groups, and do not delete or rename what you did not create.
 - `bmaya undo` never reverts someone else's work. If the result has `blocked_by`, or the error says nothing was undone, the latest change belongs to another client or to the user (`maya-ui`). Stop and ask the user; do not work around it with `cmds.undo()`. If the user agrees to lose their own change made in the Maya window, repeat with `--force`; it never touches another client's steps.
 
 ## Blender to Maya

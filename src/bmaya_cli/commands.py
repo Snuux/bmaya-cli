@@ -101,8 +101,23 @@ def manager_for(args: argparse.Namespace, autostart: bool = True) -> SessionMana
     )
 
 
+def call(args: argparse.Namespace, command: str, params: dict[str, Any]) -> dict[str, Any]:
+    manager = manager_for(args)
+    try:
+        return manager.call(command, params)
+    finally:
+        started = manager.autostarted
+        if started is not None:
+            # Nothing stops this Maya by itself, so whoever caused it has to be told.
+            print(
+                f"note: no Maya was running, so session {started.id} was started without a "
+                "window. It runs until `bmaya stop`.",
+                file=sys.stderr,
+            )
+
+
 def forward(args: argparse.Namespace, command: str, params: dict[str, Any]) -> int:
-    emit(manager_for(args).call(command, params))
+    emit(call(args, command, params))
     return EXIT_OK
 
 
@@ -156,7 +171,7 @@ def shot_target(output: str) -> Path:
 
 def cmd_shot(args: argparse.Namespace) -> int:
     params = {"max_size": args.size, "camera": args.camera, "frames": args.frames}
-    reply = manager_for(args).call("get_viewport_screenshot", params)
+    reply = call(args, "get_viewport_screenshot", params)
     target = shot_target(args.output)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)

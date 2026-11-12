@@ -152,3 +152,21 @@ def test_demo_without_maya_explains_what_to_do(
     out = capsys.readouterr().out
     assert "Cannot run the demo: No Maya" in out
     assert "bmaya doctor" in out
+
+
+def test_logs_leave_out_connection_records(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    events = [
+        {"event": "bridge_start", "pid": 777},
+        {"event": "client_connect", "peer": 1},
+        {"event": "start", "id": 1, "client": "claude-1", "command": "undo", "params": {}},
+        {"event": "client_disconnect", "peer": 1},
+    ]
+    logs = home / "logs"
+    logs.mkdir()
+    lines = [json.dumps({"t": "2026-11-12T12:00:00.000", **event}) for event in events]
+    text = "".join(line + "\n" for line in lines)
+    (logs / "20261112-120000-777.log").write_text(text, encoding="utf-8")
+    assert main(["logs", "--session", "777"]) == 0
+    out = capsys.readouterr().out
+    assert "(2 of 2 records)" in out
+    assert "client_connect" not in out

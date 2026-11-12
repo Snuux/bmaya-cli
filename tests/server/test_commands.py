@@ -356,3 +356,21 @@ def test_bad_arguments_exit_with_usage_code() -> None:
 
 def test_bridge_error_types_match_the_bridge() -> None:
     assert commands.BRIDGE_ERROR_TYPES == BRIDGE_ERROR_TYPES
+
+
+def test_caller_is_told_when_its_command_started_maya(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def launcher(launcher_home: Path, mode: str) -> FakeLauncher:
+        fake = FakeLauncher()
+        fake.bridge = make_bridge({"get_scene_info": lambda params: {"total": 0}})
+        fake.home = launcher_home
+        return fake
+
+    monkeypatch.setenv("BMAYA_AUTOSTART", "headless")
+    monkeypatch.setattr(commands, "Launcher", launcher)
+    code, out, err = run(capsys, "scene")
+    assert (code, out) == (0, {"total": 0})
+    assert err.startswith("note: no Maya was running, so session 555 was started")
+    assert "bmaya stop" in err
+    assert run(capsys, "scene") == (0, {"total": 0}, "")
