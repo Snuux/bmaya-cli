@@ -14,7 +14,8 @@ bmaya-mcp is an [MCP](https://modelcontextprotocol.io) server for Autodesk Maya.
 
 - Eleven tools. The main ones share names with the Blender MCP tools (`get_scene_info`, `get_object_info`, `execute_maya_code`, `get_viewport_screenshot`), so an agent that knows one knows the other.
 - Results are compact JSON. Every listing has a limit and reports `shown` and `total`.
-- Several Mayas and several agents can work at the same time, each agent with its own Maya.
+- Several Mayas and several agents can work at the same time. Agents that share one Maya undo only their own steps and can't swap the scene under each other.
+- No Maya open? The server starts one without a UI. Screenshots are rendered offscreen there.
 - Mesh audits, FBX export with Unity, Unreal and Godot presets, and animation contact sheets from the viewport.
 - Every command is written to disk before it runs, so after a crash you can see what Maya was doing.
 - Errors tell the agent what to try next. Tracebacks go to the Script Editor and the journal, not into the chat.
@@ -25,7 +26,7 @@ bmaya-mcp is an [MCP](https://modelcontextprotocol.io) server for Autodesk Maya.
   <img src="assets/how-it-works.svg" alt="Agent talks to bmaya-mcp over stdio, bmaya-mcp talks to a bridge inside Maya over a local socket" width="100%">
 </p>
 
-The bridge inside Maya is plain standard-library Python and starts with Maya. It runs commands on the main thread one at a time, each in its own undo chunk.
+The bridge inside Maya is plain standard-library Python. It starts with Maya, or in a Maya without a UI that the server starts when none is running. It runs commands on the main thread one at a time, each in its own undo chunk.
 
 ## Try the demo
 
@@ -33,7 +34,7 @@ The bridge inside Maya is plain standard-library Python and starts with Maya. It
   <img src="assets/demo-loop.svg" alt="Demo: build, animate, audit, export, screenshot" width="100%">
 </p>
 
-After installing (below), run the whole loop against your open Maya, no agent needed:
+After installing (below), run the whole loop against your open Maya, no agent needed (the demo does not start Maya for you):
 
 ```bash
 bmaya-mcp demo
@@ -45,7 +46,7 @@ It writes `prop.fbx` and a four-frame `screenshot.png` to `demo/` (change with `
 
 You need:
 
-- Autodesk Maya with Python 3.9 or newer, running with its UI. Tested on Maya 2027.
+- Autodesk Maya with Python 3.9 or newer. Tested on Maya 2027.
 - [uv](https://docs.astral.sh/uv/). The server needs Python 3.10+, and uv fetches it.
 
 Only Windows is tested. The code is written to be portable, but nobody has run it on macOS or Linux yet.
@@ -76,7 +77,9 @@ Restart Maya, then check:
 bmaya-mcp doctor
 ```
 
-It reports the installed module, live sessions, stale entries and the last crash.
+It reports the installed module, the Maya that autostart would use, live sessions, stale entries and the last crash.
+
+The module is only for a Maya you open yourself. A [headless Maya](#headless-and-autostart) needs no install.
 
 To update: `git pull`, `uv tool install --reinstall ./bmaya-mcp`, then `bmaya-mcp install` again.
 
@@ -131,19 +134,19 @@ GUI apps often don't see your shell PATH. If the client can't start `bmaya-mcp`,
 | `get_scene_info` | File, units, up axis, fps, frame range, selection, nodes. Filter by name or node type. |
 | `get_object_info` | One node: transform, bounding box, mesh counts, UV sets, materials, history, keys. |
 | `execute_maya_code` | Runs Python with `cmds`, `mel` and `om` loaded. Assign to `result` to return data. One undo chunk per call. |
-| `get_viewport_screenshot` | PNG of the viewport. `camera` picks a camera; `frames` such as `"1,12,24"` returns a contact sheet. |
+| `get_viewport_screenshot` | PNG of the viewport. `camera` picks a camera; `frames` such as `"1,12,24"` returns a contact sheet. A Maya without a UI renders it offscreen. |
 | `audit_mesh` | Game-readiness check: n-gons, non-manifold, lamina and zero-area faces, UVs, materials, history, transforms, names. |
 | `get_animation_info` | Curves, key ranges, tangents, fps, skeletons, skin clusters, blend shapes, anim layers. |
 | `export_fbx` | FBX with a `unity`, `unreal` or `godot` preset, optionally selection only and with baked animation. |
-| `scene_file` | `new`, `open`, `save` (save-as with a path), `import` (`.ma`, `.mb`, `.fbx`, `.obj`). Refuses to discard unsaved changes unless `force` is set. |
-| `undo` | Undo the last N steps: one per `execute_maya_code` call, one per other command. |
-| `list_sessions` | Running Mayas: id, scene, Maya version, busy, current. |
+| `scene_file` | `new`, `open`, `save` (save-as with a path), `import` (`.ma`, `.mb`, `.fbx`, `.obj`). `new` and `open` refuse to discard unsaved changes, or to replace the scene in a Maya another agent used in the last 10 minutes, unless `force` is set. |
+| `undo` | Undo your last N steps, one per `execute_maya_code` call. Stops at a step made by another agent or in the Maya UI and names it in `blocked_by`. |
+| `list_sessions` | Running Mayas: id, scene, Maya version, busy, clients working in it, current, headless. |
 | `use_session` | Pick the Maya the next tools talk to. |
 
 ## Several Mayas
 
 <p align="center">
-  <img src="assets/sessions.svg" alt="Two agents, each connected to its own Maya session" width="100%">
+  <img src="assets/sessions.svg" alt="Three agents: one with its own Maya, two sharing a Maya, and a headless Maya started on demand" width="100%">
 </p>
 
 Each Maya registers in `~/.bmaya-mcp/sessions/<pid>.json`; the session id is the Maya process id. With one Maya open, tools use it. With several, they return the list and wait for `use_session`.
@@ -151,6 +154,37 @@ Each Maya registers in `~/.bmaya-mcp/sessions/<pid>.json`; the session id is the
 The choice is kept in the memory of that agent's server process, so another agent (its own `bmaya-mcp serve`) can pick another Maya. If the chosen Maya exits, the next call says the session is gone.
 
 The server pings every entry and deletes those whose Maya is dead. A Maya that doesn't answer within 3 seconds is kept and shown as `busy`.
+
+### Sharing one Maya
+
+Several agents can pick the same Maya. Commands still run one at a time, and the bridge keeps the agents out of each other's way:
+
+- `list_sessions` shows `clients`: how many agents are connected to that Maya and have run a command in it. Pings and listings don't count.
+- `undo` reverts only the caller's own steps. Maya has one undo queue, so an agent can undo only while its own step is on top. If the latest change came from another agent or from you in the Maya UI, undo stops there and says who made it (`blocked_by`).
+- `scene_file` `new` and `open` are refused without `force` when another agent ran a command in that Maya during the last 10 minutes. `save` and `import` are not restricted.
+
+## Headless and autostart
+
+When an agent calls a tool and no Maya is running, the server starts one in the background and uses it. By default this is a headless Maya: `mayapy` with the bridge, no window, no module install needed. It takes about 20 seconds; if Maya needs longer than 40, the tool answers that Maya is starting and the agent calls again.
+
+| Variable | Meaning |
+|---|---|
+| `BMAYA_MCP_AUTOSTART` | `headless` (default), `gui` to open the normal Maya window (needs `bmaya-mcp install`), or `off`. |
+| `BMAYA_MCP_MAYA` | Maya install folder or its `mayapy`. Default: the newest Maya in the standard install location. |
+
+Set them in the `env` block of your client's server config.
+
+A headless Maya started this way exits on its own after 10 minutes with no agent connected. Nothing asks about unsaved changes, so the agent should save with `scene_file` before it finishes. Two agents that start at the same moment share one Maya, not two. After a crash the agent is told once that the session is gone; the next call starts a fresh Maya.
+
+To keep a headless Maya running yourself:
+
+```bash
+bmaya-mcp headless
+```
+
+It runs until Ctrl+C. `--scene FILE` opens a scene, `--maya PATH` picks an install, `--idle-exit SECONDS` makes it leave when no agent is connected.
+
+Without a UI there is no viewport, so `get_viewport_screenshot` renders through Maya's hardware renderer: 16:9, from `persp` or the camera you name, lit by the default light. The result has `offscreen: true`. The default `openPBRSurface` material is drawn as a plain lambert of the same base color. Tools that need Maya's UI (panels, `playblast` from your own code) do not work headless.
 
 ## FBX presets
 
@@ -208,7 +242,13 @@ This is not a sandbox. Any local process that can read your home folder can read
 
 ## Troubleshooting
 
-**"No Maya with the bmaya bridge is running."** Maya isn't running, it's a batch or `mayapy` session (the bridge needs the UI), or the module isn't installed. Run `bmaya-mcp doctor`; if the module is missing, run `bmaya-mcp install` and restart Maya. Bridge startup errors show up in the Script Editor.
+**"No Maya with the bmaya bridge is running."** Autostart is off (or this is `demo`), and Maya isn't running or its module isn't installed. Run `bmaya-mcp doctor`; if the module is missing, run `bmaya-mcp install` and restart Maya. Bridge startup errors show up in the Script Editor.
+
+**"No Maya installation was found."** Autostart looked in the standard install folder. Set `BMAYA_MCP_MAYA` to your Maya folder.
+
+**"Maya is starting", again and again.** Look at the newest `~/.bmaya-mcp/logs/launch-*.log`: it holds the output of the Maya that was started. A missing license is the usual reason.
+
+**"Nothing was undone."** The latest change in that Maya is not yours. See [Sharing one Maya](#sharing-one-maya).
 
 **"Several Maya sessions are running."** Call `list_sessions`, then `use_session` with an id.
 
@@ -218,9 +258,9 @@ This is not a sandbox. Any local process that can read your home folder can read
 
 **Session lost.** Maya exited or crashed. See [Crash journal](#crash-journal).
 
-**Other Maya MCP servers.** The bridge uses a free port and its own folder under `~/.bmaya-mcp`, so it shouldn't collide with other Maya MCP plug-ins. Two plug-ins that run commands in the same Maya can still interleave and share one undo stack. Give each server its own name in the client; agents may still mix up tools with similar names.
+**Other Maya MCP servers.** The bridge uses a free port and its own folder under `~/.bmaya-mcp`, so it shouldn't collide with other Maya MCP plug-ins. Two plug-ins that run commands in the same Maya can still interleave and share one undo stack; `undo` treats the other server's steps like edits made in the Maya UI. Give each server its own name in the client; agents may still mix up tools with similar names.
 
-**Screenshot fails.** It needs a visible 3D viewport, and the MCP server must run on the same machine as Maya because it reads the PNG from the temp folder.
+**Screenshot fails.** In a Maya with a UI it needs a visible 3D viewport. Headless it needs a GPU that Maya's hardware renderer can use. Either way the MCP server must run on the same machine as Maya because it reads the PNG from the temp folder.
 
 ## Uninstall
 
@@ -243,13 +283,13 @@ uv run ruff check
 uv run ruff format
 ```
 
-The tests don't need Maya. To check the Maya-side handlers, run them headless in Maya's Python:
+The tests don't need Maya and never start one. To check the Maya-side handlers, run them in Maya's Python:
 
 ```bash
 "C:\Program Files\Autodesk\Maya2027\bin\mayapy.exe" tests/maya/check_handlers.py
 ```
 
-The bridge itself can't run in batch `mayapy` (`maya.utils.executeDeferred` never fires there), so the script calls the handlers directly.
+The script calls the handlers directly, without the socket. `maya.utils.executeDeferred` never fires in `mayapy`, so the headless bridge (`bmaya_bridge.headless`) runs its own loop on the main thread.
 
 ## License
 
