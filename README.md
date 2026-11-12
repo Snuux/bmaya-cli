@@ -38,7 +38,7 @@ The package is not on PyPI yet, so install from a local clone.
    bmaya-mcp install
    ```
 
-   This copies the bridge to `<Documents>/maya/modules/bmaya-mcp/` and writes `bmaya-mcp.mod`. If your Maya preferences live elsewhere, pass `--maya-app-dir PATH`.
+   This copies the bridge to `<Documents>/maya/modules/bmaya-mcp/` and writes `bmaya-mcp.mod`. If your Maya preferences live elsewhere, pass `--maya-app-dir PATH` (`uninstall` and `doctor` accept it too).
 
 3. Restart Maya. The bridge now starts with every GUI Maya. Check with:
 
@@ -47,6 +47,8 @@ The package is not on PyPI yet, so install from a local clone.
    ```
 
    It reports the installed module, live sessions, stale entries and the last crash.
+
+   To see the whole loop work, run `bmaya-mcp demo [--out DIR] [--session ID]`. It builds, animates, checks and exports a small barrel in the live Maya and writes `prop.fbx` and `screenshot.png` to `DIR` (default `demo`). With more than one Maya running it needs `--session`. In an untitled, unmodified scene it starts a new scene; in a scene with content it builds inside its own `bmaya_demo` group instead.
 
 After you update the clone (`git pull`, then `uv tool install --reinstall ./bmaya-mcp`), run `bmaya-mcp install` again to refresh the copy inside Maya.
 
@@ -169,6 +171,8 @@ That is not a sandbox. Any local process that can read your home directory can r
 **"Several Maya sessions are running."** Call `list_sessions`, then `use_session` with an id.
 
 **Timeout, or "did not reply in time".** Maya runs one command at a time on its main thread and the bridge waits 50 seconds. The usual causes are a modal dialog (save prompt, plug-in warning, file dialog) or a long operation. Dismiss the dialog or wait; `list_sessions` shows `busy: true` while a command runs. The command may still finish after the timeout, but its result is not returned, so check the scene before retrying. Keep each `execute_maya_code` call short.
+
+**"The viewport has not been drawn yet."** Maya is still starting or its window is minimized. Wait a few seconds or restore the window, then retry.
 
 **Session lost.** Maya exited or crashed. See Logs and crash triage.
 
