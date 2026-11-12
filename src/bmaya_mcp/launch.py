@@ -23,6 +23,7 @@ MODE_ENV = "BMAYA_MCP_AUTOSTART"
 MAYA_ENV = "BMAYA_MCP_MAYA"
 IDLE_EXIT_SECONDS = 600
 LOCK_SECONDS = 180.0
+STUCK_SECONDS = 3600.0
 LOCK_NAME = "launch.json"
 VERSION = re.compile(r"maya(\d{4}(?:\.\d+)?)$", re.IGNORECASE)
 
@@ -176,9 +177,16 @@ class Launcher:
         except (OSError, ValueError, KeyError, TypeError):
             # Another server created the lock a moment ago and has not written the pid yet.
             launch = Launch(0, self.mode)
-        if age > LOCK_SECONDS or not launch.alive():
+        if not launch.alive() or age > (LOCK_SECONDS if launch.pid <= 0 else STUCK_SECONDS):
             self.clear()
             return None
+        if age > LOCK_SECONDS:
+            # Starting another Maya next to one that hangs, say on a license dialog, helps nobody.
+            raise LaunchError(
+                f"Maya ({launch.describe()}) was started {int(age // 60)} minutes ago and is "
+                f"still running, but its bridge has not come up. Its output is in {launch.log}. "
+                "Ask the user to check or close that Maya, then call the tool again."
+            )
         return launch
 
     def clear(self) -> None:

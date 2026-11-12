@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from pathlib import Path
 from typing import IO
 
@@ -127,6 +128,23 @@ def test_lock_of_a_dead_launch_is_ignored(
     assert len(spawned) == 2
 
 
+def test_maya_that_hangs_while_starting_is_not_started_twice(
+    tmp_path: Path, no_override: None, spawned: list[list[str]]
+) -> None:
+    make_install(tmp_path / "apps", "Maya2027")
+    launcher = Launcher(tmp_path / "home", search_roots=[tmp_path / "apps"])
+    launcher.start()
+    old = time.time() - launch.LOCK_SECONDS - 120
+    os.utime(launcher.lock_path, (old, old))
+    with pytest.raises(LaunchError, match="started 5 minutes ago .* has not come up"):
+        launcher.start()
+    assert len(spawned) == 1
+    older = time.time() - launch.STUCK_SECONDS - 1
+    os.utime(launcher.lock_path, (older, older))
+    launcher.start()
+    assert len(spawned) == 2
+
+
 def test_bridge_path_is_first_on_the_child_python_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYTHONPATH", "elsewhere")
     first, rest = launch.bridge_env()["PYTHONPATH"].split(os.pathsep, 1)
@@ -160,6 +178,7 @@ def test_gui_launch_needs_the_installed_module(
 class FakeLauncher:
     def __init__(self, pid: int = 0, error: str = "") -> None:
         self.pid = pid or os.getpid()
+        self.mode = "headless"
         self.error = error
         self.starts = 0
         self.cleared = 0
@@ -230,8 +249,9 @@ def test_lost_session_is_reported_before_a_new_maya_starts(
     bridge.write_registry(home, 111)
     manager.call("get_scene_info", {})
     bridge.stop()
-    with pytest.raises(SessionError, match="exited or crashed"):
+    with pytest.raises(SessionError, match="exited or crashed") as lost:
         manager.resolve()
+    assert "starts a new empty one (headless)" in str(lost.value)
     assert launcher.starts == 0
     with pytest.raises(SessionError, match="starting"):
         manager.resolve()

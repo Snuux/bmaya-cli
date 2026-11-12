@@ -305,7 +305,15 @@ class SessionManager:
         return (
             f"Maya session {session_id} exited or crashed.{sent} "
             f"{self._journal_note(session_id)} "
-            "Ask the user to restart Maya, then call list_sessions."
+            f"{self._after_loss()}"
+        )
+
+    def _after_loss(self) -> str:
+        if self.launcher is None:
+            return "Ask the user to restart Maya, then call list_sessions."
+        return (
+            "Unsaved work in it is gone. Tell the user; the next tool call uses another running "
+            f"Maya or starts a new empty one ({self.launcher.mode})."
         )
 
     def _journal_note(self, session_id: str) -> str:
