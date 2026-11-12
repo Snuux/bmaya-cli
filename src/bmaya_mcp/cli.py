@@ -24,6 +24,7 @@ from bmaya_mcp.journal import (
     read_records,
     session_logs,
 )
+from bmaya_mcp.launch import MAYA_ENV, MODE_ENV, OFF, autostart_mode, find_maya, run_headless
 from bmaya_mcp.sessions import bmaya_home
 
 LOG_TAIL = 20
@@ -53,6 +54,19 @@ def build_parser() -> argparse.ArgumentParser:
     logs.add_argument("--tail", type=int, default=LOG_TAIL, help="records to show (default 20)")
     logs.add_argument("--crashes", action="store_true", help="list crashed sessions instead")
 
+    headless = commands.add_parser(
+        "headless", help="run a Maya without a UI and the bridge in it, until Ctrl+C"
+    )
+    headless.add_argument("--maya", default="", help="Maya install folder (default: newest)")
+    headless.add_argument("--scene", default="", help="scene file to open at start")
+    headless.add_argument(
+        "--idle-exit",
+        type=int,
+        default=0,
+        metavar="SECONDS",
+        help="exit after this long without a connected client (default 0: never)",
+    )
+
     demo = commands.add_parser("demo", help="build, check and export a prop in the live Maya")
     demo.add_argument("--out", type=Path, default=Path("demo"), help="output folder")
     demo.add_argument("--session", default="", help="session id when several Maya run")
@@ -74,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_doctor(args.maya_app_dir)
     if args.command == "logs":
         return cmd_logs(args.session, args.tail, args.crashes)
+    if args.command == "headless":
+        return cmd_headless(args.maya, args.scene, args.idle_exit)
     return run_demo(args.out, args.session)
 
 
@@ -117,6 +133,31 @@ def cmd_uninstall(app_dir: Path | None) -> int:
     return 0
 
 
+def cmd_headless(maya: str, scene: str, idle_exit: int) -> int:
+    install = find_maya(override=maya)
+    if install is None:
+        where = maya or "the default install folders"
+        print(f"No Maya installation found in {where}.", file=sys.stderr)
+        print(f"Pass --maya or set {MAYA_ENV} to the Maya install folder.", file=sys.stderr)
+        return 1
+    print(f"Starting Maya {install.version} without a UI ({install.mayapy}). Ctrl+C stops it.")
+    sys.stdout.flush()
+    return run_headless(install, idle_exit, scene)
+
+
+def report_autostart() -> None:
+    mode = autostart_mode()
+    install = find_maya()
+    if install is None:
+        found = f"no Maya installation found (set {MAYA_ENV})"
+    else:
+        found = f"Maya {install.version} in {install.bin_dir}"
+    if mode == OFF:
+        print(f"Autostart: off ({MODE_ENV}); {found}")
+    else:
+        print(f"Autostart: {mode} when no Maya is running; {found}")
+
+
 def cmd_doctor(app_dir: Path | None) -> int:
     target = resolve_app_dir(app_dir)
     paths = module_paths(target)
@@ -134,6 +175,8 @@ def cmd_doctor(app_dir: Path | None) -> int:
     else:
         print(f"Module: installed, version {version}, in {paths.module_dir}")
 
+    report_autostart()
+
     live = report_sessions(home)
 
     crashes = find_crashes(logs)
@@ -149,7 +192,10 @@ def cmd_doctor(app_dir: Path | None) -> int:
         print(f"Bridge startup errors were logged in {bootstrap_log}")
     print(f"Logs: {logs}")
     if not live:
-        print("No live Maya session. Start Maya with the module installed.")
+        print(
+            "No live Maya session. Start Maya with the module installed, or run "
+            "`bmaya-mcp headless`."
+        )
         return 1
     return 0
 
@@ -187,7 +233,11 @@ def report_sessions(home: Path) -> int:
         live += 1
         scene = info.get("scene") or "untitled"
         state = "busy" if info.get("busy") else "idle"
-        print(f"  {pid}: Maya {info.get('maya_version')}, {scene}, {state}, ping {latency:.0f} ms")
+        kind = "headless Maya" if info.get("headless") else "Maya"
+        print(
+            f"  {pid}: {kind} {info.get('maya_version')}, {scene}, {state}, "
+            f"{info.get('clients', 0)} clients, ping {latency:.0f} ms"
+        )
     return live
 
 
