@@ -16,7 +16,8 @@ def register(server: MCPServer, manager: SessionManager) -> None:
         description=(
             "Capture the viewport as a PNG, longest side `max_size` px (200-2000). `camera` "
             "picks a camera (empty: active view). `frames`, up to 12 comma-separated frames like "
-            '"1,12,24", gives one contact sheet to review animation. Needs Maya with a UI.'
+            '"1,12,24", gives one contact sheet to review animation. A Maya without a UI '
+            "renders offscreen."
         ),
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
         structured_output=False,

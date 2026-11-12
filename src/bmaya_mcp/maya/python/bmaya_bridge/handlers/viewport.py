@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import tempfile
 import time
+from collections.abc import Callable, Iterator
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +19,11 @@ from bmaya_bridge.handlers._common import frame, int_param, resolve, text_param
 
 MAX_FRAMES = 12
 LABEL_HEIGHT = 22
+OFFSCREEN_VIEW = (1280, 720)
+OFFSCREEN_BACKGROUND = (72, 72, 72)
+PNG_FORMAT = 32
+
+RenderFrame = Callable[[float, str, tuple[int, int]], None]
 
 
 def qt_gui() -> ModuleType:
@@ -168,12 +175,14 @@ def contact_sheet(tiles: list[tuple[float, str]], size: tuple[int, int], path: s
         raise BridgeError(f"Could not write the contact sheet to {path}.")
 
 
-def capture(panel: str, frames: list[float], longest: int) -> dict[str, Any]:
-    view_width, view_height = view_size(panel)
+def capture(
+    render: RenderFrame, view: tuple[int, int], frames: list[float], longest: int
+) -> dict[str, Any]:
+    view_width, view_height = view
     if len(frames) == 1:
         path = new_image_path("viewport")
         size = fit(view_width, view_height, longest)
-        playblast_frame(panel, frames[0], path, size)
+        render(frames[0], path, size)
         image = load_opaque(path)
         if not image.save(path, "PNG"):
             raise BridgeError(f"Could not write the screenshot to {path}.")
@@ -188,7 +197,7 @@ def capture(panel: str, frames: list[float], longest: int) -> dict[str, Any]:
     try:
         for at in frames:
             tile_path = new_image_path(f"tile-{len(tiles)}")
-            playblast_frame(panel, at, tile_path, tile)
+            render(at, tile_path, tile)
             tiles.append((at, tile_path))
         path = new_image_path("contact")
         contact_sheet(tiles, tile, path)
@@ -199,13 +208,132 @@ def capture(panel: str, frames: list[float], longest: int) -> dict[str, Any]:
     return {"path": path, "width": tile[0] * columns, "height": tile[1] * rows}
 
 
-def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
-    if cmds.about(batch=True):
+def capture_panel(camera_path: str, frames: list[float], longest: int) -> dict[str, Any]:
+    panel = model_panel()
+    previous_camera = cmds.modelPanel(panel, query=True, camera=True)
+    highlight = cmds.modelEditor(panel, query=True, selectionHiliteDisplay=True)
+
+    def render(at: float, path: str, size: tuple[int, int]) -> None:
+        playblast_frame(panel, at, path, size)
+
+    try:
+        if camera_path:
+            cmds.modelPanel(panel, edit=True, camera=camera_path)
+        cmds.modelEditor(panel, edit=True, selectionHiliteDisplay=False)
+        return capture(render, view_size(panel), frames, longest)
+    finally:
+        cmds.modelEditor(panel, edit=True, selectionHiliteDisplay=highlight)
+        if camera_path:
+            cmds.modelPanel(panel, edit=True, camera=previous_camera)
+
+
+def default_camera() -> str:
+    if cmds.objExists("|persp"):
+        return "|persp"
+    cameras = cmds.ls(type="camera", long=True) or []
+    if not cameras:
         raise BridgeError(
-            "Viewport screenshots need Maya with a UI; this session runs in batch mode.",
-            hint="Run the bridge in an interactive Maya, or inspect the scene with "
-            "get_scene_info and get_object_info instead.",
+            "The scene has no camera to render from.",
+            hint="Create one with execute_maya_code: cmds.camera().",
         )
+    return cmds.listRelatives(cameras[0], parent=True, fullPath=True)[0]
+
+
+@contextlib.contextmanager
+def render_settings(prefix: str) -> Iterator[None]:
+    saved = {
+        "imageFilePrefix": cmds.getAttr("defaultRenderGlobals.imageFilePrefix") or "",
+        "imageFormat": cmds.getAttr("defaultRenderGlobals.imageFormat"),
+        "animation": cmds.getAttr("defaultRenderGlobals.animation"),
+    }
+    cmds.setAttr("defaultRenderGlobals.imageFilePrefix", prefix, type="string")
+    cmds.setAttr("defaultRenderGlobals.imageFormat", PNG_FORMAT)
+    cmds.setAttr("defaultRenderGlobals.animation", False)
+    try:
+        yield
+    finally:
+        cmds.setAttr(
+            "defaultRenderGlobals.imageFilePrefix", saved["imageFilePrefix"], type="string"
+        )
+        cmds.setAttr("defaultRenderGlobals.imageFormat", saved["imageFormat"])
+        cmds.setAttr("defaultRenderGlobals.animation", saved["animation"])
+
+
+def shading_plugs(shader: str) -> list[str]:
+    plugs = cmds.listConnections(shader + ".outColor", plugs=True, source=False, destination=True)
+    return [plug for plug in plugs or [] if plug.endswith(".surfaceShader")]
+
+
+@contextlib.contextmanager
+def openpbr_as_lambert() -> Iterator[None]:
+    # Without a UI the hardware renderer draws openPBRSurface, the default material, as flat
+    # green. A lambert with the same base color stands in while the frames render.
+    try:
+        shaders = cmds.ls(type="openPBRSurface") or []
+    except RuntimeError:
+        shaders = []
+    swapped = []
+    try:
+        for shader in shaders:
+            plugs = shading_plugs(shader)
+            if not plugs:
+                continue
+            stand_in = cmds.createNode("lambert", skipSelect=True)
+            swapped.append((shader, stand_in, plugs))
+            source = cmds.listConnections(
+                shader + ".baseColor", plugs=True, source=True, destination=False
+            )
+            if source:
+                cmds.connectAttr(source[0], stand_in + ".color")
+            else:
+                color = cmds.getAttr(shader + ".baseColor")[0]
+                cmds.setAttr(stand_in + ".color", *color, type="double3")
+            for plug in plugs:
+                cmds.connectAttr(stand_in + ".outColor", plug, force=True)
+        yield
+    finally:
+        for shader, stand_in, plugs in swapped:
+            for plug in plugs:
+                cmds.connectAttr(shader + ".outColor", plug, force=True)
+            cmds.delete(stand_in)
+
+
+def ogs_frame(camera_path: str, at: float, path: str, size: tuple[int, int]) -> None:
+    cmds.currentTime(at, update=True)
+    written = cmds.ogsRender(camera=camera_path, width=size[0], height=size[1], currentFrame=True)
+    if not written or not os.path.isfile(written):
+        raise BridgeError(
+            f"The offscreen renderer did not write frame {frame(at)}.",
+            hint="Maya's hardware renderer may have no usable GPU here. Use a Maya with a UI, "
+            "or inspect the scene with get_scene_info and audit_mesh.",
+        )
+    gui = qt_gui()
+    try:
+        rendered = gui.QImage(written)
+        image = gui.QImage(rendered.size(), gui.QImage.Format_RGB32)
+        image.fill(gui.QColor(*OFFSCREEN_BACKGROUND))
+        painter = gui.QPainter(image)
+        try:
+            painter.drawImage(0, 0, rendered)
+        finally:
+            painter.end()
+        if not image.save(path, "PNG"):
+            raise BridgeError(f"Could not write the screenshot to {path}.")
+    finally:
+        os.remove(written)
+
+
+def capture_offscreen(camera_path: str, frames: list[float], longest: int) -> dict[str, Any]:
+    prefix = new_image_path("offscreen")[: -len(".png")]
+
+    def render(at: float, path: str, size: tuple[int, int]) -> None:
+        ogs_frame(camera_path, at, path, size)
+
+    with render_settings(prefix), openpbr_as_lambert():
+        return capture(render, OFFSCREEN_VIEW, frames, longest)
+
+
+def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     longest = int_param(params, "max_size", 800, 200, 2000)
     camera = text_param(params, "camera")
     requested = parse_frames(text_param(params, "frames"))
@@ -214,25 +342,24 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     if not frames:
         frames = [current]
 
-    panel = model_panel()
     camera_path = camera_transform(camera) if camera else ""
-    previous_camera = cmds.modelPanel(panel, query=True, camera=True)
-    highlight = cmds.modelEditor(panel, query=True, selectionHiliteDisplay=True)
-
+    offscreen = bool(cmds.about(batch=True))
+    clean = not cmds.file(query=True, modified=True)
     try:
-        if camera_path:
-            cmds.modelPanel(panel, edit=True, camera=camera_path)
-        cmds.modelEditor(panel, edit=True, selectionHiliteDisplay=False)
-        result = capture(panel, frames, longest)
+        if offscreen:
+            result = capture_offscreen(camera_path or default_camera(), frames, longest)
+        else:
+            result = capture_panel(camera_path, frames, longest)
     finally:
-        cmds.modelEditor(panel, edit=True, selectionHiliteDisplay=highlight)
-        if camera_path:
-            cmds.modelPanel(panel, edit=True, camera=previous_camera)
         cmds.currentTime(current, update=True)
+        if offscreen and clean:
+            cmds.file(modified=False)
 
     result["frames"] = [frame(at) for at in frames]
     if len(requested) > MAX_FRAMES:
         result["dropped_frames"] = len(requested) - MAX_FRAMES
+    if offscreen:
+        result["offscreen"] = True
     if camera_path:
         result["camera"] = camera_path.rsplit("|", 1)[-1]
     return result
