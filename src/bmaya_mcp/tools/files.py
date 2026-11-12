@@ -39,7 +39,7 @@ def register(server: MCPServer, manager: SessionManager) -> None:
         description=(
             "Manage the scene file. `action`: new, open (.ma/.mb), save (a `path` makes it "
             "save-as) or import (.ma/.mb/.fbx/.obj). Not undoable; new and open refuse unsaved "
-            "changes unless `force`."
+            "changes, or a Maya another client used recently, unless `force`."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=True, open_world_hint=False

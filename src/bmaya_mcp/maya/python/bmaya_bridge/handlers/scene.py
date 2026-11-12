@@ -5,6 +5,7 @@ from typing import Any
 
 from maya import cmds
 
+from bmaya_bridge import clients
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     anim_curves,
@@ -272,12 +273,26 @@ def file_type(path: str, allowed: tuple[str, ...]) -> str:
     return FILE_TYPES[extension]
 
 
+def refuse_shared(action: str, force: bool) -> None:
+    others = clients.other_recent_clients()
+    if force or not others:
+        return
+    label, age = others[0]
+    raise BridgeError(
+        f"Client '{label}' used this Maya {int(age)} seconds ago, so '{action}' was refused: "
+        "it would replace the scene they work in.",
+        hint="Work in the current scene, or repeat with force=true only if the user asked "
+        "to replace it.",
+    )
+
+
 def scene_file(params: dict[str, Any]) -> dict[str, Any]:
     action = text_param(params, "action").lower()
     path = text_param(params, "path")
     force = bool_param(params, "force")
 
     if action == "new":
+        refuse_shared(action, force)
         refuse_unsaved(action, force)
         cmds.file(new=True, force=True)
         return scene_state()
@@ -285,6 +300,7 @@ def scene_file(params: dict[str, Any]) -> dict[str, Any]:
     if action == "open":
         path = require_existing(path, action)
         file_type(path, (".ma", ".mb"))
+        refuse_shared(action, force)
         refuse_unsaved(action, force)
         cmds.file(path, open=True, force=True, ignoreVersion=True)
         return scene_state()
@@ -324,6 +340,12 @@ def scene_file(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def undo_owner(blocker: str) -> str:
+    if blocker == clients.MAYA_UI:
+        return "in the Maya UI"
+    return f"by client '{blocker}'"
+
+
 def undo(params: dict[str, Any]) -> dict[str, Any]:
     steps = int_param(params, "steps", 1, 1, MAX_UNDO_STEPS)
     if not cmds.undoInfo(query=True, state=True):
@@ -331,17 +353,31 @@ def undo(params: dict[str, Any]) -> dict[str, Any]:
             "Undo is turned off in this Maya session.",
             hint="Turn it on with execute_maya_code: cmds.undoInfo(state=True).",
         )
+    caller = clients.acting_client()
     undone = 0
+    blocker = ""
     for _ in range(steps):
         if cmds.undoInfo(query=True, undoQueueEmpty=True):
+            break
+        top = cmds.undoInfo(query=True, undoName=True) or ""
+        blocker = clients.undo_blocker(top, caller)
+        if blocker:
             break
         try:
             cmds.undo()
         except RuntimeError:
             break
         undone += 1
+    if blocker and not undone:
+        raise BridgeError(
+            f"Nothing was undone: the latest change in this Maya was made {undo_owner(blocker)}, "
+            "and undo only reverts your own steps.",
+            hint="Undoing it would revert their work. Ask the user how to proceed.",
+        )
     result: dict[str, Any] = {"undone": undone}
-    if undone < steps:
+    if blocker:
+        result["blocked_by"] = blocker
+    elif undone < steps:
         result["queue_empty"] = True
     top = cmds.undoInfo(query=True, undoName=True)
     if top:

@@ -21,8 +21,8 @@ def register(server: MCPServer, manager: SessionManager) -> None:
         return forward_text(manager, "execute_maya_code", {"code": code})
 
     @server.tool(
-        description="Undo `steps` (max 50) entries of Maya's undo queue; each changing tool call "
-        "is one entry.",
+        description="Undo your last `steps` (max 50) changing tool calls. Stops at a change made "
+        "by another client or in the Maya UI and reports it as `blocked_by`.",
         annotations=DESTRUCTIVE,
         structured_output=False,
     )
