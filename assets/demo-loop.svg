@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="260" viewBox="0 0 1200 260" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="192" viewBox="0 54 1200 192" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
   <defs>
     <style>
       .step { fill: #1b1f29; stroke: #343b4b; stroke-width: 1.5; }
@@ -16,9 +16,7 @@
     </style>
   </defs>
 
-  <rect width="1200" height="260" rx="18" fill="#12151c"/>
-  <text x="40" y="52" font-size="15" font-weight="600" fill="#f0a35a" letter-spacing="2">bmaya-mcp demo</text>
-  <text x="200" y="52" font-size="14" fill="#7d879b">one command, the whole loop, in your live Maya</text>
+  <rect y="54" width="1200" height="192" rx="18" fill="#12151c"/>
 
   <line x1="60" y1="150" x2="1140" y2="150" stroke="#2c3240" stroke-width="2"/>
 

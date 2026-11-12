@@ -39,21 +39,13 @@
 
   <rect width="1280" height="380" rx="18" fill="url(#bg)"/>
 
-  <g fill="#ffffff" opacity="0.05">
-    <circle cx="80" cy="60" r="2"/><circle cx="140" cy="60" r="2"/><circle cx="200" cy="60" r="2"/>
-    <circle cx="80" cy="120" r="2"/><circle cx="140" cy="120" r="2"/><circle cx="200" cy="120" r="2"/>
-    <circle cx="560" cy="300" r="2"/><circle cx="620" cy="300" r="2"/><circle cx="560" cy="340" r="2"/>
-    <circle cx="620" cy="340" r="2"/>
-  </g>
+  <text x="70" y="158" font-size="72" font-weight="700" fill="#f2f4f8" letter-spacing="-1">bmaya<tspan fill="#f0a35a">-mcp</tspan></text>
+  <text x="72" y="204" font-size="24" fill="#aab3c5">Let your AI agent drive Autodesk Maya.</text>
 
-  <text x="70" y="148" font-size="72" font-weight="700" fill="#f2f4f8" letter-spacing="-1">bmaya<tspan fill="#f0a35a">-mcp</tspan></text>
-  <text x="72" y="194" font-size="24" fill="#aab3c5">Let your AI agent drive Autodesk Maya.</text>
-  <text x="72" y="224" font-size="17" fill="#7d879b">Modeling and animation for game dev. Several Mayas, several agents.</text>
-
-  <rect x="70" y="256" width="560" height="56" rx="10" fill="#0e1016" stroke="#2c3240"/>
-  <text x="92" y="291" font-family="Cascadia Code, Consolas, Menlo, monospace" font-size="17" fill="#7fd1a8">&gt;</text>
-  <text x="114" y="291" font-family="Cascadia Code, Consolas, Menlo, monospace" font-size="17" fill="#d6dbe6">make a barrel, bounce it, ship it to Unreal</text>
-  <rect class="cursor" x="557" y="276" width="10" height="20" fill="#f0a35a"/>
+  <rect x="70" y="236" width="560" height="56" rx="10" fill="#0e1016" stroke="#2c3240"/>
+  <text x="92" y="271" font-family="Cascadia Code, Consolas, Menlo, monospace" font-size="17" fill="#7fd1a8">&gt;</text>
+  <text x="114" y="271" font-family="Cascadia Code, Consolas, Menlo, monospace" font-size="17" fill="#d6dbe6">make a barrel, bounce it, ship it to Unreal</text>
+  <rect class="cursor" x="557" y="256" width="10" height="20" fill="#f0a35a"/>
 
   <g clip-path="url(#vpclip)">
     <rect x="700" y="40" width="540" height="300" fill="url(#vp)"/>
