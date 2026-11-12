@@ -1,5 +1,3 @@
-"""`bmaya-mcp demo`: builds, animates, checks and exports a small barrel in the live Maya."""
-
 import json
 import shutil
 import time

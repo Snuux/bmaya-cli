@@ -132,8 +132,7 @@ def playblast_frame(panel: str, at: float, path: str, size: tuple[int, int]) -> 
 
 
 def load_opaque(path: str) -> QImage:
-    # Playblast PNGs have a fully transparent background; without this the viewport
-    # background vanishes in the contact sheet and in image viewers.
+    # Playblast PNGs have a transparent background; RGB32 drops the alpha so the background shows.
     gui = qt_gui()
     return gui.QImage(path).convertToFormat(gui.QImage.Format_RGB32)
 

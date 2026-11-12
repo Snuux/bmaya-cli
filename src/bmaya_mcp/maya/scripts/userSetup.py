@@ -1,9 +1,4 @@
-"""Starts the bmaya-mcp bridge once Maya has finished starting up.
-
-Maya runs this file in __main__, shared with other userSetup.py files and the Script Editor,
-so every name defined here is prefixed, imports stay inside the functions, and nothing may
-raise: a failure must never break Maya startup.
-"""
+"""Runs in Maya's shared __main__: prefix every name, keep imports inside functions, never raise."""
 
 
 def _bmaya_mcp_log_failure(details: str) -> None:

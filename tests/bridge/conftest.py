@@ -16,8 +16,6 @@ from bmaya_bridge.server import HOST, BridgeServer, encode_frame, read_frame
 
 
 class FakeMainThread:
-    """Stands in for Maya's main thread: runs scheduled callables one at a time."""
-
     def __init__(self) -> None:
         self.jobs: queue.Queue[Callable[[], None] | None] = queue.Queue()
         self.thread = threading.Thread(target=self._loop, name="fake-main", daemon=True)

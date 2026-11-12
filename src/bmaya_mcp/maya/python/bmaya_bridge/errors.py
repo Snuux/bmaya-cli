@@ -11,8 +11,8 @@ UNAUTHORIZED = "Unauthorized"
 UNKNOWN_COMMAND = "UnknownCommand"
 BAD_REQUEST = "BadRequest"
 
-# Every other error type the bridge sends is the name of a Python exception raised by a
-# handler. The MCP server keeps its own copy of this set; a test checks that they match.
+# Any other error type is a Python exception name. bmaya_mcp/tools/common.py keeps a copy of
+# this set; a test checks that they match.
 BRIDGE_ERROR_TYPES = frozenset({BRIDGE_ERROR, TIMEOUT, UNAUTHORIZED, UNKNOWN_COMMAND, BAD_REQUEST})
 
 MAX_ERROR_STDOUT = 2000
@@ -27,17 +27,11 @@ class BridgeError(Exception):
 
 
 def attach_stdout(exc: BaseException, stdout: str) -> None:
-    """Keep what the agent's code printed before it raised, for the error reply."""
     if stdout:
         setattr(exc, _STDOUT_ATTR, stdout)
 
 
 def user_code_line(exc: BaseException) -> int | None:
-    """Line number inside code compiled from a string, such as execute_maya_code input.
-
-    Code run from a string has a pseudo filename like "<agent>", so the last frame
-    with such a name points into the agent's code rather than into the bridge.
-    """
     if isinstance(exc, SyntaxError) and _is_pseudo_file(exc.filename):
         return exc.lineno
     line = None

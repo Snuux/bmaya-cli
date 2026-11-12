@@ -89,11 +89,6 @@ class Dispatcher:
         params: dict[str, Any],
         undo_chunk: bool = True,
     ) -> Job:
-        """Queue a command for the main thread and wait for it, at most `timeout` seconds.
-
-        A job that outlives the wait keeps running and still journals its end;
-        the returned job then carries the Timeout error instead of its result.
-        """
         job = Job(request_id, client, command, handler, params, undo_chunk)
         with self._queue_lock:
             self._queue.append(job)
@@ -115,8 +110,7 @@ class Dispatcher:
     def _run_next(self) -> None:
         with self._run_lock:
             if self._running is not None:
-                # Re-entered from inside a handler that pumped Maya's idle queue.
-                # The outer call keeps draining, so leave the queue to it.
+                # Re-entered by a handler pumping Maya's idle queue; the outer call keeps draining.
                 return
             while True:
                 with self._queue_lock:

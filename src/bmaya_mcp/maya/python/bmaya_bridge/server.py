@@ -356,10 +356,6 @@ BATCH_REFUSAL = (
 
 
 def start(schedule: Scheduler | None = None) -> int:
-    """Start the bridge once per Maya session and return its port.
-
-    Returns 0 and starts nothing in batch Maya unless a scheduler is passed in.
-    """
     global _bridge, _journal, _atexit_registered
     with _lock:
         if _bridge is not None and _bridge.running:

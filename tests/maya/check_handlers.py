@@ -1,8 +1,3 @@
-"""Checks the Maya-side command handlers in a headless mayapy session.
-
-Run with: "C:\\Program Files\\Autodesk\\Maya2027\\bin\\mayapy.exe" tests/maya/check_handlers.py
-"""
-
 from __future__ import annotations
 
 import json

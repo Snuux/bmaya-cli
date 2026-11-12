@@ -17,6 +17,5 @@ COMMANDS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "undo": scene.undo,
 }
 
-# Run outside the dispatcher's undo chunk: undo must not run inside an open chunk, and
-# scene file operations are not undoable (new and open also flush the undo queue).
+# Undo cannot run inside an open undo chunk, and scene file operations are not undoable.
 NO_UNDO_CHUNK = frozenset({"undo", "scene_file"})

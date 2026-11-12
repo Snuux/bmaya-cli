@@ -1,5 +1,3 @@
-"""Reads the per-session journals the bridge writes to ~/.bmaya-mcp/logs."""
-
 import json
 import os
 import re
@@ -69,10 +67,6 @@ def read_records(path: Path) -> list[dict[str, Any]]:
 
 
 def pending_command(records: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The `start` record that never got its `end`.
-
-    The bridge runs one command at a time, so an `end` always closes the latest `start`.
-    """
     pending = None
     for record in records:
         if record.get("event") == "start":

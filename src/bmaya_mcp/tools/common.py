@@ -10,8 +10,8 @@ from bmaya_mcp.sessions import SessionError, SessionManager
 
 logger = logging.getLogger(__name__)
 
-# Error types the bridge itself produces; any other type is a Python exception raised
-# in Maya. Mirrors bmaya_bridge.errors.BRIDGE_ERROR_TYPES, which this package cannot import.
+# Must mirror bmaya_bridge.errors.BRIDGE_ERROR_TYPES, which this package cannot import.
+# Any other type is a Python exception raised in Maya.
 BRIDGE_ERROR_TYPES = frozenset(
     {"BridgeError", "Timeout", "Unauthorized", "UnknownCommand", "BadRequest"}
 )

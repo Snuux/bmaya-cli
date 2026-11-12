@@ -1,5 +1,3 @@
-"""Copies the Maya side of bmaya-mcp into the user's Maya modules folder."""
-
 import os
 import shutil
 import stat
@@ -50,7 +48,6 @@ def default_maya_app_dir() -> Path:
 
 
 def windows_documents_dir() -> Path | None:
-    """The Documents known folder, which follows OneDrive and other redirections."""
     import ctypes
     import uuid
     from ctypes import wintypes
@@ -122,7 +119,6 @@ def uninstall(app_dir: Path) -> list[Path]:
 
 
 def installed_version(app_dir: Path) -> str | None:
-    """The version on the module line of the installed .mod file, if there is one."""
     try:
         lines = module_paths(app_dir).mod_file.read_text(encoding="utf-8").splitlines()
     except OSError:

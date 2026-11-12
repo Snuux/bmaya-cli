@@ -17,11 +17,9 @@ from bmaya_bridge.handlers._common import (
 
 NODE_LIMIT = 30
 
-# Units are not converted: FBXExportConvertUnitString has no effect in Maya 2027, and Unity,
-# Unreal and Godot all read the file's UnitScaleFactor, which follows the scene's linear unit.
-# Unreal gets triangulation and smoothing groups so its tangent space matches a bake
-# done on the exported triangles and its importer stops warning about smoothing.
-# Unity and Godot triangulate on import, so the source quads are kept.
+# Units are not converted: FBXExportConvertUnitString has no effect in Maya 2027, and the
+# engines read UnitScaleFactor, which follows the scene's linear unit.
+# Only Unreal gets triangulation; Unity and Godot triangulate on import.
 PRESETS: dict[str, dict[str, Any]] = {
     "unity": {
         "up_axis": "y",

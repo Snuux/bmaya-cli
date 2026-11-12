@@ -105,11 +105,6 @@ class SessionManager:
         )
 
     def resolve(self) -> Session:
-        """The session to talk to: the chosen one, else the only one running.
-
-        A session that vanished since the last call is reported once instead of
-        silently switching to another Maya or saying that none is running.
-        """
         sessions = self.discover()
         alive = {session.id for session in sessions}
         lost = self.current or self._last_used

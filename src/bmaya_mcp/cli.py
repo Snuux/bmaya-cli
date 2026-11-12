@@ -1,5 +1,3 @@
-"""The `bmaya-mcp` command. Without a command it runs the MCP stdio server."""
-
 import argparse
 import json
 import sys

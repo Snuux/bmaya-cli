@@ -11,7 +11,6 @@ BOOTSTRAP_LOG = "bootstrap-error.log"
 
 
 def start_in_maya() -> int:
-    """Start the bridge from Maya startup or the plug-in. Never raises; returns the port or 0."""
     already_running = server.is_running()
     try:
         port = server.start()

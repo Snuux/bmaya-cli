@@ -1,5 +1,3 @@
-"""The real bridge (in its own process) driven through the real MCP tools, no Maya needed."""
-
 from __future__ import annotations
 
 import asyncio
