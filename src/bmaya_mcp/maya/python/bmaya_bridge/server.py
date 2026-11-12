@@ -24,6 +24,7 @@ from bmaya_bridge.dispatch import (
     maya_schedule,
     maya_undo_chunk,
 )
+from bmaya_bridge.errors import error_payload
 from bmaya_bridge.journal import Journal
 
 HOST = "127.0.0.1"
@@ -278,7 +279,12 @@ class BridgeServer:
                     self._send(connection, response)
                     break
                 client = str(request.get("client") or client)
-                self._send(connection, self.handle(request))
+                try:
+                    response = self.handle(request)
+                except Exception as exc:
+                    traceback.print_exc()
+                    response = {"id": request.get("id"), "ok": False, "error": error_payload(exc)}
+                self._send(connection, response)
         except OSError:
             pass
         finally:
@@ -330,6 +336,8 @@ def start() -> int:
         if _journal is None:
             _journal = Journal(registry.logs_dir())
         maya_version, scene = _maya_info()
+        if maya_version:
+            _import_handlers_early()
         _bridge = BridgeServer(_journal, maya_version=maya_version, scene=scene)
         port = _bridge.start()
         _add_maya_callbacks()
@@ -354,6 +362,13 @@ def _shutdown() -> None:
     with _lock:
         if _bridge is not None:
             _bridge.stop()
+
+
+def _import_handlers_early() -> None:
+    try:
+        load_commands()
+    except Exception:
+        traceback.print_exc()
 
 
 def _maya_info() -> tuple[str, str]:
