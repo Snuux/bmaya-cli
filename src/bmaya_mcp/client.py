@@ -17,11 +17,12 @@ MAX_FRAME = 256 * 1024 * 1024
 
 
 class BridgeCommandError(Exception):
-    def __init__(self, type: str, message: str, hint: str = "") -> None:
+    def __init__(self, type: str, message: str, hint: str = "", stdout: str = "") -> None:
         super().__init__(message)
         self.type = type
         self.message = message
         self.hint = hint
+        self.stdout = stdout
 
 
 class BridgeConnectionError(Exception):
@@ -127,6 +128,7 @@ class BridgeClient:
             str(error.get("type", "BridgeError")),
             str(error.get("message", "Unknown bridge error")),
             str(error.get("hint", "")),
+            str(error.get("stdout", "")),
         )
 
     def close(self) -> None:

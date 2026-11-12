@@ -11,11 +11,12 @@ DROP: dict[str, Any] = {"__drop__": True}
 
 
 class FakeError(Exception):
-    def __init__(self, type: str, message: str, hint: str = "") -> None:
+    def __init__(self, type: str, message: str, hint: str = "", stdout: str = "") -> None:
         super().__init__(message)
         self.type = type
         self.message = message
         self.hint = hint
+        self.stdout = stdout
 
 
 def free_port() -> int:
@@ -159,6 +160,8 @@ class FakeBridge:
             result = handler(request["params"])
         except FakeError as exc:
             error = {"type": exc.type, "message": exc.message, "hint": exc.hint}
+            if exc.stdout:
+                error["stdout"] = exc.stdout
             return {"id": request["id"], "ok": False, "error": error}
         if result is DROP:
             return None

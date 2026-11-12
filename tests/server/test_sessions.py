@@ -125,9 +125,30 @@ def test_session_dying_mid_call_names_command_and_journal(
     message = str(info.value)
     assert "exited or crashed" in message
     assert "execute_maya_code" in message
-    assert "~/.bmaya-mcp/logs/*-4321.log" in message
+    assert str(home / "logs" / "*-4321.log") in message
     assert "boom()" not in message
     assert not path.exists()
+
+
+def test_lost_session_names_the_real_journal_and_crash_log(
+    manager: SessionManager, home: Path, make_bridge: BridgeFactory
+) -> None:
+    logs = home / "logs"
+    logs.mkdir()
+    (logs / "20261112-090000-4321.log").write_text("", encoding="utf-8")
+    journal = logs / "20261112-100000-4321.log"
+    journal.write_text("", encoding="utf-8")
+    crash_log = logs / "20261112-100000-4321.crash.log"
+    crash_log.write_text("Fatal Python error: Segmentation fault", encoding="utf-8")
+    bridge = make_bridge({"get_scene_info": lambda params: {}})
+    bridge.write_registry(home, 4321)
+    manager.call("get_scene_info", {})
+    bridge.stop()
+    with pytest.raises(SessionError) as info:
+        manager.call("get_scene_info", {})
+    message = str(info.value)
+    assert f"Its journal is {journal} and the crash log is {crash_log}." in message
+    assert "last command sent to it was get_scene_info" in message
 
 
 def test_connection_drop_with_live_maya_is_not_called_a_crash(

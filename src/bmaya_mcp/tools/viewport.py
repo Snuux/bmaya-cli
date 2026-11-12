@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 def register(server: MCPServer, manager: SessionManager) -> None:
     @server.tool(
         description=(
-            "Capture the viewport as a PNG, longest side `max_size` px. `camera` picks a camera "
-            "(empty is the active view). `frames` is comma-separated frame numbers, e.g. "
-            '"1,12,24": one contact sheet to review animation.'
+            "Capture the viewport as a PNG, longest side `max_size` px (200-2000). `camera` "
+            "picks a camera (empty: active view). `frames`, up to 12 comma-separated frames like "
+            '"1,12,24", gives one contact sheet to review animation. Needs Maya with a UI.'
         ),
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
         structured_output=False,
@@ -38,6 +38,9 @@ def register(server: MCPServer, manager: SessionManager) -> None:
         except OSError:
             logger.warning("could not delete screenshot %s", image_path)
         summary = f"{result.get('width')}x{result.get('height')}"
-        if frames:
-            summary += f", frames {frames}"
+        shown = result.get("frames") or []
+        if len(shown) > 1:
+            summary += ", frames " + ",".join(str(at) for at in shown)
+        if result.get("dropped_frames"):
+            summary += f", {result['dropped_frames']} frames dropped (max 12)"
         return [Image(data=data, format="png"), summary]

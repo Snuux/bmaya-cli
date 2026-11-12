@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from bmaya_mcp.client import BridgeClient, BridgeCommandError, BridgeConnectionError
+from bmaya_mcp.journal import find_session_log
 
 logger = logging.getLogger(__name__)
 
 PING_TIMEOUT = 3.0
-JOURNAL_PATTERN = "~/.bmaya-mcp/logs/*-{pid}.log"
 
 
 class SessionError(Exception):
@@ -65,6 +65,7 @@ class SessionManager:
         self.label = label
         self.ping_timeout = ping_timeout
         self.current: str | None = None
+        self._last_used: str | None = None
         self._clients: dict[str, BridgeClient] = {}
         self._last_command: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -104,14 +105,20 @@ class SessionManager:
         )
 
     def resolve(self) -> Session:
+        """The session to talk to: the chosen one, else the only one running.
+
+        A session that vanished since the last call is reported once instead of
+        silently switching to another Maya or saying that none is running.
+        """
         sessions = self.discover()
-        if self.current is not None:
-            for session in sessions:
-                if session.id == self.current:
-                    return session
-            lost = self.current
+        alive = {session.id for session in sessions}
+        lost = self.current or self._last_used
+        if lost is not None and lost not in alive:
             self.current = None
+            self._last_used = None
             raise SessionError(self._lost_message(lost))
+        if self.current is not None:
+            return next(session for session in sessions if session.id == self.current)
         if not sessions:
             raise SessionError(self._no_session_message())
         if len(sessions) > 1:
@@ -125,6 +132,7 @@ class SessionManager:
     def call(self, command: str, params: dict[str, Any]) -> dict[str, Any]:
         session = self.resolve()
         client = self._client_for(session)
+        self._last_used = session.id
         self._last_command[session.id] = command
         try:
             return client.request(command, params)
@@ -227,6 +235,7 @@ class SessionManager:
         except BridgeConnectionError as ping_error:
             if ping_error.refused:
                 self._prune(path, session.id)
+                self._last_used = None
                 if self.current == session.id:
                     self.current = None
                 logger.warning("session %s is lost", session.id)
@@ -254,9 +263,23 @@ class SessionManager:
 
     def _lost_message(self, session_id: str) -> str:
         last = self._last_command.get(session_id)
-        sent = f" The last command sent was {last}." if last else ""
+        sent = f" The last command sent to it was {last}." if last else ""
         return (
             f"Maya session {session_id} exited or crashed.{sent} "
-            f"Journal: {JOURNAL_PATTERN.format(pid=session_id)}. "
-            "Restart Maya, then call list_sessions."
+            f"{self._journal_note(session_id)} "
+            "Ask the user to restart Maya, then call list_sessions."
         )
+
+    def _journal_note(self, session_id: str) -> str:
+        logs = self.home / "logs"
+        log = find_session_log(logs, int(session_id))
+        if log is None:
+            return f"Its journal would be {logs / f'*-{session_id}.log'}."
+        note = f"Its journal is {log.path}"
+        try:
+            crashed = log.crash_path.stat().st_size > 0
+        except OSError:
+            crashed = False
+        if crashed:
+            note += f" and the crash log is {log.crash_path}"
+        return note + "."

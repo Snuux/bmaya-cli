@@ -8,9 +8,9 @@ from bmaya_mcp.tools.common import forward_text
 def register(server: MCPServer, manager: SessionManager) -> None:
     @server.tool(
         description=(
-            "Export FBX to `path`. `preset` is unity, unreal or godot. `selection_only` exports "
-            "just the selection; `animation` includes animation over `start`-`end` "
-            "(0 means the scene range)."
+            "Export FBX to an absolute `path` ending in .fbx. `preset` is unity, unreal or godot. "
+            "Exports all top-level nodes, or the selection with `selection_only`. `animation` "
+            "bakes keys over `start`-`end` (0 means the playback range)."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=False, open_world_hint=False
@@ -37,8 +37,9 @@ def register(server: MCPServer, manager: SessionManager) -> None:
 
     @server.tool(
         description=(
-            "Manage the scene file. `action` is new, open, save or import. `path` is required "
-            "for open and import, and makes save a save-as. `force` discards unsaved changes."
+            "Manage the scene file. `action`: new, open (.ma/.mb), save (a `path` makes it "
+            "save-as) or import (.ma/.mb/.fbx/.obj). Not undoable; new and open refuse unsaved "
+            "changes unless `force`."
         ),
         annotations=ToolAnnotations(
             read_only_hint=False, destructive_hint=True, open_world_hint=False

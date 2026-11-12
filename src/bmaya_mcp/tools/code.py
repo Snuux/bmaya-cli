@@ -10,8 +10,9 @@ DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_
 def register(server: MCPServer, manager: SessionManager) -> None:
     @server.tool(
         description=(
-            "Run Python in Maya with `cmds`, `mel` and `om` preloaded. Assign to `result` to "
-            "return a value; print for logs. Each call is one undo chunk."
+            "Run Python in Maya with `cmds`, `mel` and `om` (OpenMaya 2) preloaded. Assign to "
+            "`result` to return a value; print for logs. Output is clipped at 8000 chars. "
+            "Each call is one undo chunk."
         ),
         annotations=DESTRUCTIVE,
         structured_output=False,
@@ -20,7 +21,8 @@ def register(server: MCPServer, manager: SessionManager) -> None:
         return forward_text(manager, "execute_maya_code", {"code": code})
 
     @server.tool(
-        description="Undo the last `steps` undo chunks (one per execute_maya_code call).",
+        description="Undo `steps` (max 50) entries of Maya's undo queue; each changing tool call "
+        "is one entry.",
         annotations=DESTRUCTIVE,
         structured_output=False,
     )

@@ -10,9 +10,10 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 def register(server: MCPServer, manager: SessionManager) -> None:
     @server.tool(
         description=(
-            "Scene overview: file, units, up axis, fps, frame range, selection and a node list. "
-            "Filter by `query` (name substring) and `node_type` (e.g. mesh, joint); "
-            "`limit` caps the list and `total` reports the full count."
+            "Scene overview: file, units, up axis, fps, frame range, selection and nodes. "
+            "Unfiltered it lists top-level nodes. `query` matches names (substring or * ? "
+            "wildcards), `node_type` lists nodes of a type (mesh, joint...). `limit` (max 500) "
+            "caps the list; `total` is the full count."
         ),
         annotations=READ_ONLY,
         structured_output=False,
@@ -34,8 +35,9 @@ def register(server: MCPServer, manager: SessionManager) -> None:
 
     @server.tool(
         description=(
-            "Audit meshes for game readiness and list per-mesh stats and issues. "
-            "`names` is comma-separated nodes; empty uses the default scope."
+            "Game-readiness audit: tris, UVs, materials, n-gons, non-manifold geometry, history, "
+            "unfrozen transforms, default names. Scope: comma-separated `names` (groups include "
+            "their meshes), else the selection, else every mesh. Max 50 meshes."
         ),
         annotations=READ_ONLY,
         structured_output=False,
@@ -45,8 +47,9 @@ def register(server: MCPServer, manager: SessionManager) -> None:
 
     @server.tool(
         description=(
-            "Animation data: curves, key ranges, fps, skeleton and skin clusters. "
-            "`name` limits it to one node; empty covers the scene."
+            "Animation data. Empty `name`: scene overview of fps, ranges, animated nodes, "
+            "skeletons, skin clusters, blend shapes and layers. With `name`: that node's curves, "
+            "keys, tangents and infinity, plus the hierarchy for a joint."
         ),
         annotations=READ_ONLY,
         structured_output=False,
