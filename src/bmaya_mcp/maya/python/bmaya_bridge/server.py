@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from bmaya_bridge import registry
+from bmaya_bridge.clients import ClientTable
 from bmaya_bridge.dispatch import (
     DEFAULT_TIMEOUT,
     Dispatcher,
@@ -111,14 +112,17 @@ class BridgeServer:
         maya_version: str = "",
         scene: str = "",
         no_undo_chunk: NameSource | None = None,
+        headless: bool = False,
     ) -> None:
         if no_undo_chunk is None:
             # Commands injected without their own list all run inside an undo chunk.
             no_undo_chunk = load_no_undo_chunk if commands is load_commands else frozenset
         self.journal = journal
-        self.dispatcher = Dispatcher(journal, schedule, undo_chunk, timeout)
+        self.clients = ClientTable()
+        self.dispatcher = Dispatcher(journal, schedule, undo_chunk, timeout, self.clients)
         self.maya_version = maya_version
         self.scene = scene
+        self.headless = headless
         self.pid = os.getpid()
         self.port = 0
         self.token = ""
@@ -153,6 +157,7 @@ class BridgeServer:
                 port=self.port,
                 maya_version=self.maya_version,
                 scene=self.scene,
+                headless=self.headless,
             )
             self._accept_thread = threading.Thread(
                 target=self._accept_loop,
@@ -190,6 +195,8 @@ class BridgeServer:
             "maya_version": self.maya_version,
             "scene": self.scene,
             "busy": self.dispatcher.busy,
+            "clients": self.clients.count(),
+            "headless": self.headless,
         }
 
     def handle(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -229,6 +236,7 @@ class BridgeServer:
                 "Send the command parameters as an object, for example {}.",
             )
         chunked = command not in unchunked
+        self.clients.touch(client)
         job = self.dispatcher.submit(request_id, client, command, handler, params, chunked)
         if job.error is not None:
             return {"id": request_id, "ok": False, "error": job.error}
@@ -243,6 +251,7 @@ class BridgeServer:
                 "maya_version": self.maya_version,
                 "scene": self.scene,
                 "started": self._started,
+                "headless": self.headless,
             }
         )
 
@@ -298,7 +307,11 @@ class BridgeServer:
                     )
                     self._send(connection, response)
                     break
-                client = str(request.get("client") or client)
+                label = str(request.get("client") or client)
+                if label != client:
+                    self.clients.disconnected(client)
+                    self.clients.connected(label)
+                    client = label
                 try:
                     response = self.handle(request)
                 except Exception as exc:
@@ -310,6 +323,7 @@ class BridgeServer:
         finally:
             with self._lock:
                 self._clients.discard(connection)
+            self.clients.disconnected(client)
             _close_quietly(connection)
             self.journal.event("client_disconnect", peer=peer_port, client=client)
 
@@ -355,7 +369,7 @@ BATCH_REFUSAL = (
 )
 
 
-def start(schedule: Scheduler | None = None) -> int:
+def start(schedule: Scheduler | None = None, headless: bool = False) -> int:
     global _bridge, _journal, _atexit_registered
     with _lock:
         if _bridge is not None and _bridge.running:
@@ -373,6 +387,7 @@ def start(schedule: Scheduler | None = None) -> int:
             schedule=schedule or maya_schedule,
             maya_version=maya_version,
             scene=scene,
+            headless=headless,
         )
         port = _bridge.start()
         _add_maya_callbacks()
@@ -387,6 +402,10 @@ def stop() -> None:
         _remove_maya_callbacks()
         if _bridge is not None:
             _bridge.stop()
+
+
+def current() -> BridgeServer | None:
+    return _bridge
 
 
 def is_running() -> bool:

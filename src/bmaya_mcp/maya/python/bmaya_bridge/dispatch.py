@@ -10,6 +10,8 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from typing import Any
 
+from bmaya_bridge import clients
+from bmaya_bridge.clients import ClientTable
 from bmaya_bridge.errors import TIMEOUT, BridgeError, error_payload
 from bmaya_bridge.journal import Journal
 
@@ -66,9 +68,11 @@ class Dispatcher:
         schedule: Scheduler = maya_schedule,
         undo_chunk: UndoChunk = maya_undo_chunk,
         timeout: float = DEFAULT_TIMEOUT,
+        client_table: ClientTable | None = None,
     ) -> None:
         self.journal = journal
         self.timeout = timeout
+        self.clients = client_table or ClientTable()
         self._schedule = schedule
         self._undo_chunk = undo_chunk
         self._queue: collections.deque[Job] = collections.deque()
@@ -125,11 +129,12 @@ class Dispatcher:
         details = ""
         try:
             self.journal.start(job.request_id, job.client, job.command, job.params)
-            if job.undo_chunk:
-                with self._undo_chunk(f"bmaya-mcp {job.command}"):
+            with clients.acting(job.client, self.clients):
+                if job.undo_chunk:
+                    with self._undo_chunk(clients.chunk_name(job.client, job.command)):
+                        job.result = job.handler(job.params)
+                else:
                     job.result = job.handler(job.params)
-            else:
-                job.result = job.handler(job.params)
             job.ok = True
         except BridgeError as exc:
             job.error = error_payload(exc)

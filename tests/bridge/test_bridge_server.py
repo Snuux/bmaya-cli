@@ -62,6 +62,8 @@ def test_ping_answers_without_main_thread(journal: Journal) -> None:
         "maya_version": "2027",
         "scene": "C:/a.ma",
         "busy": False,
+        "clients": 0,
+        "headless": False,
     }
 
 
@@ -88,7 +90,10 @@ def test_command_runs_on_main_thread_in_undo_chunk(
         "ok": True,
         "result": {"echo": {"value": 3}, "thread": "fake-main"},
     }
-    assert undo.events == ["open bmaya-mcp echo", "close bmaya-mcp echo"]
+    assert undo.events == [
+        "open bmaya-mcp test-client: echo",
+        "close bmaya-mcp test-client: echo",
+    ]
 
 
 def test_immediate_scheduler(make_bridge: Callable[..., BridgeServer]) -> None:
@@ -294,7 +299,10 @@ def test_commands_listed_as_no_undo_chunk_run_outside_the_chunk(
         client.close()
     finally:
         bridge.stop()
-    assert undo.events == ["open bmaya-mcp echo", "close bmaya-mcp echo"]
+    assert undo.events == [
+        "open bmaya-mcp test-client: echo",
+        "close bmaya-mcp test-client: echo",
+    ]
 
 
 def test_stdout_printed_before_an_error_reaches_reply_and_journal(
