@@ -9,7 +9,7 @@ from typing import Any
 import maya.api.OpenMaya as om
 from maya import cmds, mel
 
-from bmaya_bridge.errors import BridgeError
+from bmaya_bridge.errors import BridgeError, attach_stdout
 
 MAX_CHARS = 8000
 MAX_DEPTH = 6
@@ -61,8 +61,12 @@ def execute_maya_code(params: dict[str, Any]) -> dict[str, Any]:
     }
     out = io.StringIO()
     err = io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        exec(compiled, namespace)
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            exec(compiled, namespace)
+    except BaseException as exc:
+        attach_stdout(exc, out.getvalue())
+        raise
 
     stdout, truncated = clip(out.getvalue())
     response: dict[str, Any] = {"stdout": stdout}

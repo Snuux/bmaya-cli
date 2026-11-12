@@ -21,16 +21,20 @@ cmds: Any = None
 om: Any = None
 mel: Any = None
 COMMANDS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {}
+NO_UNDO_CHUNK: frozenset[str] = frozenset()
 BridgeError: type[Exception] = Exception
 WORK_DIR = Path(tempfile.mkdtemp(prefix="bmaya-check-"))
 
 
 def call(command: str, **params: object) -> dict[str, Any]:
-    cmds.undoInfo(openChunk=True)
-    try:
+    if command in NO_UNDO_CHUNK:
         result = COMMANDS[command](params)
-    finally:
-        cmds.undoInfo(closeChunk=True)
+    else:
+        cmds.undoInfo(openChunk=True)
+        try:
+            result = COMMANDS[command](params)
+        finally:
+            cmds.undoInfo(closeChunk=True)
     json.dumps(result, allow_nan=False)
     return result
 
@@ -313,6 +317,41 @@ def check_undo() -> str:
     return "single step, early stop on empty queue ok"
 
 
+def check_bridge_dispatch() -> str:
+    from bmaya_bridge.journal import Journal
+    from bmaya_bridge.server import BridgeServer
+
+    journal = Journal(WORK_DIR / "logs", crash_log=False)
+    bridge = BridgeServer(journal, schedule=lambda callback: callback())
+
+    def send(command: str, **params: object) -> dict[str, Any]:
+        request = {"id": 1, "client": "check", "command": command, "params": params}
+        return bridge.handle(request)
+
+    try:
+        cmds.file(new=True, force=True)
+        cmds.flushUndo()
+        for name in ("first", "second"):
+            reply = send("execute_maya_code", code=f"cmds.polyCube(name='{name}')")
+            assert reply["ok"], reply
+        undone = send("undo", steps=1)
+        assert undone["ok"] and undone["result"]["undone"] == 1, undone
+        assert cmds.objExists("first") and not cmds.objExists("second"), undone
+        assert cmds.undoInfo(query=True, redoName=True), "undo left nothing to redo"
+
+        failed = send("execute_maya_code", code="print('before')\nraise ValueError('boom')")
+        error = failed["error"]
+        assert error["type"] == "ValueError" and error["stdout"] == "before\n", failed
+        assert "line 2" in error["hint"], failed
+    finally:
+        journal.close()
+    return f"undo removed only 'second', next undo: {undone['result'].get('next')}"
+
+
+EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
+    ("bridge dispatch", check_bridge_dispatch),
+]
+
 CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("get_scene_info", check_get_scene_info),
     ("get_object_info", check_get_object_info),
@@ -327,16 +366,24 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
 
 
 def main() -> int:
-    global cmds, om, mel, COMMANDS, BridgeError
-
     import maya.standalone
 
     maya.standalone.initialize(name="python")
+    try:
+        return run_checks()
+    finally:
+        maya.standalone.uninitialize()
+
+
+def run_checks() -> int:
+    global cmds, om, mel, COMMANDS, NO_UNDO_CHUNK, BridgeError
+
     sys.path.insert(0, str(BRIDGE_PATH))
 
     import maya.api.OpenMaya as openmaya
     from bmaya_bridge.errors import BridgeError as bridge_error
     from bmaya_bridge.handlers import COMMANDS as commands
+    from bmaya_bridge.handlers import NO_UNDO_CHUNK as no_undo_chunk
     from maya import cmds as maya_cmds
     from maya import mel as maya_mel
 
@@ -344,15 +391,17 @@ def main() -> int:
     mel = maya_mel
     om = openmaya
     COMMANDS = commands
+    NO_UNDO_CHUNK = no_undo_chunk
     BridgeError = bridge_error
 
     assert set(COMMANDS) == {name for name, _ in CHECKS}, sorted(COMMANDS)
 
+    checks = CHECKS + EXTRA_CHECKS
     failures = 0
     lines = []
     try:
         build_scene()
-        for name, check in CHECKS:
+        for name, check in checks:
             try:
                 lines.append(f"PASS {name}: {check()}")
             except Exception as exc:
@@ -365,7 +414,7 @@ def main() -> int:
 
     print()
     print("\n".join(lines))
-    print(f"{len(CHECKS) - failures}/{len(CHECKS)} commands passed")
+    print(f"{len(checks) - failures}/{len(checks)} checks passed")
     sys.stdout.flush()
     return 1 if failures else 0
 

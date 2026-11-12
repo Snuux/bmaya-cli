@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from bmaya_bridge.errors import FALLBACK_HINT, BridgeError, error_payload, user_code_line
+from bmaya_bridge.errors import (
+    FALLBACK_HINT,
+    MAX_ERROR_STDOUT,
+    BridgeError,
+    attach_stdout,
+    error_payload,
+    user_code_line,
+)
 
 
 def raise_from_agent_code(code: str) -> BaseException:
@@ -43,3 +50,13 @@ def test_system_exit_in_agent_code_is_reported() -> None:
     exc = raise_from_agent_code("import sys\nsys.exit(3)\n")
     assert error_payload(exc)["type"] == "SystemExit"
     assert user_code_line(exc) == 2
+
+
+def test_stdout_is_kept_and_clipped_from_the_start() -> None:
+    exc = raise_from_agent_code("raise KeyError('k')\n")
+    attach_stdout(exc, "a" * 10 + "b" * MAX_ERROR_STDOUT)
+    payload = error_payload(exc)
+    assert payload["type"] == "KeyError"
+    assert payload["stdout"].endswith("b" * MAX_ERROR_STDOUT)
+    assert payload["stdout"].startswith("[10 chars cut]")
+    assert "stdout" not in error_payload(BridgeError("no output"))

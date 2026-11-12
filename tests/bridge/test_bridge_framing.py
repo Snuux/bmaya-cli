@@ -10,8 +10,8 @@ import pytest
 from bmaya_bridge import server
 from bmaya_bridge.server import MAX_FRAME, FrameError, encode_frame, read_frame
 
-BRIDGE_DIR = Path(server.__file__).parent
-CORE_FILES = ["__init__.py", "server.py", "dispatch.py", "registry.py", "journal.py", "errors.py"]
+MAYA_DIR = Path(server.__file__).parents[2]
+MAYA_FILES = sorted(path.relative_to(MAYA_DIR).as_posix() for path in MAYA_DIR.rglob("*.py"))
 
 
 def test_frame_round_trip() -> None:
@@ -47,8 +47,8 @@ def test_truncated_frame_is_an_error() -> None:
             read_frame(right)
 
 
-@pytest.mark.parametrize("name", CORE_FILES)
-def test_core_parses_as_python_39(name: str) -> None:
-    source = (BRIDGE_DIR / name).read_text(encoding="utf-8")
+@pytest.mark.parametrize("name", MAYA_FILES)
+def test_maya_side_parses_as_python_39(name: str) -> None:
+    source = (MAYA_DIR / name).read_text(encoding="utf-8")
     ast.parse(source, feature_version=(3, 9))
     assert "bmaya_mcp" not in source

@@ -9,11 +9,11 @@ from typing import Any
 
 import pytest
 from bmaya_bridge import registry, server
-from bmaya_bridge.errors import BridgeError
+from bmaya_bridge.errors import BridgeError, attach_stdout
 from bmaya_bridge.journal import Journal
 from bmaya_bridge.server import BridgeServer
 
-from .conftest import Client, UndoRecorder, read_journal
+from .conftest import Client, FakeMainThread, UndoRecorder, read_journal
 
 AGENT_CODE = "x = 1\ny = 2\nraise ValueError('bad value')\n"
 
@@ -152,7 +152,8 @@ def test_unserializable_result_is_reported(make_bridge: Callable[..., BridgeServ
     still_alive = client.call("ping")
     client.close()
     assert reply["ok"] is False
-    assert reply["error"]["type"] == "TypeError"
+    assert reply["error"]["type"] == "BridgeError"
+    assert "TypeError" in reply["error"]["message"]
     assert still_alive["ok"] is True
 
 
@@ -266,6 +267,67 @@ def test_module_api_is_idempotent(home: Path) -> None:
         assert not server.is_running()
         assert not registry.session_path().exists()
         server.stop()
+    finally:
+        server.stop()
+        if server._journal is not None:
+            server._journal.close()
+            server._journal = None
+
+
+def test_commands_listed_as_no_undo_chunk_run_outside_the_chunk(
+    journal: Journal, main_thread: FakeMainThread
+) -> None:
+    undo = UndoRecorder()
+    bridge = BridgeServer(
+        journal,
+        commands=lambda: {"echo": echo, "undo": echo},
+        schedule=main_thread.schedule,
+        undo_chunk=undo,
+        no_undo_chunk=lambda: {"undo"},
+    )
+    bridge.start()
+    try:
+        client = Client(bridge.port, bridge.token)
+        assert client.call("undo")["ok"] is True
+        assert undo.events == []
+        assert client.call("echo")["ok"] is True
+        client.close()
+    finally:
+        bridge.stop()
+    assert undo.events == ["open bmaya-mcp echo", "close bmaya-mcp echo"]
+
+
+def test_stdout_printed_before_an_error_reaches_reply_and_journal(
+    make_bridge: Callable[..., BridgeServer], journal: Journal
+) -> None:
+    def noisy(params: dict[str, Any]) -> dict[str, Any]:
+        try:
+            print("making cubes")
+            raise RuntimeError("cube failed")
+        except RuntimeError as exc:
+            attach_stdout(exc, "making cubes\n")
+            raise
+
+    bridge = make_bridge({"execute_maya_code": noisy})
+    client = Client(bridge.port, bridge.token)
+    reply = client.call("execute_maya_code", {"code": "..."})
+    client.close()
+    assert reply["error"]["type"] == "RuntimeError"
+    assert reply["error"]["stdout"] == "making cubes\n"
+    assert events(journal, "end")[0]["error"]["stdout"] == "making cubes\n"
+
+
+def test_start_refuses_batch_maya_without_a_scheduler(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(server, "_maya_batch", lambda: True)
+    try:
+        assert server.start() == 0
+        assert "batch mode" in capsys.readouterr().err
+        assert not server.is_running()
+        assert not registry.session_path().exists()
+        assert server.start(schedule=lambda callback: callback()) > 0
+        assert server.is_running()
     finally:
         server.stop()
         if server._journal is not None:

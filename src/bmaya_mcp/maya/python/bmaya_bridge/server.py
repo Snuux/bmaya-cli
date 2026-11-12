@@ -10,7 +10,7 @@ import struct
 import sys
 import threading
 import traceback
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -24,7 +24,13 @@ from bmaya_bridge.dispatch import (
     maya_schedule,
     maya_undo_chunk,
 )
-from bmaya_bridge.errors import error_payload
+from bmaya_bridge.errors import (
+    BAD_REQUEST,
+    BRIDGE_ERROR,
+    UNAUTHORIZED,
+    UNKNOWN_COMMAND,
+    error_payload,
+)
 from bmaya_bridge.journal import Journal
 
 HOST = "127.0.0.1"
@@ -33,6 +39,7 @@ HEADER = struct.Struct(">I")
 ACCEPT_POLL_SECONDS = 0.5
 
 CommandSource = Callable[[], Mapping[str, Handler]]
+NameSource = Callable[[], Collection[str]]
 
 
 class FrameError(Exception):
@@ -79,6 +86,12 @@ def load_commands() -> Mapping[str, Handler]:
     return COMMANDS
 
 
+def load_no_undo_chunk() -> Collection[str]:
+    from bmaya_bridge.handlers import NO_UNDO_CHUNK
+
+    return NO_UNDO_CHUNK
+
+
 def error_response(request_id: object, kind: str, message: str, hint: str = "") -> dict[str, Any]:
     return {
         "id": request_id,
@@ -97,7 +110,11 @@ class BridgeServer:
         timeout: float = DEFAULT_TIMEOUT,
         maya_version: str = "",
         scene: str = "",
+        no_undo_chunk: NameSource | None = None,
     ) -> None:
+        if no_undo_chunk is None:
+            # Commands injected without their own list all run inside an undo chunk.
+            no_undo_chunk = load_no_undo_chunk if commands is load_commands else frozenset
         self.journal = journal
         self.dispatcher = Dispatcher(journal, schedule, undo_chunk, timeout)
         self.maya_version = maya_version
@@ -106,6 +123,7 @@ class BridgeServer:
         self.port = 0
         self.token = ""
         self._commands = commands
+        self._no_undo_chunk = no_undo_chunk
         self._started = ""
         self._listener: socket.socket | None = None
         self._accept_thread: threading.Thread | None = None
@@ -182,12 +200,13 @@ class BridgeServer:
             return {"id": request_id, "ok": True, "result": self.ping()}
         try:
             commands = self._commands()
+            unchunked = self._no_undo_chunk()
         except Exception as exc:
             traceback.print_exc()
             return error_response(
                 request_id,
-                type(exc).__name__,
-                f"The bmaya_bridge command handlers failed to import: {exc}",
+                BRIDGE_ERROR,
+                f"The bmaya_bridge command handlers failed to import: {type(exc).__name__}: {exc}",
                 "Check the Maya Script Editor for the traceback and reinstall bmaya-mcp.",
             )
         handler = commands.get(command) if isinstance(command, str) else None
@@ -195,7 +214,7 @@ class BridgeServer:
             valid = ", ".join(sorted(["ping", *commands]))
             return error_response(
                 request_id,
-                "UnknownCommand",
+                UNKNOWN_COMMAND,
                 f"Unknown command {command!r}.",
                 f"Valid commands: {valid}.",
             )
@@ -205,11 +224,12 @@ class BridgeServer:
         if not isinstance(params, dict):
             return error_response(
                 request_id,
-                "BadRequest",
+                BAD_REQUEST,
                 "'params' must be a JSON object.",
                 "Send the command parameters as an object, for example {}.",
             )
-        job = self.dispatcher.submit(request_id, client, command, handler, params)
+        chunked = command not in unchunked
+        job = self.dispatcher.submit(request_id, client, command, handler, params, chunked)
         if job.error is not None:
             return {"id": request_id, "ok": False, "error": job.error}
         return {"id": request_id, "ok": True, "result": job.result}
@@ -255,7 +275,7 @@ class BridgeServer:
                 try:
                     body = read_frame(connection)
                 except FrameError as exc:
-                    self._send(connection, error_response(None, "BadRequest", str(exc)))
+                    self._send(connection, error_response(None, BAD_REQUEST, str(exc)))
                     break
                 if body is None:
                     break
@@ -263,16 +283,16 @@ class BridgeServer:
                     request = json.loads(body.decode("utf-8"))
                 except ValueError as exc:
                     message = f"Request is not valid UTF-8 JSON: {exc}"
-                    self._send(connection, error_response(None, "BadRequest", message))
+                    self._send(connection, error_response(None, BAD_REQUEST, message))
                     continue
                 if not isinstance(request, dict):
                     message = "Request must be a JSON object."
-                    self._send(connection, error_response(None, "BadRequest", message))
+                    self._send(connection, error_response(None, BAD_REQUEST, message))
                     continue
                 if not self._authorized(request.get("token")):
                     response = error_response(
                         request.get("id"),
-                        "Unauthorized",
+                        UNAUTHORIZED,
                         "The session token does not match.",
                         "Reload the session registry; Maya may have restarted the bridge.",
                     )
@@ -305,8 +325,8 @@ class BridgeServer:
             frame = encode_frame(
                 error_response(
                     response.get("id"),
-                    type(exc).__name__,
-                    f"The command result could not be sent: {exc}",
+                    BRIDGE_ERROR,
+                    f"The command result could not be sent: {type(exc).__name__}: {exc}",
                     "Return less data, or only JSON-serializable values.",
                 )
             )
@@ -328,17 +348,36 @@ _callback_ids: list[Any] = []
 _atexit_registered = False
 
 
-def start() -> int:
+BATCH_REFUSAL = (
+    "bmaya-mcp: the bridge was not started because Maya runs in batch mode, where "
+    "maya.utils.executeDeferred never runs and every command would hang. "
+    "Pass a scheduler to bmaya_bridge.start() to run it headless."
+)
+
+
+def start(schedule: Scheduler | None = None) -> int:
+    """Start the bridge once per Maya session and return its port.
+
+    Returns 0 and starts nothing in batch Maya unless a scheduler is passed in.
+    """
     global _bridge, _journal, _atexit_registered
     with _lock:
         if _bridge is not None and _bridge.running:
             return _bridge.port
+        if schedule is None and _maya_batch():
+            print(BATCH_REFUSAL, file=sys.stderr)
+            return 0
         if _journal is None:
             _journal = Journal(registry.logs_dir())
         maya_version, scene = _maya_info()
         if maya_version:
             _import_handlers_early()
-        _bridge = BridgeServer(_journal, maya_version=maya_version, scene=scene)
+        _bridge = BridgeServer(
+            _journal,
+            schedule=schedule or maya_schedule,
+            maya_version=maya_version,
+            scene=scene,
+        )
         port = _bridge.start()
         _add_maya_callbacks()
         if not _atexit_registered:
@@ -369,6 +408,17 @@ def _import_handlers_early() -> None:
         load_commands()
     except Exception:
         traceback.print_exc()
+
+
+def _maya_batch() -> bool:
+    try:
+        from maya import cmds
+    except ImportError:
+        return False
+    try:
+        return bool(cmds.about(batch=True))
+    except Exception:
+        return False
 
 
 def _maya_info() -> tuple[str, str]:

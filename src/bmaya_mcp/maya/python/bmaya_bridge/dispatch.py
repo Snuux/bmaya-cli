@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from typing import Any
 
-from bmaya_bridge.errors import BridgeError, error_payload
+from bmaya_bridge.errors import TIMEOUT, BridgeError, error_payload
 from bmaya_bridge.journal import Journal
 
 DEFAULT_TIMEOUT = 50.0
@@ -45,12 +45,14 @@ class Job:
         command: str,
         handler: Handler,
         params: dict[str, Any],
+        undo_chunk: bool = True,
     ) -> None:
         self.request_id = request_id
         self.client = client
         self.command = command
         self.handler = handler
         self.params = params
+        self.undo_chunk = undo_chunk
         self.done = threading.Event()
         self.ok = False
         self.result: dict[str, Any] | None = None
@@ -85,13 +87,14 @@ class Dispatcher:
         command: str,
         handler: Handler,
         params: dict[str, Any],
+        undo_chunk: bool = True,
     ) -> Job:
         """Queue a command for the main thread and wait for it, at most `timeout` seconds.
 
         A job that outlives the wait keeps running and still journals its end;
         the returned job then carries the Timeout error instead of its result.
         """
-        job = Job(request_id, client, command, handler, params)
+        job = Job(request_id, client, command, handler, params, undo_chunk)
         with self._queue_lock:
             self._queue.append(job)
         self._schedule(self._run_next)
@@ -100,7 +103,7 @@ class Dispatcher:
         self.journal.event("timeout", id=request_id, command=command, seconds=self.timeout)
         late = Job(request_id, client, command, handler, params)
         late.error = {
-            "type": "Timeout",
+            "type": TIMEOUT,
             "message": (
                 f"'{command}' is still running in Maya after {self.timeout:g} seconds. "
                 "Its result will not be returned."
@@ -128,7 +131,10 @@ class Dispatcher:
         details = ""
         try:
             self.journal.start(job.request_id, job.client, job.command, job.params)
-            with self._undo_chunk(f"bmaya-mcp {job.command}"):
+            if job.undo_chunk:
+                with self._undo_chunk(f"bmaya-mcp {job.command}"):
+                    job.result = job.handler(job.params)
+            else:
                 job.result = job.handler(job.params)
             job.ok = True
         except BridgeError as exc:
