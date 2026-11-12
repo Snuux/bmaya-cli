@@ -5,7 +5,10 @@ import os
 import tempfile
 import time
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QImage
 
 from maya import cmds
 
@@ -91,8 +94,11 @@ def view_size(panel: str) -> tuple[int, int]:
     view = omui.M3dView.getM3dViewFromModelPanel(panel)
     width = view.portWidth()
     height = view.portHeight()
-    if width <= 0 or height <= 0:
-        return 1280, 720
+    if width <= 1 or height <= 1:
+        raise BridgeError(
+            "The viewport has not been drawn yet.",
+            hint="Maya is still starting or its window is minimized. Try again in a few seconds.",
+        )
     return width, height
 
 
@@ -125,6 +131,13 @@ def playblast_frame(panel: str, at: float, path: str, size: tuple[int, int]) -> 
         )
 
 
+def load_opaque(path: str) -> QImage:
+    # Playblast PNGs have a fully transparent background; without this the viewport
+    # background vanishes in the contact sheet and in image viewers.
+    gui = qt_gui()
+    return gui.QImage(path).convertToFormat(gui.QImage.Format_RGB32)
+
+
 def contact_sheet(tiles: list[tuple[float, str]], size: tuple[int, int], path: str) -> None:
     gui = qt_gui()
     core = qt_core()
@@ -143,7 +156,7 @@ def contact_sheet(tiles: list[tuple[float, str]], size: tuple[int, int], path: s
         for index, (at, tile_path) in enumerate(tiles):
             x = (index % columns) * width
             y = (index // columns) * height
-            painter.drawImage(core.QRect(x, y, width, height), gui.QImage(tile_path))
+            painter.drawImage(core.QRect(x, y, width, height), load_opaque(tile_path))
             label = f"{frame(at)}"
             label_width = painter.fontMetrics().horizontalAdvance(label) + 12
             box = core.QRect(x, y, label_width, LABEL_HEIGHT)
@@ -162,7 +175,9 @@ def capture(panel: str, frames: list[float], longest: int) -> dict[str, Any]:
         path = new_image_path("viewport")
         size = fit(view_width, view_height, longest)
         playblast_frame(panel, frames[0], path, size)
-        image = qt_gui().QImage(path)
+        image = load_opaque(path)
+        if not image.save(path, "PNG"):
+            raise BridgeError(f"Could not write the screenshot to {path}.")
         return {"path": path, "width": image.width(), "height": image.height()}
 
     columns = math.ceil(math.sqrt(len(frames)))
