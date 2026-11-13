@@ -170,7 +170,13 @@ def shot_target(output: str) -> Path:
 
 
 def cmd_shot(args: argparse.Namespace) -> int:
-    params = {"max_size": args.size, "camera": args.camera, "frames": args.frames}
+    params = {
+        "max_size": args.size,
+        "camera": args.camera,
+        "frames": args.frames,
+        "aspect": args.aspect,
+        "light": args.light,
+    }
     reply = call(args, "get_viewport_screenshot", params)
     target = shot_target(args.output)
     try:

@@ -168,10 +168,29 @@ def test_shot_moves_the_png_to_the_asked_place(
 
     one_maya(home, make_bridge, {"get_viewport_screenshot": screenshot})
     target = tmp_path / "out" / "shot.png"
-    code, out, _ = run(capsys, "shot", "-o", str(target), "--camera", "top", "--frames", "1,12")
+    code, out, _ = run(
+        capsys,
+        "shot",
+        "-o",
+        str(target),
+        "--camera",
+        "top",
+        "--frames",
+        "1,12",
+        "--aspect",
+        "1:1",
+        "--light",
+        "unlit",
+    )
     assert code == 0
     assert out["path"] == target.resolve().as_posix()
-    assert out["got"] == {"max_size": 0, "camera": "top", "frames": "1,12"}
+    assert out["got"] == {
+        "max_size": 0,
+        "camera": "top",
+        "frames": "1,12",
+        "aspect": "1:1",
+        "light": "unlit",
+    }
     assert target.read_bytes() == PNG
     assert not temp.exists()
 

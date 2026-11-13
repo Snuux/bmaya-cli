@@ -19,6 +19,7 @@ COMMANDS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {}
 NO_UNDO_CHUNK: frozenset[str] = frozenset()
 BridgeError: type[Exception] = Exception
 WORK_DIR = Path(tempfile.mkdtemp(prefix="bmaya-check-"))
+TEXTURE_RED = (200, 60, 40)
 
 
 def call(command: str, **params: object) -> dict[str, Any]:
@@ -215,7 +216,96 @@ def check_get_viewport_screenshot() -> str:
     assert not leftovers, leftovers
     assert cmds.currentTime(query=True) == 1.0, "the screenshot moved the current time"
     expect_error("get_viewport_screenshot", "camera", camera="crate")
+    expect_error("get_viewport_screenshot", "aspect", aspect="wide")
+    expect_error("get_viewport_screenshot", "light", light="moody")
     return f"offscreen frame {single['width']}x{single['height']} and contact sheet ok"
+
+
+def make_texture(size: int, name: str) -> str:
+    from PySide6 import QtGui
+
+    image = QtGui.QImage(size, size, QtGui.QImage.Format_RGB32)
+    image.fill(QtGui.QColor(*TEXTURE_RED))
+    path = (WORK_DIR / name).as_posix()
+    assert image.save(path), path
+    return path
+
+
+def center_color(path: str) -> tuple[int, int, int]:
+    from PySide6 import QtGui
+
+    image = QtGui.QImage(path)
+    return image.pixelColor(image.width() // 2, image.height() // 2).getRgb()[:3]
+
+
+def close_to(color: tuple[int, int, int], expected: tuple[int, int, int], spread: int) -> bool:
+    return all(abs(a - b) <= spread for a, b in zip(color, expected, strict=True))
+
+
+def check_screenshot_looks() -> str:
+    cmds.file(new=True, force=True)
+    card = cmds.polyPlane(name="look_card", width=10, height=10, axis=(0, 0, 1))[0]
+    cmds.move(0, 0, -500, card)
+    camera = cmds.camera(orthographic=True, orthographicWidth=4)[0]
+    camera = cmds.rename(camera, "look_cam")
+    cmds.move(0, 0, -480, camera)
+    material = cmds.shadingNode("lambert", asShader=True, name="look_mat")
+    engine = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name="look_matSG")
+    cmds.connectAttr(material + ".outColor", engine + ".surfaceShader")
+    cmds.sets(card, edit=True, forceElement=engine)
+    texture = cmds.shadingNode("file", asTexture=True, name="look_tex")
+    cmds.connectAttr(texture + ".outColor", material + ".color")
+    cmds.setAttr(texture + ".fileTextureName", make_texture(8192, "big.png"), type="string")
+    cmds.setAttr("defaultResolution.width", 1024)
+    cmds.setAttr("defaultResolution.height", 1024)
+    cmds.file(modified=False)
+    try:
+        nodes = sorted(cmds.ls())
+        lighting = cmds.getAttr("hardwareRenderingGlobals.lightingMode")
+        clamp = cmds.getAttr("hardwareRenderingGlobals.enableTextureMaxRes")
+        prefs = cmds.colorManagementPrefs
+        output = (
+            prefs(query=True, outputTransformEnabled=True, outputTarget="renderer"),
+            prefs(query=True, outputTransformName=True, outputTarget="renderer"),
+        )
+
+        square = assert_read_only("get_viewport_screenshot", camera="look_cam", max_size=300)
+        assert (square["width"], square["height"]) == (300, 300), square
+        wide = assert_read_only(
+            "get_viewport_screenshot", camera="look_cam", max_size=320, aspect="16:9"
+        )
+        assert (wide["width"], wide["height"]) == (320, 180), wide
+
+        unlit = assert_read_only("get_viewport_screenshot", camera="look_cam", light="unlit")
+        assert unlit["light"] == "unlit", unlit
+        color = center_color(unlit["path"])
+        assert close_to(color, TEXTURE_RED, 6), f"unlit 8192 texture drawn as {color}"
+
+        expect_error("get_viewport_screenshot", "no lights", camera="look_cam", light="scene")
+        sun = cmds.directionalLight()
+        cmds.file(modified=False)
+        try:
+            for light in ("soft", "scene", ""):
+                shot = assert_read_only("get_viewport_screenshot", camera="look_cam", light=light)
+                color = center_color(shot["path"])
+                assert color[0] > 2 * color[1], f"{light or 'default'} light lost texture: {color}"
+        finally:
+            cmds.delete(cmds.listRelatives(sun, parent=True))
+            cmds.file(modified=False)
+
+        assert sorted(cmds.ls()) == nodes, "the screenshot left nodes behind"
+        assert not cmds.file(query=True, modified=True), "the screenshot marked the scene modified"
+        assert cmds.getAttr("hardwareRenderingGlobals.lightingMode") == lighting
+        assert cmds.getAttr("hardwareRenderingGlobals.enableTextureMaxRes") == clamp
+        assert output == (
+            prefs(query=True, outputTransformEnabled=True, outputTarget="renderer"),
+            prefs(query=True, outputTransformName=True, outputTarget="renderer"),
+        ), "renderer output transform not restored"
+    finally:
+        cmds.delete(card, camera, material, engine, texture)
+        cmds.setAttr("defaultResolution.width", 960)
+        cmds.setAttr("defaultResolution.height", 540)
+    return "render aspect, --aspect, unlit colors of an 8192 texture, soft and scene light ok"
 
 
 def check_audit_mesh() -> str:
@@ -479,6 +569,7 @@ def check_stop() -> str:
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("bridge dispatch", check_bridge_dispatch),
     ("shared maya", check_shared_maya),
+    ("screenshot looks", check_screenshot_looks),
 ]
 
 CHECKS: list[tuple[str, Callable[[], str]]] = [

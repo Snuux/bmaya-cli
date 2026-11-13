@@ -165,11 +165,14 @@ def build_parser() -> argparse.ArgumentParser:
         "Writes a PNG of the viewport and prints its path, width and height. Open that file to\n"
         "look at the scene. With --frames the frames are laid out in one contact sheet, which\n"
         "is the cheap way to review an animation. A Maya without a window renders offscreen\n"
-        "from `persp` or the camera you name; frame the subject first with\n"
-        "cmds.viewFit('persp', all=True).",
+        "from `persp` or the camera you name, in the shape of the render resolution; frame\n"
+        "the subject first with cmds.viewFit('persp', all=True). --light changes the lighting\n"
+        "for this shot only: unlit shows texture and base colors as they are, soft adds an\n"
+        "even studio light, scene uses the scene's lights.",
         examples(
             "bmaya shot -o shot.png",
             "bmaya shot --camera front --size 1200 -o front.png",
+            "bmaya shot --camera front --aspect 1:1 --light unlit -o front.png",
             "bmaya shot --frames 1,6,12,18,24 -o walk.png",
         ),
     )
@@ -177,6 +180,19 @@ def build_parser() -> argparse.ArgumentParser:
     shot.add_argument("--camera", default="", help="camera to look through (default: the view)")
     shot.add_argument("--frames", default="", help="comma-separated frames for a contact sheet")
     shot.add_argument("--size", type=int, default=0, help="longest side in pixels (default 800)")
+    shot.add_argument(
+        "--aspect",
+        default="",
+        metavar="W:H",
+        help="frame shape like 1:1 or 16:9, or 'render' for the render resolution "
+        "(default: the viewport, or the render resolution without a window)",
+    )
+    shot.add_argument(
+        "--light",
+        default="",
+        choices=("unlit", "soft", "scene"),
+        help="lighting for this shot (default: as the viewport has it)",
+    )
 
     audit = add(
         "audit",

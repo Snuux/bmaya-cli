@@ -46,6 +46,8 @@ bmaya exec -f build_crate.py
 - `bmaya file new|open|save|import [PATH]`. `new` and `open` refuse to discard unsaved work, and to replace the scene while another client works in that Maya. Never pass `--force` unless the user asked.
 - `bmaya undo [STEPS]` reverts one of your own `bmaya exec` calls per step.
 - `bmaya shot --frames 1,6,12,18,24 -o walk.png` puts up to 12 frames on one contact sheet. Use it to review animation instead of many single shots. `--camera NAME` gives a fixed view.
+- `bmaya shot --aspect 1:1 --light unlit` sets the frame shape and the lighting for that one shot, and puts everything back after. `--light unlit` shows texture and base colors as they are, `soft` adds an even studio light, `scene` uses the scene's lights. Use these instead of building lights, swapping materials or changing color management yourself.
+- Never call `cmds.ogs(reset=True)`: it can crash a Maya without a window, and `bmaya shot` does not need it. Save before changing color spaces.
 
 Relative paths are resolved against the directory you run `bmaya` in.
 
@@ -55,7 +57,7 @@ Relative paths are resolved against the directory you run `bmaya` in.
 - `bmaya start` starts one more Maya without a window (`--scene FILE` opens a file, `--gui` shows the window) and makes it your current session.
 - A Maya without a window has `headless: true`. It has no timer and runs until `bmaya stop`. When you are done with one you started: save with `bmaya file save PATH`, then `bmaya stop`. Leave a Maya you did not start alone.
 - `bmaya stop` never closes a Maya that has a window. That one is the user's.
-- Screenshots of a Maya without a window are rendered offscreen from `persp` or the `--camera` you pass. Frame the subject first: `cmds.viewFit("persp", all=True)`. UI commands (`modelPanel`, `playblast`, `getPanel`) fail there.
+- Screenshots of a Maya without a window are rendered offscreen from `persp` or the `--camera` you pass, in the shape of the render resolution (`defaultResolution`). Frame the subject first: `cmds.viewFit("persp", all=True)`. UI commands (`modelPanel`, `playblast`, `getPanel`) fail there.
 - If a session you used is gone, the next command says so once and names its journal. Tell the user; unsaved work in it is lost.
 
 ## Sharing a Maya
