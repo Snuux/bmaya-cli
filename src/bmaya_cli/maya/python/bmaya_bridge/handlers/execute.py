@@ -10,6 +10,7 @@ import maya.api.OpenMaya as om
 from maya import cmds, mel
 
 from bmaya_bridge.errors import BridgeError, attach_stdout
+from bmaya_bridge.guards import headless_crash_reason
 
 MAX_CHARS = 8000
 MAX_DEPTH = 6
@@ -50,6 +51,13 @@ def execute_maya_code(params: dict[str, Any]) -> dict[str, Any]:
             hint="Pass Python source as an argument, with -f FILE or on stdin. "
             "cmds, mel and om are preloaded; "
             "assign to a variable named result to return a value.",
+        )
+
+    crash_reason = headless_crash_reason(code)
+    if crash_reason and cmds.about(batch=True):
+        raise BridgeError(
+            f"The code calls {crash_reason}, which crashes a Maya without a window.",
+            hint="Use cmds.ogs(reloadTextures=True) to reload textures instead.",
         )
 
     compiled = compile(code, "<agent>", "exec")

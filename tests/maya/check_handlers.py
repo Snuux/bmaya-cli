@@ -195,7 +195,8 @@ def check_execute_maya_code() -> str:
         raise AssertionError("exception from user code was swallowed")
 
     expect_error("execute_maya_code", "code", code="  ")
-    return "stdout, result conversion, truncation, traceback line ok"
+    expect_error("execute_maya_code", "reloadTextures", code="cmds.ogs(reset=True)")
+    return "stdout, result conversion, truncation, traceback line, ogs reset refusal ok"
 
 
 def check_get_viewport_screenshot() -> str:
