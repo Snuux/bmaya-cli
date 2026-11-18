@@ -348,9 +348,12 @@ def contact_report(
 
 
 def loop_report(
-    tracks: list[Track], root: Track, setup: Setup
+    tracks: list[Track], root: Track, setup: Setup, contacts: set[str] | None = None
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Compares the first and last frame of a cycle; the last frame repeats the first pose."""
+    """Compares the first and last frame of a cycle; the last frame repeats the first pose.
+
+    A contact may turn around at the seam, like a ball bouncing, so only its pose counts.
+    """
     issues: list[dict[str, Any]] = []
     first = setup.spans[0][0] if setup.spans else 0
     last = setup.spans[-1][1] if setup.spans else len(setup.frames) - 1
@@ -388,6 +391,8 @@ def loop_report(
                     "turn": rnd(spun, 1),
                 }
             )
+            continue
+        if contacts and track.path in contacts:
             continue
         speeds = [relative_velocity(track, index) for index in range(first, last)]
         changes = [length(minus(speeds[i + 1], speeds[i])) for i in range(len(speeds) - 1)]

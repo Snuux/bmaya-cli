@@ -103,7 +103,6 @@ def number_of(node: str, attr: str) -> float | None:
 
 
 def changed_values(node: str, attrs: list[str]) -> dict[str, Any]:
-    """Current values that differ from the attribute's default."""
     values: dict[str, Any] = {}
     for name in collapse(attrs):
         parts = [name + axis for axis in "XYZ"] if name in TRIPLES else [name]

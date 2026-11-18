@@ -588,6 +588,8 @@ def check_get_motion() -> str:
     assert picked["nodes"]["source"] == "selection" and picked["step"] == 4, picked
     assert "note" in picked and "pop" not in picked["issues"]["counts"], picked
     cmds.select(clear=True)
+    grouped = call("get_motion", names="walker", frames="0:24")
+    assert grouped["nodes"]["total"] == 3, grouped["nodes"]
     whole = call("get_motion")
     assert whole["nodes"]["source"] == "scene" and whole["range"] == [0, 24], whole["nodes"]
     expect_error("get_motion", "bmaya scene", names="nobody")
@@ -1002,6 +1004,8 @@ def check_projection() -> str:
 
     cmds.setKeyframe("marker", attribute="translateX", time=1, value=-20)
     cmds.setKeyframe("marker", attribute="translateX", time=10, value=20)
+    through_persp = call("get_viewport_screenshot", camera="persp", fit="marker", max_size=300)
+    assert through_persp["fitted"] == ["marker"], through_persp
     moving = call(
         "get_viewport_screenshot", camera=far, frames="1:10", fit="marker", trail="marker"
     )

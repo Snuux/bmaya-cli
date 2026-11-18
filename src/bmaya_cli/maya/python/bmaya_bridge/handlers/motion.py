@@ -67,8 +67,18 @@ def named_nodes(names: list[str]) -> list[str]:
                 f"No transform or joint matches '{name}'.",
                 hint="`bmaya scene --query NAME` finds names; * and ? work in names.",
             )
-        found.extend(matches)
+        for match in matches:
+            found.extend(group_members(match))
     return unique(found)
+
+
+def group_members(node: str) -> list[str]:
+    """A group stands for the transforms under it; any other node for itself."""
+    if cmds.nodeType(node) != "transform" or cmds.listRelatives(node, shapes=True):
+        return [node]
+    below = cmds.listRelatives(node, allDescendents=True, fullPath=True, type="transform")
+    members = [path for path in below or [] if not is_camera_or_light(path)]
+    return sorted(members) or [node]
 
 
 def is_camera_or_light(node: str) -> bool:
@@ -344,7 +354,7 @@ def get_motion(params: dict[str, Any]) -> dict[str, Any]:
             issues.extend(found)
         if loop:
             anchor = tracks[root] if root else world_track(len(frames))
-            info, found = motioncheck.loop_report(shown, anchor, setup)
+            info, found = motioncheck.loop_report(shown, anchor, setup, set(contacts))
             result["loop"] = info
             issues.extend(found)
     else:

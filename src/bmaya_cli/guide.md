@@ -64,6 +64,8 @@ Writing keys is plain `bmaya exec`. What you cannot do is watch the motion, so c
 4. Register the clip as a Game Exporter clip or a time slider bookmark (recipe below), so `--clip NAME` and `bmaya export --clip NAME` find it.
 5. `bmaya playblast walk.gif --clip walk --camera side --fit hero` when the user wants to watch it.
 
+Pass `bmaya motion` the nodes of the clip you check (a group name means everything under it): without names it takes the selection, or every animated node in the scene, so other characters' cycles show up as issues and widen the limits. Put every node that touches the ground in `--contacts`, toes included. Shots draw geometry only: a bare skeleton shows nothing, so give it proxy meshes or look at it through `--trail`.
+
 For game clips: the last frame of a cycle repeats the first pose (`bmaya motion --loop` checks that), and every animated channel has a key on the first and last frame of its clip; otherwise the pose at the clip's edge leans toward the next clip on the timeline.
 
 The commands:

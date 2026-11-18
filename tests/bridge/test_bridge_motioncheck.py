@@ -129,6 +129,8 @@ def test_loop_seam_pose_and_speed() -> None:
     arc = track("|root|hand", [(at * (24 - at) / 10, 50.0, 0.0) for at in range(25)])
     issues = mc.loop_report([root, arc], root, setup(frames))[1]
     assert [issue["type"] for issue in issues] == ["loop_speed"], issues
+    bounce = mc.loop_report([root, arc], root, setup(frames), {"|root|hand"})[1]
+    assert bounce == [], bounce
 
 
 def test_key_problems() -> None:

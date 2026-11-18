@@ -73,7 +73,6 @@ def sample_poses(nodes: list[str], frames: list[float], deadline: float) -> list
 
 
 def sample_plugs(plugs: list[str], frames: list[float], deadline: float) -> list[list[float]]:
-    """Attribute values per plug and frame, in scene units."""
     values: list[list[float]] = [[] for _ in plugs]
     for at in frames:
         check_deadline(deadline, at, frames)
