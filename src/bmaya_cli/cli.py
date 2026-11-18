@@ -287,10 +287,26 @@ def build_parser() -> argparse.ArgumentParser:
         "Without a name it summarises the animation in the scene: clips (Game Exporter clips\n"
         "and time slider bookmarks), animated nodes, skeletons, skin clusters, blend shapes\n"
         "and layers. With a name it lists that node's curves, key ranges and tangents, and\n"
-        "its skeleton and skin clusters.",
-        examples("bmaya anim", "bmaya anim root"),
+        "its skeleton and skin clusters.\n\n"
+        "--plot draws the node's curves as a PNG, like the Graph Editor: one panel each for\n"
+        "translate, rotate, scale and the rest, dots on keys, frame numbers, clips shaded,\n"
+        "red ticks where a rotate curve jumps more than 180 between keys. Eases, overshoot,\n"
+        "holds and a cycle that does not close are easy to see there.",
+        examples(
+            "bmaya anim",
+            "bmaya anim root",
+            "bmaya anim hand_r_ctrl --plot -o curves.png",
+            "bmaya anim hips --plot --attrs translateY,rx --clip zombie_walk -o hips.png",
+        ),
     )
     anim.add_argument("name", nargs="?", default="", help="node to describe")
+    anim.add_argument("--plot", action="store_true", help="draw the node's curves as a PNG")
+    anim.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
+    anim.add_argument(
+        "--attrs", default="", metavar="A,B", help="plot only these attributes (rx, translate, ik)"
+    )
+    add_frames(anim, "frames to plot (default: the keys' range)")
+    anim.add_argument("--size", type=int, default=0, help="width in pixels (default 1000)")
 
     rig = add(
         "rig",

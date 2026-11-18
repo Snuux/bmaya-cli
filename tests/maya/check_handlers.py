@@ -430,6 +430,37 @@ def check_get_animation_info() -> str:
     return "overview, clips, curves, skeleton, skin, blend shape ok"
 
 
+def check_plot_animation() -> str:
+    from PySide6 import QtGui
+
+    plotted = cmds.spaceLocator(name="plotted")[0]
+    for at, x in ((1, 0), (6, 4), (12, 1)):
+        cmds.setKeyframe(plotted, attribute="translateX", time=at, value=x)
+    cmds.setKeyframe(plotted, attribute="rotateY", time=1, value=0)
+    cmds.setKeyframe(plotted, attribute="rotateY", time=12, value=350)
+    cmds.setKeyframe(plotted, attribute="visibility", time=1, value=1)
+    try:
+        result = assert_read_only("plot_animation", name="plotted", max_size=800)
+        assert result["range"] == [1, 12] and result["width"] == 800, result
+        curves = {entry["attr"]: entry for entry in result["curves"]["items"]}
+        assert curves["translateX"]["keys"] == 3 and curves["translateX"]["max"] == 4, curves
+        assert curves["rotateY"]["euler_jumps"] == [12], curves
+        assert "visibility" in curves, curves
+        image = QtGui.QImage(result["path"])
+        assert (image.width(), image.height()) == (800, result["height"]), result
+        colors = {image.pixel(x, y) for x in range(0, 800, 7) for y in range(0, image.height(), 7)}
+        assert len(colors) > 10, "the plot looks empty"
+
+        only = call("plot_animation", name="plotted", attrs="tx", frames="0:20")
+        assert [entry["attr"] for entry in only["curves"]["items"]] == ["translateX"], only
+        assert only["range"] == [0, 20], only
+        expect_error("plot_animation", "no keys on", name="plotted", attrs="sz")
+        expect_error("plot_animation", "no keys to plot", name="crate")
+    finally:
+        cmds.delete(plotted)
+    return "panels, key dots, Euler jump ticks, attribute filter, range ok"
+
+
 def check_export_fbx() -> str:
     target = WORK_DIR / "new folder" / "hero.fbx"
     cmds.select("crate", replace=True)
@@ -994,6 +1025,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("render_frames", check_render_frames),
     ("audit_mesh", check_audit_mesh),
     ("get_animation_info", check_get_animation_info),
+    ("plot_animation", check_plot_animation),
     ("export_fbx", check_export_fbx),
     ("scene_file", check_scene_file),
     ("get_motion", check_get_motion),

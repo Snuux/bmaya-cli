@@ -117,6 +117,31 @@ def test_motion_maps_names_frames_and_checks(
     assert (listed["values"], listed["attrs"]) == (True, "rx,ik")
 
 
+def test_anim_plot_moves_the_png_and_needs_a_name(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    temp = tmp_path / "curves-from-maya.png"
+
+    def plot(params: dict[str, Any]) -> dict[str, Any]:
+        temp.write_bytes(PNG)
+        return {"path": str(temp), "width": 1000, "height": 400, "got": params}
+
+    one_maya(home, make_bridge, {"plot_animation": plot})
+    target = tmp_path / "curves.png"
+    argv = ["anim", "hips", "--plot", "-o", str(target), "--attrs", "ty,rx", "--frames", "0:30"]
+    code, out, _ = run(capsys, *argv)
+    assert code == 0 and target.read_bytes() == PNG
+    assert out["got"] == {
+        "name": "hips",
+        "attrs": "ty,rx",
+        "frames": "0:30",
+        "clip": "",
+        "max_size": 0,
+    }
+    assert run(capsys, "anim", "--plot")[0] == commands.EXIT_USAGE
+    assert run(capsys, "anim", "hips", "--attrs", "rx")[0] == commands.EXIT_USAGE
+
+
 def test_relative_paths_are_resolved_where_the_command_runs(
     home: Path,
     make_bridge: BridgeFactory,

@@ -173,6 +173,21 @@ def shot_target(output: str) -> Path:
     return folder / f"shot-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}.png"
 
 
+def deliver_png(reply: dict[str, Any], output: str) -> None:
+    """Moves the PNG Maya wrote to its temp folder where the caller asked, then prints the reply."""
+    target = shot_target(output)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(reply["path"], target)
+    except OSError as exc:
+        raise CommandFailed(
+            f"The image was made but could not be written to {target}: {exc}",
+            hint=f"It is still in {reply['path']}.",
+        ) from exc
+    reply["path"] = target.as_posix()
+    emit(reply)
+
+
 def cmd_shot(args: argparse.Namespace) -> int:
     params = {
         "max_size": args.size,
@@ -184,18 +199,7 @@ def cmd_shot(args: argparse.Namespace) -> int:
         "trail": args.trail,
         "fit": args.fit,
     }
-    reply = call(args, "get_viewport_screenshot", params)
-    target = shot_target(args.output)
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(reply["path"], target)
-    except OSError as exc:
-        raise CommandFailed(
-            f"The screenshot was taken but could not be written to {target}: {exc}",
-            hint=f"It is still in {reply['path']}.",
-        ) from exc
-    reply["path"] = target.as_posix()
-    emit(reply)
+    deliver_png(call(args, "get_viewport_screenshot", params), args.output)
     return EXIT_OK
 
 
@@ -204,7 +208,29 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 
 def cmd_anim(args: argparse.Namespace) -> int:
-    return forward(args, "get_animation_info", {"name": args.name})
+    if not args.plot:
+        if args.frames or args.clip or args.attrs or args.output:
+            raise CommandFailed(
+                "--frames, --clip, --attrs and -o go with --plot.",
+                hint="bmaya anim NAME --plot -o curves.png",
+                code=EXIT_USAGE,
+            )
+        return forward(args, "get_animation_info", {"name": args.name})
+    if not args.name:
+        raise CommandFailed(
+            "--plot needs the node to plot.",
+            hint="bmaya anim hand_r_ctrl --plot -o curves.png",
+            code=EXIT_USAGE,
+        )
+    params = {
+        "name": args.name,
+        "attrs": args.attrs,
+        "frames": args.frames,
+        "clip": args.clip,
+        "max_size": args.size,
+    }
+    deliver_png(call(args, "plot_animation", params), args.output)
+    return EXIT_OK
 
 
 def cmd_rig(args: argparse.Namespace) -> int:
