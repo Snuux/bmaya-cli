@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from maya import cmds
 
+from bmaya_bridge import framespec
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import frame, int_param, resolve, text_param
 
@@ -61,22 +62,6 @@ def new_image_path(tag: str) -> str:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     millis = int(time.time() * 1000) % 1000
     return os.path.join(output_dir(), f"{tag}-{stamp}-{millis:03d}.png").replace("\\", "/")
-
-
-def parse_frames(raw: str) -> list[float]:
-    frames = []
-    for part in raw.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            frames.append(float(part))
-        except ValueError as exc:
-            raise BridgeError(
-                f"Bad frame number '{part}' in frames.",
-                hint="Pass frames as comma-separated numbers, for example --frames 1,12,24.",
-            ) from exc
-    return frames
 
 
 def parse_aspect(raw: str) -> tuple[int, int] | None:
@@ -550,10 +535,10 @@ def capture_offscreen(
 def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     longest = int_param(params, "max_size", 800, 200, 2000)
     camera = text_param(params, "camera")
-    requested = parse_frames(text_param(params, "frames"))
+    requested = framespec.parse(text_param(params, "frames"))
     aspect = parse_aspect(text_param(params, "aspect"))
     light = parse_light(text_param(params, "light"))
-    frames = requested[:MAX_FRAMES]
+    frames = framespec.thin(requested, MAX_FRAMES)
     current = cmds.currentTime(query=True)
     if not frames:
         frames = [current]
@@ -574,7 +559,7 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
 
     result["frames"] = [frame(at) for at in frames]
     if len(requested) > MAX_FRAMES:
-        result["dropped_frames"] = len(requested) - MAX_FRAMES
+        result["requested"] = len(requested)
     if light:
         result["light"] = light
     if offscreen:

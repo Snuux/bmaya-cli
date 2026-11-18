@@ -164,21 +164,30 @@ def build_parser() -> argparse.ArgumentParser:
         "save a viewport screenshot (or a contact sheet of frames) as PNG",
         "Writes a PNG of the viewport and prints its path, width and height. Open that file to\n"
         "look at the scene. With --frames the frames are laid out in one contact sheet, which\n"
-        "is the cheap way to review an animation. A Maya without a window renders offscreen\n"
-        "from `persp` or the camera you name, in the shape of the render resolution; frame\n"
-        "the subject first with cmds.viewFit('persp', all=True). --light changes the lighting\n"
-        "for this shot only: unlit shows texture and base colors as they are, soft adds an\n"
-        "even studio light, scene uses the scene's lights.",
+        "is the cheap way to review an animation. A range takes both ends (0:30 is 31\n"
+        "frames) and is thinned evenly to the 12 tiles of a sheet.\n\n"
+        "A Maya without a window renders offscreen from `persp` or the camera you name, in\n"
+        "the shape of the render resolution; frame the subject first with\n"
+        "cmds.viewFit('persp', all=True). --light changes the lighting for this shot only:\n"
+        "unlit shows texture and base colors as they are, soft adds an even studio light,\n"
+        "scene uses the scene's lights.",
         examples(
             "bmaya shot -o shot.png",
             "bmaya shot --camera front --size 1200 -o front.png",
             "bmaya shot --camera front --aspect 1:1 --light unlit -o front.png",
             "bmaya shot --frames 1,6,12,18,24 -o walk.png",
+            "bmaya shot --frames 0:32 -o walk.png        # 12 evenly spaced frames of 0..32",
         ),
     )
     shot.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
     shot.add_argument("--camera", default="", help="camera to look through (default: the view)")
-    shot.add_argument("--frames", default="", help="comma-separated frames for a contact sheet")
+    shot.add_argument(
+        "--frames",
+        default="",
+        metavar="SPEC",
+        help="frames for a contact sheet: 1,12,24 or a range 0:30 or 0:30:2; "
+        "negative frames as --frames=-10:20",
+    )
     shot.add_argument("--size", type=int, default=0, help="longest side in pixels (default 800)")
     shot.add_argument(
         "--aspect",

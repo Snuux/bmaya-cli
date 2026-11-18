@@ -216,6 +216,12 @@ def check_get_viewport_screenshot() -> str:
     leftovers = [p.name for p in Path(sheet["path"]).parent.glob("offscreen-*")]
     assert not leftovers, leftovers
     assert cmds.currentTime(query=True) == 1.0, "the screenshot moved the current time"
+    ranged = assert_read_only("get_viewport_screenshot", frames="1:24", max_size=300)
+    assert len(ranged["frames"]) == 12 and ranged["requested"] == 24, ranged
+    assert ranged["frames"][0] == 1 and ranged["frames"][-1] == 24, ranged
+    zero = assert_read_only("get_viewport_screenshot", frames="0:2", max_size=300)
+    assert zero["frames"] == [0, 1, 2], zero
+    expect_error("get_viewport_screenshot", "0:30:2", frames="0-30")
     expect_error("get_viewport_screenshot", "camera", camera="crate")
     expect_error("get_viewport_screenshot", "aspect", aspect="wide")
     expect_error("get_viewport_screenshot", "light", light="moody")
