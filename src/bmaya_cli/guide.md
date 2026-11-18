@@ -45,7 +45,8 @@ bmaya exec -f build_crate.py
 - `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")`. Add `--selection`, `--animation`, `--start N --end N`. Units are not converted; the scene unit is what the importer sees.
 - `bmaya file new|open|save|import [PATH]`. `new` and `open` refuse to discard unsaved work, and to replace the scene while another client works in that Maya. Never pass `--force` unless the user asked.
 - `bmaya undo [STEPS]` reverts one of your own `bmaya exec` calls per step.
-- `bmaya shot --frames 1,6,12,18,24 -o walk.png` puts up to 12 frames on one contact sheet. Use it to review animation instead of many single shots. A range like `--frames 0:32` (both ends included) or `0:32:4` is thinned evenly to 12 tiles. `--camera NAME` gives a fixed view.
+- `bmaya shot --frames 1,6,12,18,24 -o walk.png` puts up to 12 frames on one contact sheet. Use it to review animation instead of many single shots. A range like `--frames 0:32` (both ends included) or `0:32:4` is thinned evenly to 12 tiles. `--clip NAME` takes the frames of a clip. `--camera NAME` gives a fixed view.
+- `bmaya anim` lists the clips: Game Exporter clips and time slider bookmarks, with their frame ranges. Commands that take `--frames` also take `--clip NAME`.
 - `bmaya shot --aspect 1:1 --light unlit` sets the frame shape and the lighting for that one shot, and puts everything back after. `--light unlit` shows texture and base colors as they are, `soft` adds an even studio light, `scene` uses the scene's lights. Use these instead of building lights, swapping materials or changing color management yourself.
 - Never call `cmds.ogs(reset=True)`: it can crash a Maya without a window, and `bmaya shot` does not need it. Save before changing color spaces.
 

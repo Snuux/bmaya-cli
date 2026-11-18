@@ -188,6 +188,7 @@ def test_shot_moves_the_png_to_the_asked_place(
         "max_size": 0,
         "camera": "top",
         "frames": "1,12",
+        "clip": "",
         "aspect": "1:1",
         "light": "unlit",
     }
@@ -367,7 +368,13 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
 
 
 def test_bad_arguments_exit_with_usage_code() -> None:
-    for argv in (["reinstall"], ["file", "rename"], ["undo", "many"], ["object"]):
+    for argv in (
+        ["reinstall"],
+        ["file", "rename"],
+        ["undo", "many"],
+        ["object"],
+        ["shot", "--frames", "1", "--clip", "walk"],
+    ):
         with pytest.raises(SystemExit) as info:
             main(argv)
         assert info.value.code == commands.EXIT_USAGE

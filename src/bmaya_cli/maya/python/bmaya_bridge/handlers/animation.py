@@ -14,8 +14,10 @@ from bmaya_bridge.handlers._common import (
     text_param,
     time_info,
 )
+from bmaya_bridge.handlers._timeline import clips
 
 NODE_LIMIT = 30
+CLIP_LIMIT = 40
 CURVE_LIMIT = 60
 LIST_LIMIT = 20
 TIME_CURVE_TYPES = ("animCurveTL", "animCurveTA", "animCurveTU", "animCurveTT")
@@ -125,6 +127,7 @@ def scene_overview() -> dict[str, Any]:
         result["key_range"] = [min(r[0] for r in ranges), max(r[1] for r in ranges)]
 
     sections = {
+        "clips": clips(),
         "animated": animated,
         "skeletons": skeleton_roots(),
         "skins": skin_clusters(),
@@ -133,7 +136,7 @@ def scene_overview() -> dict[str, Any]:
     }
     for key, items in sections.items():
         if items:
-            limit = NODE_LIMIT if key == "animated" else LIST_LIMIT
+            limit = {"animated": NODE_LIMIT, "clips": CLIP_LIMIT}.get(key, LIST_LIMIT)
             result[key] = listing(items, limit)
     return result
 

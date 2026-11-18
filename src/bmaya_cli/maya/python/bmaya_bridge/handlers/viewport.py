@@ -17,6 +17,7 @@ from maya import cmds
 from bmaya_bridge import framespec
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import frame, int_param, resolve, text_param
+from bmaya_bridge.handlers._timeline import resolve_frames
 
 MAX_FRAMES = 12
 LABEL_HEIGHT = 22
@@ -535,7 +536,8 @@ def capture_offscreen(
 def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     longest = int_param(params, "max_size", 800, 200, 2000)
     camera = text_param(params, "camera")
-    requested = framespec.parse(text_param(params, "frames"))
+    chosen = resolve_frames(params)
+    requested = chosen.values if chosen else []
     aspect = parse_aspect(text_param(params, "aspect"))
     light = parse_light(text_param(params, "light"))
     frames = framespec.thin(requested, MAX_FRAMES)
@@ -560,6 +562,8 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     result["frames"] = [frame(at) for at in frames]
     if len(requested) > MAX_FRAMES:
         result["requested"] = len(requested)
+    if chosen and chosen.clip:
+        result["clip"] = chosen.clip
     if light:
         result["light"] = light
     if offscreen:

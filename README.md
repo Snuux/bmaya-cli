@@ -89,9 +89,9 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya scene [-q QUERY] [-t TYPE] [-n LIMIT]` | File, unit, up axis, fps, frame range, selection, nodes. |
 | `bmaya object NAME` | One node: transform, bounding box, mesh counts, UV sets, materials, history, keys. |
 | `bmaya exec [CODE] [-f FILE]` | Runs Python in Maya with `cmds`, `mel` and `om` loaded. Assign to `result` to return data. One undo step per call. Code also comes from stdin. |
-| `bmaya shot [-o FILE] [--camera C] [--frames 1,12,24\|0:30:2] [--size N] [--aspect W:H] [--light unlit\|soft\|scene]` | Writes a PNG of the viewport and prints its path. `--frames` makes a contact sheet (a range is thinned to 12 tiles), `--aspect` sets the frame shape, `--light` the lighting for this shot. |
+| `bmaya shot [-o FILE] [--camera C] [--frames 1,12,24\|0:30:2\|--clip NAME] [--size N] [--aspect W:H] [--light unlit\|soft\|scene]` | Writes a PNG of the viewport and prints its path. `--frames` makes a contact sheet (a range is thinned to 12 tiles), `--aspect` sets the frame shape, `--light` the lighting for this shot. |
 | `bmaya audit [NAME ...]` | Game-readiness check: n-gons, non-manifold geometry, UVs, materials, history, transforms. |
-| `bmaya anim [NAME]` | Curves, key ranges, fps, skeletons, skin clusters. |
+| `bmaya anim [NAME]` | Clips (Game Exporter, time slider bookmarks), curves, key ranges, fps, skeletons, skin clusters. |
 | `bmaya export FILE.fbx [--preset unity\|unreal\|godot] [--selection] [--animation]` | FBX export with an engine preset. |
 | `bmaya file new\|open\|save\|import [PATH] [--force]` | Scene files. |
 | `bmaya undo [STEPS] [--force]` | Undoes your own last steps, never another client's. |

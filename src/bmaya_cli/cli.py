@@ -52,6 +52,23 @@ def examples(*lines: str) -> str:
     return "examples:\n" + "\n".join(f"  {line}" for line in lines)
 
 
+def add_frames(command: argparse.ArgumentParser, what: str) -> None:
+    group = command.add_mutually_exclusive_group()
+    group.add_argument(
+        "--frames",
+        default="",
+        metavar="SPEC",
+        help=f"{what}: 1,12,24 or a range 0:30 or 0:30:2 (both ends included); "
+        "negative frames as --frames=-10:20",
+    )
+    group.add_argument(
+        "--clip",
+        default="",
+        metavar="NAME",
+        help="the frames of a Game Exporter clip or time slider bookmark (`bmaya anim` lists them)",
+    )
+
+
 def add_target(group: argparse._ArgumentGroup, top_level: bool) -> None:
     default = "" if top_level else argparse.SUPPRESS
     group.add_argument(
@@ -177,17 +194,12 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya shot --camera front --aspect 1:1 --light unlit -o front.png",
             "bmaya shot --frames 1,6,12,18,24 -o walk.png",
             "bmaya shot --frames 0:32 -o walk.png        # 12 evenly spaced frames of 0..32",
+            "bmaya shot --clip zombie_walk -o walk.png   # a clip from `bmaya anim`",
         ),
     )
     shot.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
     shot.add_argument("--camera", default="", help="camera to look through (default: the view)")
-    shot.add_argument(
-        "--frames",
-        default="",
-        metavar="SPEC",
-        help="frames for a contact sheet: 1,12,24 or a range 0:30 or 0:30:2; "
-        "negative frames as --frames=-10:20",
-    )
+    add_frames(shot, "frames for a contact sheet")
     shot.add_argument("--size", type=int, default=0, help="longest side in pixels (default 800)")
     shot.add_argument(
         "--aspect",
@@ -218,8 +230,10 @@ def build_parser() -> argparse.ArgumentParser:
         "anim",
         "cmd_anim",
         "report animation: curves, key ranges, fps, skeleton, skin",
-        "Without a name it summarises the animation in the scene. With a name it lists that\n"
-        "node's curves, key ranges and tangents, and its skeleton and skin clusters.",
+        "Without a name it summarises the animation in the scene: clips (Game Exporter clips\n"
+        "and time slider bookmarks), animated nodes, skeletons, skin clusters, blend shapes\n"
+        "and layers. With a name it lists that node's curves, key ranges and tangents, and\n"
+        "its skeleton and skin clusters.",
         examples("bmaya anim", "bmaya anim root"),
     )
     anim.add_argument("name", nargs="?", default="", help="node to describe")

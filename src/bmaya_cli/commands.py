@@ -174,6 +174,7 @@ def cmd_shot(args: argparse.Namespace) -> int:
         "max_size": args.size,
         "camera": args.camera,
         "frames": args.frames,
+        "clip": args.clip,
         "aspect": args.aspect,
         "light": args.light,
     }

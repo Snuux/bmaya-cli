@@ -100,7 +100,25 @@ def build_scene() -> None:
     cmds.sets(clean, edit=True, forceElement=engine)
 
     build_broken_mesh()
+    build_clips()
     cmds.select(clear=True)
+
+
+def build_clips() -> None:
+    for plugin in ("gameFbxExporter", "timeSliderBookmark"):
+        cmds.loadPlugin(plugin, quiet=True)
+    exporter = cmds.createNode("gameFbxExporter", name="clips_exporter")
+    for index, name, start, end in ((0, "spin", 1, 24), (2, "wave", 12, 18), (3, "", 0, 5)):
+        plug = f"{exporter}.animClips[{index}]"
+        cmds.setAttr(plug + ".animClipName", name, type="string")
+        cmds.setAttr(plug + ".animClipStart", start)
+        cmds.setAttr(plug + ".animClipEnd", end)
+    cmds.setAttr(exporter + ".animClips[2].exportAnimClip", False)
+    for name, start, end in (("spin", 1, 24), ("wave", 12, 20), ("nod", 4, 2)):
+        mark = cmds.createNode("timeSliderBookmark", name=f"mark_{name}")
+        cmds.setAttr(mark + ".name", name, type="string")
+        cmds.setAttr(mark + ".timeRangeStart", start)
+        cmds.setAttr(mark + ".timeRangeStop", end)
 
 
 def build_broken_mesh() -> None:
@@ -222,6 +240,11 @@ def check_get_viewport_screenshot() -> str:
     zero = assert_read_only("get_viewport_screenshot", frames="0:2", max_size=300)
     assert zero["frames"] == [0, 1, 2], zero
     expect_error("get_viewport_screenshot", "0:30:2", frames="0-30")
+    nod = assert_read_only("get_viewport_screenshot", clip="nod", max_size=300)
+    assert nod["frames"] == [2, 3, 4] and nod["clip"] == "nod", nod
+    expect_error("get_viewport_screenshot", "spin [1:24]", clip="missing")
+    expect_error("get_viewport_screenshot", "--frames 12:18", clip="wave")
+    expect_error("get_viewport_screenshot", "not both", clip="nod", frames="1")
     expect_error("get_viewport_screenshot", "camera", camera="crate")
     expect_error("get_viewport_screenshot", "aspect", aspect="wide")
     expect_error("get_viewport_screenshot", "light", light="moody")
@@ -350,6 +373,13 @@ def check_get_animation_info() -> str:
     skin = overview["skins"]["items"][0]
     assert skin["influences"] == 3 and skin["mesh"] == "body", skin
     assert overview["blend_shapes"]["items"][0]["targets"] == 1, overview
+    clips = overview["clips"]["items"]
+    spin = {"name": "spin", "range": [1, 24], "exporter": "clips_exporter", "bookmark": "mark_spin"}
+    assert spin in clips, clips
+    wave = {"name": "wave", "range": [12, 18], "exporter": "clips_exporter", "export": False}
+    assert wave in clips, clips
+    assert {"name": "nod", "range": [2, 4], "bookmark": "mark_nod"} in clips, clips
+    assert overview["clips"]["total"] == 4, clips
 
     root = call("get_animation_info", name="root")
     curve = root["curves"]["items"][0]
@@ -359,7 +389,7 @@ def check_get_animation_info() -> str:
     assert root["hierarchy"]["skins"] == ["bodySkin"], root
     spine = call("get_animation_info", name="spine")["curves"]["items"][0]
     assert spine["infinity"] == ["constant", "cycle"], spine
-    return "overview, curves, skeleton, skin, blend shape ok"
+    return "overview, clips, curves, skeleton, skin, blend shape ok"
 
 
 def check_export_fbx() -> str:
