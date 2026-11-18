@@ -218,6 +218,7 @@ def test_shot_moves_the_png_to_the_asked_place(
         "aspect": "1:1",
         "light": "unlit",
         "trail": "",
+        "fit": "",
     }
     assert target.read_bytes() == PNG
     assert not temp.exists()

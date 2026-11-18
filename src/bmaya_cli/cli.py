@@ -190,7 +190,9 @@ def build_parser() -> argparse.ArgumentParser:
         "scene uses the scene's lights.\n\n"
         "--trail draws the world path of up to 4 nodes over the frames (or the playback\n"
         "range for one frame): a dot per frame, so spacing shows, a bigger dot with its\n"
-        "number on each key, and a ring where the node is on each tile.",
+        "number on each key, and a ring where the node is on each tile.\n\n"
+        "--fit frames the named nodes on every frame of the shot with a temporary copy of\n"
+        "the camera, which keeps its direction; the camera itself is not touched.",
         examples(
             "bmaya shot -o shot.png",
             "bmaya shot --camera front --size 1200 -o front.png",
@@ -199,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya shot --frames 0:32 -o walk.png        # 12 evenly spaced frames of 0..32",
             "bmaya shot --clip zombie_walk -o walk.png   # a clip from `bmaya anim`",
             "bmaya shot --clip zombie_walk --trail hand_r,foot_l -o arcs.png",
+            "bmaya shot --clip zombie_walk --camera side --fit zombie -o walk_side.png",
         ),
     )
     shot.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
@@ -211,6 +214,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="W:H",
         help="frame shape like 1:1 or 16:9, or 'render' for the render resolution "
         "(default: the viewport, or the render resolution without a window)",
+    )
+    shot.add_argument(
+        "--fit",
+        default="",
+        metavar="A,B",
+        help="frame these nodes on every frame, looking the camera's way",
     )
     shot.add_argument(
         "--trail",

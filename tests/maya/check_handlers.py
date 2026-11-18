@@ -847,6 +847,18 @@ def bright_centroid(path: str) -> tuple[float, float]:
     return xs / count, ys / count
 
 
+def bright_count(path: str) -> int:
+    from PySide6 import QtGui
+
+    image = QtGui.QImage(path)
+    return sum(
+        1
+        for y in range(image.height())
+        for x in range(image.width())
+        if QtGui.qGray(image.pixel(x, y)) > 200
+    )
+
+
 def build_marker(point: tuple[float, float, float]) -> str:
     cmds.file(new=True, force=True)
     ball = cmds.polySphere(name="marker", radius=0.15)[0]
@@ -907,7 +919,29 @@ def check_projection() -> str:
 
     color = QtGui.QImage(shot["path"]).pixelColor(int(start[0]), int(start[1])).getRgb()[:3]
     assert close_to(color, (255, 190, 0), 40), f"no key dot at {start}: {color}"
-    return f"sphere lands within {worst:.2f} px of its projection; trail key dot in place"
+    far = cmds.camera(focalLength=35, name="far_cam")[0]
+    cmds.move(90, 50, 140, far)
+    cmds.viewLookAt(far, position=(0, 0, 0))
+    before = cmds.xform(far, query=True, worldSpace=True, matrix=True)
+    nodes = sorted(cmds.ls())
+    distant = call("get_viewport_screenshot", camera=far, light="unlit", max_size=400)
+    framed = call("get_viewport_screenshot", camera=far, fit="marker", light="unlit", max_size=400)
+    assert framed["fitted"] == ["marker"] and framed["camera"] == far, framed
+    small = bright_count(distant["path"])
+    big = bright_count(framed["path"])
+    assert big > 20 * max(small, 1), f"--fit did not frame the marker: {small} -> {big} pixels"
+    seen = bright_centroid(framed["path"])
+    assert abs(seen[0] - 200) < 40 and abs(seen[1] - 112) < 40, f"marker not centred: {seen}"
+    assert cmds.xform(far, query=True, worldSpace=True, matrix=True) == before, "camera moved"
+    assert sorted(cmds.ls()) == nodes, "the fit camera was left behind"
+
+    cmds.setKeyframe("marker", attribute="translateX", time=1, value=-20)
+    cmds.setKeyframe("marker", attribute="translateX", time=10, value=20)
+    moving = call(
+        "get_viewport_screenshot", camera=far, frames="1:10", fit="marker", trail="marker"
+    )
+    assert moving["trail"]["outside"] == 0, moving["trail"]
+    return f"sphere lands within {worst:.2f} px of its projection; trail and --fit in place"
 
 
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [

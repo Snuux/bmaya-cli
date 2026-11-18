@@ -16,6 +16,7 @@ from maya import cmds
 from bmaya_bridge import framespec
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
+    display_name,
     frame,
     int_param,
     resolve,
@@ -25,6 +26,7 @@ from bmaya_bridge.handlers._common import (
 )
 from bmaya_bridge.handlers._qt import qt_core, qt_gui
 from bmaya_bridge.handlers._timeline import resolve_frames
+from bmaya_bridge.handlers.framing import fit_frames, fit_nodes, fitted_camera
 from bmaya_bridge.handlers.trail import Trail, TrailPainter, build_trail, trail_nodes, trail_span
 
 MAX_FRAMES = 12
@@ -553,6 +555,26 @@ def capture_offscreen(
         return finish_trail(result, painter)
 
 
+@contextlib.contextmanager
+def framed(
+    camera_path: str,
+    nodes: list[str],
+    frames: list[float],
+    requested: list[float],
+    aspect: tuple[int, int] | None,
+    offscreen: bool,
+) -> Iterator[str]:
+    """The camera to shoot through: the given one, or a copy that frames `nodes`."""
+    if not nodes:
+        yield camera_path
+        return
+    if not camera_path:
+        camera_path = camera_transform(cmds.modelPanel(model_panel(), query=True, camera=True))
+    shape = aspect or (render_resolution() if offscreen else view_size(model_panel()))
+    with fitted_camera(camera_path, nodes, fit_frames(frames, requested), shape) as copy:
+        yield copy
+
+
 def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     longest = int_param(params, "max_size", 800, 200, 2000)
     camera = text_param(params, "camera")
@@ -561,6 +583,7 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     aspect = parse_aspect(text_param(params, "aspect"))
     light = parse_light(text_param(params, "light"))
     trail_paths = trail_nodes(text_param(params, "trail"))
+    fit_paths = fit_nodes(text_param(params, "fit"))
     frames = framespec.thin(requested, MAX_FRAMES)
     current = cmds.currentTime(query=True)
     if not frames:
@@ -574,9 +597,11 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
             trail = build_trail(trail_paths, trail_span(requested), frames)
         if offscreen:
             camera_path = camera_path or default_camera()
-            result = capture_offscreen(camera_path, frames, longest, aspect, light, trail)
-        else:
-            result = capture_panel(camera_path, frames, longest, aspect, light, trail)
+        with framed(camera_path, fit_paths, frames, requested, aspect, offscreen) as shooting:
+            if offscreen:
+                result = capture_offscreen(shooting, frames, longest, aspect, light, trail)
+            else:
+                result = capture_panel(shooting, frames, longest, aspect, light, trail)
 
     result["frames"] = [frame(at) for at in frames]
     if len(requested) > MAX_FRAMES:
@@ -589,4 +614,6 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
         result["offscreen"] = True
     if camera:
         result["camera"] = camera_path.rsplit("|", 1)[-1]
+    if fit_paths:
+        result["fitted"] = [display_name(path) for path in fit_paths]
     return result
