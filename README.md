@@ -78,7 +78,7 @@ Run `bmaya guide` once before the first use; `bmaya --help` lists the commands.
 Every command prints one line of JSON on stdout. Errors go to stderr as `error:` and `hint:` lines; follow the hint.
 Exit code 3 means Maya is still starting or still busy: wait and check `bmaya sessions`, do not send the command again.
 Pass multi-line code through stdin (`bmaya exec <<'PY' ... PY`) or `bmaya exec -f FILE`, not as an argument.
-Look at your work with `bmaya shot -o shot.png` and open that file.
+Look at your work with `bmaya shot -o shot.png`, or `bmaya views NAME -o views.png` for a model, and open that file.
 If a `note:` line says a Maya was started for you, save with `bmaya file save PATH` and run `bmaya stop` when the work is done.
 ```
 
@@ -91,7 +91,12 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya exec [CODE] [-f FILE]` | Runs Python in Maya with `cmds`, `mel` and `om` loaded. Assign to `result` to return data. One undo step per call. Code also comes from stdin. |
 | `bmaya shot [-o FILE] [--camera C] [--frames 1,12,24\|0:30:2\|--clip NAME] [--size N] [--aspect W:H] [--light unlit\|soft\|scene] [--trail A,B] [--fit A,B]` | Writes a PNG of the viewport and prints its path. `--frames` makes a contact sheet (a range is thinned to 12 tiles), `--aspect` sets the frame shape, `--light` the lighting for this shot, `--trail` draws node paths with a dot per frame, `--fit` frames nodes on every frame without moving the camera. |
 | `bmaya playblast OUT.gif\|OUT.mp4\|DIR [--frames\|--clip] [--camera C] [--fit A,B]` | Renders every frame and joins them into a GIF or MP4 with ffmpeg (PNG frames without it). For people to watch. |
-| `bmaya audit [NAME ...]` | Game-readiness check: n-gons, non-manifold geometry, UVs, materials, history, transforms. |
+| `bmaya views [NAME ...] [-o FILE] [--views front,right,top,persp\|all] [--style parts\|silhouette\|xray\|shaded] [--section x\|y=12.5] [--no-wire] [--size N]` | Draws a model from several sides in one PNG: a color per mesh, edges on top, width and height on the straight-on views. `silhouette` for the shape, `xray` and `--section` for what is inside, `shaded` for Maya's own render. |
+| `bmaya audit [NAME ...] [--symmetry x\|y\|z]` | Game-readiness check: counts, faces by kind, size, n-gons, non-manifold geometry, flipped or inward normals, UVs and their overlaps, materials, history, transforms, mirror symmetry. |
+| `bmaya diff NAME [--mark] [--against OTHER]` | What an edit changed in a mesh: counts, size, area, volume, moved vertices and where they are. |
+| `bmaya remesh NAME [--to tris --edge L \| --to quads --faces N]` | Rebuilds the topology: even triangles, or quads with Maya's Retopologize. |
+| `bmaya reduce NAME --tris N \| --percent P [--keep-uvs] [--keep-borders] [--keep-hard-edges] [--keep-quads]` | Lowers the triangle count and keeps the shape. |
+| `bmaya cleanup NAME [--merge DIST] [--ngons]` | Merges vertices on the same spot, removes bad faces and edges, conforms the normals and turns them outward. |
 | `bmaya anim [NAME] [--plot -o FILE]` | Clips (Game Exporter, time slider bookmarks), curves, key ranges, fps, skeletons, skin clusters. `--plot` draws the node's curves as a PNG, like the Graph Editor. |
 | `bmaya rig [ROOT]` | A rig's controls: keyable and driven attributes, values, limits, rotate order, keys, IK handles, constraints, ik/fk switches, character sets. |
 | `bmaya motion [NAME ...] [--frames 0:30\|--clip NAME] [--loop] [--contacts A,B] [--values] [--attrs A,B]` | Checks motion frame by frame: pops, flips, foot slide, sinking, loop seam, Euler jumps, keys off frames or outside clips. Reports measurements, and values per frame on request. |
@@ -118,6 +123,7 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 
 - [Sessions, sharing one Maya, start and stop](docs/sessions.md): several Mayas, who owns which undo step, environment variables, screenshots without a window.
 - [FBX export](docs/export.md): what each preset writes.
+- [Modeling](docs/modeling.md): view sheets and their styles, sections, audit numbers, diff, remesh, reduce, cleanup.
 - [Animation](docs/animation.md): frame specs and clips, motion checks, rig inventory, trails, curve plots, previews.
 - [Troubleshooting](docs/troubleshooting.md): common messages, the crash journal, where state is kept.
 
