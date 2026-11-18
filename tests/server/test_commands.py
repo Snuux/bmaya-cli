@@ -83,6 +83,7 @@ def test_simple_commands_map_their_arguments(
         **echo("get_object_info"),
         **echo("audit_mesh"),
         **echo("get_animation_info"),
+        **echo("get_rig_info"),
         **echo("undo"),
     }
     one_maya(home, make_bridge, handlers)
@@ -90,6 +91,7 @@ def test_simple_commands_map_their_arguments(
     assert run(capsys, "audit", "barrel", "crate")[1] == {"got": {"names": "barrel,crate"}}
     assert run(capsys, "audit")[1] == {"got": {"names": ""}}
     assert run(capsys, "anim")[1] == {"got": {"name": ""}}
+    assert run(capsys, "rig", "rig_ctrls")[1] == {"got": {"root": "rig_ctrls"}}
     assert run(capsys, "undo")[1] == {"got": {"steps": 1, "force": False}}
     assert run(capsys, "undo", "3", "--force")[1] == {"got": {"steps": 3, "force": True}}
 

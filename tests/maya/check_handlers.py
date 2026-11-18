@@ -526,6 +526,74 @@ def check_get_motion() -> str:
     return f"{len(issues)} issues of {len(by_type)} kinds found, state kept"
 
 
+def build_arm_rig() -> None:
+    cmds.file(new=True, force=True)
+    cmds.select(clear=True)
+    shoulder = cmds.joint(name="shoulder", position=(0, 0, 0))
+    cmds.joint(name="elbow", position=(10, 0, -1))
+    wrist = cmds.joint(name="wrist", position=(20, 0, 0))
+    handle = cmds.ikHandle(startJoint=shoulder, endEffector=wrist, name="arm_ik")[0]
+    controls = cmds.group(empty=True, name="rig_ctrls")
+    hand = cmds.circle(name="hand_ctrl")[0]
+    pole = cmds.circle(name="elbow_pole")[0]
+    fk = cmds.circle(name="fk_ctrl")[0]
+    cmds.parent(hand, pole, fk, controls)
+    cmds.move(20, 0, 0, hand)
+    cmds.move(10, 0, -10, pole)
+    cmds.pointConstraint(hand, handle)
+    cmds.poleVectorConstraint(pole, handle)
+    cmds.orientConstraint(fk, wrist)
+    cmds.setAttr(fk + ".rotateOrder", 1)
+    for axis in "XYZ":
+        cmds.setAttr(f"{hand}.scale{axis}", lock=True, keyable=False)
+    cmds.transformLimits(hand, rotationX=(-80, 80), enableRotationX=(True, True))
+    cmds.addAttr(hand, longName="ik", attributeType="double", min=0, max=1, dv=1, keyable=True)
+    flip = cmds.createNode("reverse", name="ik_to_fk")
+    cmds.connectAttr(hand + ".ik", handle + ".ikBlend")
+    cmds.connectAttr(hand + ".ik", flip + ".inputX")
+    cmds.connectAttr(flip + ".outputX", fk + ".visibility")
+    cmds.setKeyframe(hand, attribute="translateY", time=0, value=0)
+    cmds.setKeyframe(hand, attribute="translateY", time=10, value=4)
+    cmds.currentTime(10)
+    cmds.character(hand, name="arm_set")
+    cmds.select(clear=True)
+
+
+def check_get_rig_info() -> str:
+    build_arm_rig()
+    rig = assert_read_only("get_rig_info", root="rig_ctrls")
+    assert rig["root"] == "rig_ctrls" and rig["kind"] == "controls", rig
+    controls = {entry["name"]: entry for entry in rig["controls"]["items"]}
+    assert sorted(controls) == ["elbow_pole", "fk_ctrl", "hand_ctrl"], sorted(controls)
+    hand = controls["hand_ctrl"]
+    assert "translate" in hand["keyable"] and "ik" in hand["keyable"], hand
+    assert "scale" not in hand["keyable"], hand
+    assert hand["values"]["translate"] == [20, 4, 0], hand
+    assert hand["limits"]["rotateX"] == [-80, 80] and hand["limits"]["ik"] == [0, 1], hand
+    assert hand["keys"] == 2 and hand["range"] == [0, 10], hand
+    assert controls["fk_ctrl"]["ro"] == "yzx", controls["fk_ctrl"]
+
+    ik = rig["ik"]["items"][0]
+    assert (ik["name"], ik["solver"], ik["blend"]) == ("arm_ik", "ikRPsolver", 1), ik
+    assert ik["pole"] == "elbow_pole" and ik["driven_by"] == ["hand_ctrl"], ik
+    constraints = rig["constraints"]["items"]
+    assert {"type": "orientConstraint", "node": "wrist", "targets": ["fk_ctrl"]} in constraints
+    switch = rig["switches"]["items"][0]
+    assert switch["attr"] == "hand_ctrl.ik" and switch["range"] == [0, 1], switch
+    assert "arm_ik.ikBlend" in switch["drives"], switch
+    assert "fk_ctrl.visibility" in switch["drives"], switch
+    assert rig["character_sets"]["items"][0]["name"] == "arm_set", rig["character_sets"]
+
+    cmds.file(new=True, force=True)
+    cmds.select(clear=True)
+    cmds.joint(name="hips", position=(0, 90, 0))
+    cmds.joint(name="knee", position=(0, 50, 0))
+    bones = call("get_rig_info")
+    assert bones["kind"] == "joints" and bones["controls"]["total"] == 2, bones
+    expect_error("get_rig_info", "bmaya scene", root="nobody")
+    return "controls, driven and locked attrs, limits, IK, constraints, switches, joints"
+
+
 def check_scene_file() -> str:
     saved = call("scene_file", action="save", path=str(WORK_DIR / "scenes" / "check.ma"))
     assert saved["scene"].endswith("scenes/check.ma") and saved["modified"] is False, saved
@@ -777,6 +845,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("export_fbx", check_export_fbx),
     ("scene_file", check_scene_file),
     ("get_motion", check_get_motion),
+    ("get_rig_info", check_get_rig_info),
     ("undo", check_undo),
     ("stop", check_stop),
 ]

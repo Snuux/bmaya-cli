@@ -201,6 +201,10 @@ def cmd_anim(args: argparse.Namespace) -> int:
     return forward(args, "get_animation_info", {"name": args.name})
 
 
+def cmd_rig(args: argparse.Namespace) -> int:
+    return forward(args, "get_rig_info", {"root": args.root})
+
+
 def cmd_motion(args: argparse.Namespace) -> int:
     params = {
         "names": ",".join(args.names),

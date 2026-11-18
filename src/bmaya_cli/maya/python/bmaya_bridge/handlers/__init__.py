@@ -6,7 +6,16 @@ from typing import Any
 
 from maya import cmds
 
-from bmaya_bridge.handlers import animation, execute, export, mesh, motion, scene, viewport
+from bmaya_bridge.handlers import (
+    animation,
+    execute,
+    export,
+    mesh,
+    motion,
+    rig,
+    scene,
+    viewport,
+)
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -36,6 +45,7 @@ UNRECORDED: dict[str, Handler] = {
     "audit_mesh": without_undo(mesh.audit_mesh),
     "get_animation_info": without_undo(animation.get_animation_info),
     "get_motion": without_undo(motion.get_motion),
+    "get_rig_info": without_undo(rig.get_rig_info),
     "export_fbx": without_undo(export.export_fbx),
 }
 
