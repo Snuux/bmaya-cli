@@ -314,10 +314,11 @@ def build_parser() -> argparse.ArgumentParser:
         "list a rig's controls: keyable attributes, limits, IK, constraints, switches",
         "Lists what an animator would key: transforms with curve shapes and anything that\n"
         "already has keys, or the joints when there are no controls. For each control: its\n"
-        "keyable attributes, `driven` ones (fed by a constraint or a connection, so keys on\n"
-        "them do nothing), values that differ from the default, limits, rotate order and\n"
-        "keys. Then IK handles with their pole and driver, constraints, switch attributes\n"
-        "(like ik that drive ikBlend, visibility or constraint weights) and character sets.\n"
+        "keyable attributes, `driven` ones (fed by a constraint, a connection or an IK\n"
+        "handle, so keys on them do nothing), values that differ from the default, limits,\n"
+        "rotate order and keys. Then IK handles with their pole and driver, constraints,\n"
+        "switch attributes (like ik that drive ikBlend, visibility or constraint weights)\n"
+        "and character sets.\n"
         "Without a root it looks at the whole scene.",
         examples("bmaya rig", "bmaya rig rig_ctrls", 'bmaya rig "|hunter"'),
     )

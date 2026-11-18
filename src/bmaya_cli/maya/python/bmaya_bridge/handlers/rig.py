@@ -179,14 +179,30 @@ def key_curves(node: str) -> list[str]:
     return curves
 
 
-def control_entry(node: str) -> dict[str, Any]:
+def ik_chains() -> dict[str, str]:
+    """Joints an IK handle rotates while its ikBlend is on, mapped to the handle's name."""
+    chains = {}
+    for handle in cmds.ls(type="ikHandle", long=True) or []:
+        if cmds.getAttr(handle + ".ikBlend") <= 0:
+            continue
+        for joint in cmds.ls(cmds.ikHandle(handle, query=True, jointList=True) or [], long=True):
+            chains[joint] = display_name(handle)
+    return chains
+
+
+def control_entry(node: str, chains: dict[str, str]) -> dict[str, Any]:
     keyable = cmds.listAttr(node, keyable=True, unlocked=True) or []
     keyable = [attr for attr in keyable if attr not in SKIN_ATTRS]
-    driven = [attr for attr in keyable if is_driven(node, attr)]
+    solved = node in chains
+    driven = [
+        attr for attr in keyable if is_driven(node, attr) or (solved and attr.startswith("rotate"))
+    ]
     free = [attr for attr in keyable if attr not in driven]
     entry: dict[str, Any] = {"name": display_name(node), "keyable": collapse(free)}
     if driven:
         entry["driven"] = collapse(driven)
+    if solved:
+        entry["ik"] = chains[node]
     posed = free
     if cmds.nodeType(node) == "joint":
         posed = [attr for attr in free if not attr.startswith("translate")]
@@ -207,7 +223,8 @@ def control_entry(node: str) -> dict[str, Any]:
 def pick_controls(nodes: list[str]) -> tuple[list[str], str]:
     curves = [node for node in nodes if has_curve_shape(node)]
     animated = [node for node in nodes if key_curves(node)]
-    controls = sorted(set(curves) | set(animated))
+    handles = [node for node in nodes if cmds.nodeType(node) == "ikHandle" and key_curves(node)]
+    controls = sorted(set(curves) | set(animated) | set(handles))
     controls = [node for node in controls if cmds.listAttr(node, keyable=True, unlocked=True)]
     if curves:
         return controls, "controls"
@@ -348,7 +365,8 @@ def get_rig_info(params: dict[str, Any]) -> dict[str, Any]:
     if root:
         result["root"] = display_name(root)
     result["kind"] = kind
-    entries = [control_entry(node) for node in controls[:CONTROL_LIMIT]]
+    chains = ik_chains()
+    entries = [control_entry(node, chains) for node in controls[:CONTROL_LIMIT]]
     result["controls"] = {**listing(entries, CONTROL_LIMIT), "total": len(controls)}
     sections = {
         "ik": (ik_entries(scope), IK_LIMIT),

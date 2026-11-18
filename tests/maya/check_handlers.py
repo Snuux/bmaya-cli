@@ -632,6 +632,7 @@ def build_arm_rig() -> None:
     cmds.connectAttr(flip + ".outputX", fk + ".visibility")
     cmds.setKeyframe(hand, attribute="translateY", time=0, value=0)
     cmds.setKeyframe(hand, attribute="translateY", time=10, value=4)
+    cmds.setKeyframe(shoulder, attribute="rotateY", time=0)
     cmds.currentTime(10)
     cmds.character(hand, name="arm_set")
     cmds.select(clear=True)
@@ -661,6 +662,11 @@ def check_get_rig_info() -> str:
     assert "arm_ik.ikBlend" in switch["drives"], switch
     assert "fk_ctrl.visibility" in switch["drives"], switch
     assert rig["character_sets"]["items"][0]["name"] == "arm_set", rig["character_sets"]
+
+    whole = call("get_rig_info")
+    joints = {entry["name"]: entry for entry in whole["controls"]["items"]}
+    assert joints["shoulder"]["ik"] == "arm_ik", joints["shoulder"]
+    assert "rotate" in joints["shoulder"]["driven"], joints["shoulder"]
 
     cmds.file(new=True, force=True)
     cmds.select(clear=True)
