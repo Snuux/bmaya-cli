@@ -439,6 +439,8 @@ def check_plot_animation() -> str:
     cmds.setKeyframe(plotted, attribute="rotateY", time=1, value=0)
     cmds.setKeyframe(plotted, attribute="rotateY", time=12, value=350)
     cmds.setKeyframe(plotted, attribute="visibility", time=1, value=1)
+    for at, y in ((1, 60), (6, 60.2), (12, 60)):
+        cmds.setKeyframe(plotted, attribute="translateY", time=at, value=y)
     try:
         result = assert_read_only("plot_animation", name="plotted", max_size=800)
         assert result["range"] == [1, 12] and result["width"] == 800, result
@@ -446,6 +448,13 @@ def check_plot_animation() -> str:
         assert curves["translateX"]["keys"] == 3 and curves["translateX"]["max"] == 4, curves
         assert curves["rotateY"]["euler_jumps"] == [12], curves
         assert "visibility" in curves, curves
+        from bmaya_bridge.handlers import plot
+
+        split = plot.panels(
+            [plot.sample(attr, curve, 1, 12) for attr, curve in plot.node_curves("|plotted", [])]
+        )
+        translate = [[c.attr for c in band] for group, band in split if group == "translate"]
+        assert translate == [["translateX"], ["translateY"]], translate
         image = QtGui.QImage(result["path"])
         assert (image.width(), image.height()) == (800, result["height"]), result
         colors = {image.pixel(x, y) for x in range(0, 800, 7) for y in range(0, image.height(), 7)}

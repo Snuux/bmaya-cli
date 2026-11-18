@@ -38,6 +38,7 @@ RIGHT = 14
 TOP = 8
 AXIS = 26
 EULER_JUMP = 180.0
+SCALE_SPLIT = 10.0
 BACKGROUND = (34, 34, 34)
 PANEL = (44, 44, 44)
 GRID = (70, 70, 70)
@@ -251,13 +252,46 @@ def draw_axis(painter: QPainter, canvas: Canvas, top: float) -> None:
         at += step
 
 
+def spread(curve: Plotted) -> float:
+    return max(curve.values) - min(curve.values)
+
+
+def panels(curves: list[Plotted]) -> list[tuple[str, list[Plotted]]]:
+    """One panel per group, split where one curve's range is 10x another's.
+
+    A shared scale would draw the smaller curve as a flat line. Curves that do not move
+    join the panel of the group's widest curve.
+    """
+    result = []
+    for group in GROUPS:
+        members = [curve for curve in curves if curve.group == group]
+        moving = sorted((c for c in members if spread(c) > 1e-6), key=spread, reverse=True)
+        bands: list[list[Plotted]] = []
+        for curve in moving:
+            if bands and spread(curve) * SCALE_SPLIT >= spread(bands[-1][0]):
+                bands[-1].append(curve)
+            else:
+                bands.append([curve])
+        flat = [curve for curve in members if spread(curve) <= 1e-6]
+        if flat:
+            if bands:
+                bands[0].extend(flat)
+            else:
+                bands.append(flat)
+        for band in bands:
+            result.append((group, sorted(band, key=members.index)))
+    return result
+
+
 def render_plot(
     curves: list[Plotted], first: float, last: float, width: int
 ) -> tuple[str, int, int]:
     gui = qt_gui()
-    groups = [group for group in GROUPS if any(curve.group == group for curve in curves)]
+    layout = panels(curves)
     panel_height = max(150.0, min(280.0, width * 0.26))
-    height = int(TOP + len(groups) * (panel_height + 8) + AXIS)
+    if len(layout) > 4:
+        panel_height = max(110.0, panel_height * 4 / len(layout))
+    height = int(TOP + len(layout) * (panel_height + 8) + AXIS)
     image = gui.QImage(width, height, gui.QImage.Format_RGB32)
     image.fill(gui.QColor(*BACKGROUND))
     canvas = Canvas(float(LEFT), float(width - RIGHT), first, last)
@@ -267,10 +301,9 @@ def render_plot(
         font = painter.font()
         font.setPixelSize(11)
         painter.setFont(font)
-        bottom = TOP + len(groups) * (panel_height + 8)
-        for index, group in enumerate(groups):
+        bottom = TOP + len(layout) * (panel_height + 8)
+        for index, (group, members) in enumerate(layout):
             top = TOP + index * (panel_height + 8)
-            members = [curve for curve in curves if curve.group == group]
             draw_panel(painter, canvas, top, panel_height, group, members)
         draw_clips(painter, canvas, bottom)
         draw_axis(painter, canvas, bottom)
