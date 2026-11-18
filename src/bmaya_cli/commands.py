@@ -177,6 +177,7 @@ def cmd_shot(args: argparse.Namespace) -> int:
         "clip": args.clip,
         "aspect": args.aspect,
         "light": args.light,
+        "trail": args.trail,
     }
     reply = call(args, "get_viewport_screenshot", params)
     target = shot_target(args.output)

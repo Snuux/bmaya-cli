@@ -240,6 +240,10 @@ def check_get_viewport_screenshot() -> str:
     zero = assert_read_only("get_viewport_screenshot", frames="0:2", max_size=300)
     assert zero["frames"] == [0, 1, 2], zero
     expect_error("get_viewport_screenshot", "0:30:2", frames="0-30")
+    arcs = assert_read_only("get_viewport_screenshot", frames="1:24", trail="head", max_size=300)
+    assert arcs["trail"]["nodes"] == ["head"] and arcs["trail"]["range"] == [1, 24], arcs
+    assert arcs["trail"]["keys"] == [1, 5, 20, 24], arcs["trail"]
+    expect_error("get_viewport_screenshot", "at most 4", trail="a,b,c,d,e")
     nod = assert_read_only("get_viewport_screenshot", clip="nod", max_size=300)
     assert nod["frames"] == [2, 3, 4] and nod["clip"] == "nod", nod
     expect_error("get_viewport_screenshot", "spin [1:24]", clip="missing")
@@ -889,7 +893,21 @@ def check_projection() -> str:
         assert miss < 1.5, f"{cam} fit {fit} {aspect}: drawn at {seen}, projected at {pixel}"
         worst = max(worst, miss)
     cmds.setAttr(shape + ".overscan", 1.0)
-    return f"sphere lands within {worst:.2f} px of its projection, perspective and ortho"
+    cmds.setAttr(shape + ".filmFit", 1)
+
+    mover = cmds.spaceLocator(name="mover")[0]
+    cmds.setKeyframe(mover, attribute="translateX", time=1, value=-2)
+    cmds.setKeyframe(mover, attribute="translateX", time=10, value=2)
+    cmds.playbackOptions(minTime=1, maxTime=10)
+    shot = call("get_viewport_screenshot", camera=camera, frames="5", trail="mover", light="unlit")
+    assert shot["trail"]["keys"] == [1, 10] and shot["trail"]["outside"] == 0, shot["trail"]
+    view = _sampling.camera_view(camera, shot["width"], shot["height"])
+    start = project((-2.0, 0.0, 0.0), view, shot["width"], shot["height"])
+    from PySide6 import QtGui
+
+    color = QtGui.QImage(shot["path"]).pixelColor(int(start[0]), int(start[1])).getRgb()[:3]
+    assert close_to(color, (255, 190, 0), 40), f"no key dot at {start}: {color}"
+    return f"sphere lands within {worst:.2f} px of its projection; trail key dot in place"
 
 
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [

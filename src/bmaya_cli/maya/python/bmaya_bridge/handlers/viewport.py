@@ -6,7 +6,6 @@ import os
 import tempfile
 import time
 from collections.abc import Callable, Iterator
-from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -24,7 +23,9 @@ from bmaya_bridge.handlers._common import (
     select_only,
     text_param,
 )
+from bmaya_bridge.handlers._qt import qt_core, qt_gui
 from bmaya_bridge.handlers._timeline import resolve_frames
+from bmaya_bridge.handlers.trail import Trail, TrailPainter, build_trail, trail_nodes, trail_span
 
 MAX_FRAMES = 12
 LABEL_HEIGHT = 22
@@ -42,22 +43,7 @@ UNTONEMAPPED_VIEW = "Un-tone-mapped"
 TEXTURE_CLAMP = "hardwareRenderingGlobals.enableTextureMaxRes"
 
 RenderFrame = Callable[[float, str, tuple[int, int]], None]
-
-
-def qt_gui() -> ModuleType:
-    try:
-        from PySide6 import QtGui
-    except ImportError:
-        from PySide2 import QtGui
-    return QtGui
-
-
-def qt_core() -> ModuleType:
-    try:
-        from PySide6 import QtCore
-    except ImportError:
-        from PySide2 import QtCore
-    return QtCore
+Decorate = Callable[[float, "QImage", bool], None]
 
 
 def output_dir() -> str:
@@ -189,7 +175,12 @@ def load_opaque(path: str) -> QImage:
     return gui.QImage(path).convertToFormat(gui.QImage.Format_RGB32)
 
 
-def contact_sheet(tiles: list[tuple[float, str]], size: tuple[int, int], path: str) -> None:
+def contact_sheet(
+    tiles: list[tuple[float, str]],
+    size: tuple[int, int],
+    path: str,
+    decorate: Decorate | None = None,
+) -> None:
     gui = qt_gui()
     core = qt_core()
     columns = math.ceil(math.sqrt(len(tiles)))
@@ -207,7 +198,10 @@ def contact_sheet(tiles: list[tuple[float, str]], size: tuple[int, int], path: s
         for index, (at, tile_path) in enumerate(tiles):
             x = (index % columns) * width
             y = (index // columns) * height
-            painter.drawImage(core.QRect(x, y, width, height), load_opaque(tile_path))
+            image = load_opaque(tile_path)
+            if decorate:
+                decorate(at, image, index == 0)
+            painter.drawImage(core.QRect(x, y, width, height), image)
             label = f"{frame(at)}"
             label_width = painter.fontMetrics().horizontalAdvance(label) + 12
             box = core.QRect(x, y, label_width, LABEL_HEIGHT)
@@ -221,7 +215,11 @@ def contact_sheet(tiles: list[tuple[float, str]], size: tuple[int, int], path: s
 
 
 def capture(
-    render: RenderFrame, view: tuple[int, int], frames: list[float], longest: int
+    render: RenderFrame,
+    view: tuple[int, int],
+    frames: list[float],
+    longest: int,
+    decorate: Decorate | None = None,
 ) -> dict[str, Any]:
     view_width, view_height = view
     if len(frames) == 1:
@@ -229,6 +227,8 @@ def capture(
         size = fit(view_width, view_height, longest)
         render(frames[0], path, size)
         image = load_opaque(path)
+        if decorate:
+            decorate(frames[0], image, True)
         if not image.save(path, "PNG"):
             raise BridgeError(f"Could not write the screenshot to {path}.")
         return {"path": path, "width": image.width(), "height": image.height()}
@@ -245,7 +245,7 @@ def capture(
             render(at, tile_path, tile)
             tiles.append((at, tile_path))
         path = new_image_path("contact")
-        contact_sheet(tiles, tile, path)
+        contact_sheet(tiles, tile, path, decorate)
     finally:
         for _, tile_path in tiles:
             if os.path.isfile(tile_path):
@@ -253,8 +253,19 @@ def capture(
     return {"path": path, "width": tile[0] * columns, "height": tile[1] * rows}
 
 
+def finish_trail(result: dict[str, Any], painter: TrailPainter | None) -> dict[str, Any]:
+    if painter:
+        result["trail"] = painter.summary()
+    return result
+
+
 def capture_panel(
-    camera_path: str, frames: list[float], longest: int, aspect: tuple[int, int] | None, light: str
+    camera_path: str,
+    frames: list[float],
+    longest: int,
+    aspect: tuple[int, int] | None,
+    light: str,
+    trail: Trail | None = None,
 ) -> dict[str, Any]:
     panel = model_panel()
     previous_camera = cmds.modelPanel(panel, query=True, camera=True)
@@ -277,10 +288,12 @@ def capture_panel(
         if light == "soft":
             cmds.modelEditor(panel, edit=True, lights=False)
         camera = cmds.modelPanel(panel, query=True, camera=True)
+        painter = TrailPainter(trail, camera, overscan=True) if trail else None
         with soft_lights(light, camera), viewer_transform(light):
             # Without a redraw the first playblast after a camera switch can come out empty.
             cmds.refresh(force=True)
-            return capture(render, aspect or view_size(panel), frames, longest)
+            result = capture(render, aspect or view_size(panel), frames, longest, painter)
+            return finish_trail(result, painter)
     finally:
         cmds.modelEditor(
             panel,
@@ -516,7 +529,12 @@ def ogs_frame(camera_path: str, at: float, path: str, size: tuple[int, int]) -> 
 
 
 def capture_offscreen(
-    camera_path: str, frames: list[float], longest: int, aspect: tuple[int, int] | None, light: str
+    camera_path: str,
+    frames: list[float],
+    longest: int,
+    aspect: tuple[int, int] | None,
+    light: str,
+    trail: Trail | None = None,
 ) -> dict[str, Any]:
     prefix = new_image_path("offscreen")[: -len(".png")]
 
@@ -530,7 +548,9 @@ def capture_offscreen(
         stack.enter_context(renderer_output(light))
         stack.enter_context(lighting_mode(light))
         stack.enter_context(soft_lights(light, camera_path))
-        return capture(render, aspect or render_resolution(), frames, longest)
+        painter = TrailPainter(trail, camera_path, overscan=False) if trail else None
+        result = capture(render, aspect or render_resolution(), frames, longest, painter)
+        return finish_trail(result, painter)
 
 
 def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
@@ -540,6 +560,7 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     requested = chosen.values if chosen else []
     aspect = parse_aspect(text_param(params, "aspect"))
     light = parse_light(text_param(params, "light"))
+    trail_paths = trail_nodes(text_param(params, "trail"))
     frames = framespec.thin(requested, MAX_FRAMES)
     current = cmds.currentTime(query=True)
     if not frames:
@@ -548,11 +569,14 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
     camera_path = camera_transform(camera) if camera else ""
     offscreen = bool(cmds.about(batch=True))
     with scene_kept():
+        trail = None
+        if trail_paths:
+            trail = build_trail(trail_paths, trail_span(requested), frames)
         if offscreen:
             camera_path = camera_path or default_camera()
-            result = capture_offscreen(camera_path, frames, longest, aspect, light)
+            result = capture_offscreen(camera_path, frames, longest, aspect, light, trail)
         else:
-            result = capture_panel(camera_path, frames, longest, aspect, light)
+            result = capture_panel(camera_path, frames, longest, aspect, light, trail)
 
     result["frames"] = [frame(at) for at in frames]
     if len(requested) > MAX_FRAMES:

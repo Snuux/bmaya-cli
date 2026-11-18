@@ -187,7 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
         "the shape of the render resolution; frame the subject first with\n"
         "cmds.viewFit('persp', all=True). --light changes the lighting for this shot only:\n"
         "unlit shows texture and base colors as they are, soft adds an even studio light,\n"
-        "scene uses the scene's lights.",
+        "scene uses the scene's lights.\n\n"
+        "--trail draws the world path of up to 4 nodes over the frames (or the playback\n"
+        "range for one frame): a dot per frame, so spacing shows, a bigger dot with its\n"
+        "number on each key, and a ring where the node is on each tile.",
         examples(
             "bmaya shot -o shot.png",
             "bmaya shot --camera front --size 1200 -o front.png",
@@ -195,6 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya shot --frames 1,6,12,18,24 -o walk.png",
             "bmaya shot --frames 0:32 -o walk.png        # 12 evenly spaced frames of 0..32",
             "bmaya shot --clip zombie_walk -o walk.png   # a clip from `bmaya anim`",
+            "bmaya shot --clip zombie_walk --trail hand_r,foot_l -o arcs.png",
         ),
     )
     shot.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
@@ -207,6 +211,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="W:H",
         help="frame shape like 1:1 or 16:9, or 'render' for the render resolution "
         "(default: the viewport, or the render resolution without a window)",
+    )
+    shot.add_argument(
+        "--trail",
+        default="",
+        metavar="A,B",
+        help="draw the paths of these nodes (up to 4) over the frames",
     )
     shot.add_argument(
         "--light",
