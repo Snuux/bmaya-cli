@@ -255,6 +255,40 @@ def check_get_viewport_screenshot() -> str:
     return f"offscreen frame {single['width']}x{single['height']} and contact sheet ok"
 
 
+def check_render_frames() -> str:
+    from bmaya_bridge.handlers import viewport
+
+    folder = WORK_DIR / "frames"
+    cmds.currentTime(3)
+    cmds.file(modified=False)
+    first = assert_read_only(
+        "render_frames", frames="1:5", count=3, folder=str(folder), max_size=200
+    )
+    assert (first["rendered"], first["total"], first["last_frame"]) == (3, 5, 3), first
+    assert first["range"] == [1, 5] and first["step"] == 1 and first["fps"] == 24, first
+    assert first["ms_per_frame"] >= 0 and first["width"] == 200, first
+    rest = call("render_frames", frames="1:5", offset=3, count=3, folder=str(folder), max_size=200)
+    assert (rest["rendered"], rest["last_frame"]) == (2, 5), rest
+    names = sorted(path.name for path in folder.glob("frame_*.png"))
+    assert names == [f"frame_{index:05d}.png" for index in range(5)], names
+    assert cmds.currentTime(query=True) == 3, "render_frames moved the current time"
+    assert not cmds.file(query=True, modified=True), "render_frames marked the scene modified"
+
+    saved = viewport.SEQUENCE_SECONDS
+    viewport.SEQUENCE_SECONDS = 0.0
+    try:
+        hurried = call("render_frames", frames="1:5", count=5, folder=str(WORK_DIR / "rush"))
+    finally:
+        viewport.SEQUENCE_SECONDS = saved
+    assert hurried["rendered"] == 1, hurried
+
+    nod = call("render_frames", clip="nod", folder=str(WORK_DIR / "nod"), max_size=200)
+    assert (nod["total"], nod["clip"], nod["range"]) == (3, "nod", [2, 4]), nod
+    expect_error("render_frames", "past the last", frames="1:5", offset=9, folder=str(folder))
+    expect_error("render_frames", "absolute folder", frames="1:5", folder="relative")
+    return "chunks by offset, frame numbering, deadline, clip ok"
+
+
 def make_texture(size: int, name: str) -> str:
     from PySide6 import QtGui
 
@@ -957,6 +991,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("get_object_info", check_get_object_info),
     ("execute_maya_code", check_execute_maya_code),
     ("get_viewport_screenshot", check_get_viewport_screenshot),
+    ("render_frames", check_render_frames),
     ("audit_mesh", check_audit_mesh),
     ("get_animation_info", check_get_animation_info),
     ("export_fbx", check_export_fbx),

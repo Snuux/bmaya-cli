@@ -42,6 +42,7 @@ UNRECORDED: dict[str, Handler] = {
     "get_scene_info": without_undo(scene.get_scene_info),
     "get_object_info": without_undo(scene.get_object_info),
     "get_viewport_screenshot": without_undo(viewport.get_viewport_screenshot),
+    "render_frames": without_undo(viewport.render_frames),
     "audit_mesh": without_undo(mesh.audit_mesh),
     "get_animation_info": without_undo(animation.get_animation_info),
     "get_motion": without_undo(motion.get_motion),

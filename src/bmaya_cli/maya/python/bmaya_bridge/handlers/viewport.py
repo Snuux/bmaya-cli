@@ -17,6 +17,7 @@ from bmaya_bridge import framespec
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     display_name,
+    fps,
     frame,
     int_param,
     resolve,
@@ -26,10 +27,14 @@ from bmaya_bridge.handlers._common import (
 )
 from bmaya_bridge.handlers._qt import qt_core, qt_gui
 from bmaya_bridge.handlers._timeline import resolve_frames
-from bmaya_bridge.handlers.framing import fit_frames, fit_nodes, fitted_camera
+from bmaya_bridge.handlers.framing import FIT_SAMPLES, fit_frames, fit_nodes, fitted_camera
 from bmaya_bridge.handlers.trail import Trail, TrailPainter, build_trail, trail_nodes, trail_span
 
 MAX_FRAMES = 12
+SEQUENCE_SECONDS = 30.0
+MAX_SEQUENCE = 1500
+CHUNK_DEFAULT = 12
+CHUNK_MAX = 120
 LABEL_HEIGHT = 22
 OFFSCREEN_BACKGROUND = (72, 72, 72)
 PNG_FORMAT = 32
@@ -46,6 +51,7 @@ TEXTURE_CLAMP = "hardwareRenderingGlobals.enableTextureMaxRes"
 
 RenderFrame = Callable[[float, str, tuple[int, int]], None]
 Decorate = Callable[[float, "QImage", bool], None]
+Shoot = Callable[[RenderFrame, tuple[int, int], "Decorate | None"], dict[str, Any]]
 
 
 def output_dir() -> str:
@@ -261,13 +267,50 @@ def finish_trail(result: dict[str, Any], painter: TrailPainter | None) -> dict[s
     return result
 
 
-def capture_panel(
-    camera_path: str,
+def write_sequence(
+    render: RenderFrame,
+    view: tuple[int, int],
     frames: list[float],
     longest: int,
+    decorate: Decorate | None,
+    folder: str,
+    offset: int,
+    deadline: float,
+) -> dict[str, Any]:
+    """Writes frame_NNNNN.png per frame, numbered by place in the whole range.
+
+    Stops early once the deadline has passed, after at least one frame.
+    """
+    size = fit(view[0], view[1], longest)
+    started = time.perf_counter()
+    width = height = written = 0
+    for index, at in enumerate(frames):
+        if written and time.perf_counter() > deadline:
+            break
+        path = os.path.join(folder, f"frame_{offset + index:05d}.png").replace("\\", "/")
+        render(at, path, size)
+        image = load_opaque(path)
+        if decorate:
+            decorate(at, image, True)
+        if not image.save(path, "PNG"):
+            raise BridgeError(f"Could not write frame {frame(at)} to {path}.")
+        width, height = image.width(), image.height()
+        written += 1
+    spent = (time.perf_counter() - started) * 1000.0
+    return {
+        "rendered": written,
+        "width": width,
+        "height": height,
+        "ms_per_frame": int(spent / written),
+    }
+
+
+def capture_panel(
+    camera_path: str,
     aspect: tuple[int, int] | None,
     light: str,
-    trail: Trail | None = None,
+    trail: Trail | None,
+    shoot: Shoot,
 ) -> dict[str, Any]:
     panel = model_panel()
     previous_camera = cmds.modelPanel(panel, query=True, camera=True)
@@ -294,7 +337,7 @@ def capture_panel(
         with soft_lights(light, camera), viewer_transform(light):
             # Without a redraw the first playblast after a camera switch can come out empty.
             cmds.refresh(force=True)
-            result = capture(render, aspect or view_size(panel), frames, longest, painter)
+            result = shoot(render, aspect or view_size(panel), painter)
             return finish_trail(result, painter)
     finally:
         cmds.modelEditor(
@@ -532,11 +575,10 @@ def ogs_frame(camera_path: str, at: float, path: str, size: tuple[int, int]) -> 
 
 def capture_offscreen(
     camera_path: str,
-    frames: list[float],
-    longest: int,
     aspect: tuple[int, int] | None,
     light: str,
-    trail: Trail | None = None,
+    trail: Trail | None,
+    shoot: Shoot,
 ) -> dict[str, Any]:
     prefix = new_image_path("offscreen")[: -len(".png")]
 
@@ -551,7 +593,7 @@ def capture_offscreen(
         stack.enter_context(lighting_mode(light))
         stack.enter_context(soft_lights(light, camera_path))
         painter = TrailPainter(trail, camera_path, overscan=False) if trail else None
-        result = capture(render, aspect or render_resolution(), frames, longest, painter)
+        result = shoot(render, aspect or render_resolution(), painter)
         return finish_trail(result, painter)
 
 
@@ -559,8 +601,7 @@ def capture_offscreen(
 def framed(
     camera_path: str,
     nodes: list[str],
-    frames: list[float],
-    requested: list[float],
+    samples: list[float],
     aspect: tuple[int, int] | None,
     offscreen: bool,
 ) -> Iterator[str]:
@@ -571,24 +612,23 @@ def framed(
     if not camera_path:
         camera_path = camera_transform(cmds.modelPanel(model_panel(), query=True, camera=True))
     shape = aspect or (render_resolution() if offscreen else view_size(model_panel()))
-    with fitted_camera(camera_path, nodes, fit_frames(frames, requested), shape) as copy:
+    with fitted_camera(camera_path, nodes, samples, shape) as copy:
         yield copy
 
 
-def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
-    longest = int_param(params, "max_size", 800, 200, 2000)
+def shoot_frames(
+    params: dict[str, Any],
+    frames: list[float],
+    requested: list[float],
+    fit_samples: list[float],
+    shoot: Shoot,
+) -> dict[str, Any]:
+    """Sets up camera, light, trail and framing for `shoot`, and puts everything back."""
     camera = text_param(params, "camera")
-    chosen = resolve_frames(params)
-    requested = chosen.values if chosen else []
     aspect = parse_aspect(text_param(params, "aspect"))
     light = parse_light(text_param(params, "light"))
     trail_paths = trail_nodes(text_param(params, "trail"))
     fit_paths = fit_nodes(text_param(params, "fit"))
-    frames = framespec.thin(requested, MAX_FRAMES)
-    current = cmds.currentTime(query=True)
-    if not frames:
-        frames = [current]
-
     camera_path = camera_transform(camera) if camera else ""
     offscreen = bool(cmds.about(batch=True))
     with scene_kept():
@@ -597,17 +637,12 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
             trail = build_trail(trail_paths, trail_span(requested), frames)
         if offscreen:
             camera_path = camera_path or default_camera()
-        with framed(camera_path, fit_paths, frames, requested, aspect, offscreen) as shooting:
+        with framed(camera_path, fit_paths, fit_samples, aspect, offscreen) as shooting:
             if offscreen:
-                result = capture_offscreen(shooting, frames, longest, aspect, light, trail)
+                result = capture_offscreen(shooting, aspect, light, trail, shoot)
             else:
-                result = capture_panel(shooting, frames, longest, aspect, light, trail)
+                result = capture_panel(shooting, aspect, light, trail, shoot)
 
-    result["frames"] = [frame(at) for at in frames]
-    if len(requested) > MAX_FRAMES:
-        result["requested"] = len(requested)
-    if chosen and chosen.clip:
-        result["clip"] = chosen.clip
     if light:
         result["light"] = light
     if offscreen:
@@ -616,4 +651,79 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
         result["camera"] = camera_path.rsplit("|", 1)[-1]
     if fit_paths:
         result["fitted"] = [display_name(path) for path in fit_paths]
+    return result
+
+
+def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
+    longest = int_param(params, "max_size", 800, 200, 2000)
+    chosen = resolve_frames(params)
+    requested = chosen.values if chosen else []
+    frames = framespec.thin(requested, MAX_FRAMES) or [cmds.currentTime(query=True)]
+
+    def shoot(render: RenderFrame, view: tuple[int, int], decorate: Decorate | None) -> dict:
+        return capture(render, view, frames, longest, decorate)
+
+    result = shoot_frames(params, frames, requested, fit_frames(frames, requested), shoot)
+    result["frames"] = [frame(at) for at in frames]
+    if len(requested) > MAX_FRAMES:
+        result["requested"] = len(requested)
+    if chosen and chosen.clip:
+        result["clip"] = chosen.clip
+    return result
+
+
+def sequence_folder(raw: str) -> str:
+    if not raw or not os.path.isabs(raw):
+        raise BridgeError(
+            f"render_frames needs an absolute folder, got {raw!r}.",
+            hint="Use `bmaya playblast OUT`, which picks the folder.",
+        )
+    os.makedirs(raw, exist_ok=True)
+    return raw.replace("\\", "/")
+
+
+def playback_frames() -> list[float]:
+    start = framespec.label(cmds.playbackOptions(query=True, minTime=True))
+    end = framespec.label(cmds.playbackOptions(query=True, maxTime=True))
+    return framespec.parse(f"{start}:{end}")
+
+
+def render_frames(params: dict[str, Any]) -> dict[str, Any]:
+    """Renders one chunk of a frame sequence; `bmaya playblast` calls it until done."""
+    deadline = time.perf_counter() + SEQUENCE_SECONDS
+    longest = int_param(params, "max_size", 640, 200, 2000)
+    chosen = resolve_frames(params)
+    values = chosen.values if chosen else playback_frames()
+    if len(values) > MAX_SEQUENCE:
+        raise BridgeError(
+            f"{len(values)} frames to render; the most is {MAX_SEQUENCE}.",
+            hint="Use a step (--frames 0:3000:2) or a shorter range.",
+        )
+    offset = int_param(params, "offset", 0, 0, len(values))
+    count = int_param(params, "count", CHUNK_DEFAULT, 1, CHUNK_MAX)
+    folder = sequence_folder(text_param(params, "folder"))
+    batch = values[offset : offset + count]
+    if not batch:
+        raise BridgeError(
+            f"Offset {offset} is past the last of {len(values)} frames.",
+            hint="Start again from offset 0.",
+        )
+
+    def shoot(render: RenderFrame, view: tuple[int, int], decorate: Decorate | None) -> dict:
+        return write_sequence(render, view, batch, longest, decorate, folder, offset, deadline)
+
+    result = shoot_frames(params, batch, values, framespec.thin(values, FIT_SAMPLES), shoot)
+    step = framespec.uniform_step(values)
+    result.update(
+        {
+            "total": len(values),
+            "offset": offset,
+            "range": [frame(values[0]), frame(values[-1])],
+            "last_frame": frame(batch[result["rendered"] - 1]),
+            "fps": frame(fps()),
+            "step": frame(step) if step else 0,
+        }
+    )
+    if chosen and chosen.clip:
+        result["clip"] = chosen.clip
     return result
