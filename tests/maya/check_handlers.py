@@ -504,6 +504,16 @@ def check_get_motion() -> str:
     assert {issue["first"] for issue in strays} == {30, 40}, wider["issues"]
     assert wider.get("clips_checked") is None and "loop" not in wider, wider
 
+    world = call("get_motion", names="hand", frames="0:24", values=True)["values"]
+    assert world["frames"] == "0:24" and world["nodes"]["hand"]["x"][12] == 21, world
+    assert world["nodes"]["hand"]["y"][0] == 100, world
+    attrs = call("get_motion", names="hand", frames="0:24:2", attrs="tx,rotate")["values"]
+    hand = attrs["nodes"]["hand"]
+    assert attrs["frames"] == "0:24:2", attrs
+    assert sorted(hand) == ["rotateX", "rotateY", "rotateZ", "translateX"], hand
+    assert hand["translateX"][6] == 21 and hand["rotateY"][-1] == 350, hand
+    expect_error("get_motion", "keyable attributes", names="hand", attrs="ik")
+
     cmds.select("hand")
     picked = call("get_motion", frames="0:24:4")
     assert picked["nodes"]["source"] == "selection" and picked["step"] == 4, picked

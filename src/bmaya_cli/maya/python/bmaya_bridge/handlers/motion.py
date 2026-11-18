@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from maya import cmds
@@ -24,6 +25,8 @@ from bmaya_bridge.handlers.animation import TIME_CURVE_TYPES
 MAX_NODES = 200
 MAX_FRAMES = 1000
 UPSTREAM_LIMIT = 5000
+VALUE_LIMIT = 3000
+DIGITS = {"doubleLinear": 2, "doubleAngle": 1}
 MOTION_STEP = 2.0
 NODE_LIMIT = 20
 ISSUE_LIMIT = 40
@@ -217,6 +220,60 @@ def sort_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(issues, key=key)
 
 
+def attr_plugs(node: str, names: list[str]) -> list[tuple[str, str]]:
+    plugs = []
+    for name in names:
+        if not cmds.attributeQuery(name, node=node, exists=True):
+            keyable = cmds.listAttr(node, keyable=True) or []
+            raise BridgeError(
+                f"'{display_name(node)}' has no attribute '{name}'.",
+                hint="Its keyable attributes: " + ", ".join(keyable[:15]) + ".",
+            )
+        long_name = cmds.attributeQuery(name, node=node, longName=True)
+        children = cmds.attributeQuery(long_name, node=node, listChildren=True) or []
+        for attr in children or [long_name]:
+            plugs.append((attr, f"{node}.{attr}"))
+    return plugs
+
+
+def stride_for(count: int, columns: int) -> int:
+    if columns * 2 > VALUE_LIMIT:
+        raise BridgeError(
+            f"{columns} value columns are too many to list.",
+            hint="Name fewer nodes, or fewer attributes in --attrs.",
+        )
+    return max(1, math.ceil(count * columns / VALUE_LIMIT))
+
+
+def world_values(
+    nodes: list[str], tracks: dict[str, motioncheck.Track], frames: list[float], unit: float
+) -> dict[str, Any]:
+    stride = stride_for(len(frames), len(nodes) * 3)
+    picked = range(0, len(frames), stride)
+    table = {}
+    for path in nodes:
+        positions = tracks[path].positions
+        table[tracks[path].name] = {
+            axis: [motioncheck.rnd(positions[i][index] * unit) for i in picked]
+            for index, axis in enumerate("xyz")
+        }
+    return {"frames": framespec.as_spec([frames[i] for i in picked]), "nodes": table}
+
+
+def attr_values(nodes: list[str], frames: list[float], attrs: list[str]) -> dict[str, Any]:
+    columns = [(path, attr, plug) for path in nodes for attr, plug in attr_plugs(path, attrs)]
+    picked = frames[:: stride_for(len(frames), len(columns))]
+    samples = _sampling.sample_plugs(
+        [plug for _, _, plug in columns], picked, _sampling.deadline_after()
+    )
+    table: dict[str, dict[str, list[float | int]]] = {}
+    for index, (path, attr, plug) in enumerate(columns):
+        digits = DIGITS.get(cmds.getAttr(plug, type=True), 3)
+        rounded = [motioncheck.rnd(value, digits) for value in samples[index]]
+        table.setdefault(display_name(path), {})[attr] = rounded
+    return {"frames": framespec.as_spec(picked), "nodes": table}
+
+
 def get_motion(params: dict[str, Any]) -> dict[str, Any]:
     nodes, source = pick_nodes(params)
     sampled_total = len(nodes)
@@ -230,8 +287,10 @@ def get_motion(params: dict[str, Any]) -> dict[str, Any]:
     root = common_root(nodes + contacts) if loop else ""
     hidden = [path for path in [root] + contacts if path and path not in nodes]
     paths = nodes + hidden
+    attrs = split_names(text_param(params, "attrs"))
     with scene_kept():
         poses = _sampling.sample_poses(paths, frames, _sampling.deadline_after())
+        table = attr_values(nodes, frames, attrs) if attrs else None
     tracks = {
         path: motioncheck.Track(
             path,
@@ -307,4 +366,8 @@ def get_motion(params: dict[str, Any]) -> dict[str, Any]:
     for issue in issues:
         counts[issue["type"]] = counts.get(issue["type"], 0) + 1
     result["issues"] = {**listing(issues, ISSUE_LIMIT), "counts": counts}
+    if table:
+        result["values"] = table
+    elif bool_param(params, "values"):
+        result["values"] = world_values(nodes, tracks, frames, unit)
     return result

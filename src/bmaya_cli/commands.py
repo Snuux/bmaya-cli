@@ -209,6 +209,8 @@ def cmd_motion(args: argparse.Namespace) -> int:
         "loop": args.loop,
         "contacts": args.contacts,
         "ground": args.ground,
+        "values": args.values,
+        "attrs": args.attrs,
     }
     return forward(args, "get_motion", params)
 

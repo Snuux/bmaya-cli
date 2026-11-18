@@ -106,9 +106,13 @@ def test_motion_maps_names_frames_and_checks(
         "loop": True,
         "contacts": "foot_l",
         "ground": "",
+        "values": False,
+        "attrs": "",
     }
     clip = run(capsys, "motion", "--clip", "walk", "--ground", "0")[1]["got"]
     assert (clip["names"], clip["clip"], clip["ground"]) == ("", "walk", "0")
+    listed = run(capsys, "motion", "hand", "--values", "--attrs", "rx,ik")[1]["got"]
+    assert (listed["values"], listed["attrs"]) == (True, "rx,ik")
 
 
 def test_relative_paths_are_resolved_where_the_command_runs(

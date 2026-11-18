@@ -71,6 +71,23 @@ def sample_poses(nodes: list[str], frames: list[float], deadline: float) -> list
     return poses
 
 
+def sample_plugs(plugs: list[str], frames: list[float], deadline: float) -> list[list[float]]:
+    """Attribute values per plug and frame, in scene units."""
+    values: list[list[float]] = [[] for _ in plugs]
+    for at in frames:
+        check_deadline(deadline, at, frames)
+        cmds.currentTime(at, update=True)
+        for index, plug in enumerate(plugs):
+            value = cmds.getAttr(plug)
+            if not isinstance(value, (int, float)):
+                raise BridgeError(
+                    f"{plug} is not a number, so it has no values to list.",
+                    hint="Pass number attributes to --attrs, like rx, translateY or ik.",
+                )
+            values[index].append(float(value))
+    return values
+
+
 def linear_scale() -> float:
     """How many scene units one centimetre is."""
     return om.MDistance(1.0, om.MDistance.kCentimeters).asUnits(om.MDistance.uiUnit())

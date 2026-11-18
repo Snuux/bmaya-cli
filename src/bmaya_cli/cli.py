@@ -254,11 +254,15 @@ def build_parser() -> argparse.ArgumentParser:
         "  subframe_keys, stray_keys  keys between frames, or outside every clip\n"
         "Thresholds scale with the size of what is checked; `size` and `limits` say what\n"
         "was used. Distances are scene units, speeds scene units per second, turns degrees.\n"
-        "Without names it checks the selection, else every joint and animated object.",
+        "Without names it checks the selection, else every joint and animated object.\n\n"
+        "--values adds the world position of each node per frame; --attrs lists those\n"
+        "attributes instead. Both keep to 3000 numbers by taking every Nth frame.",
         examples(
             "bmaya motion --clip zombie_walk --loop --contacts foot_l,foot_r",
             "bmaya motion hand_r spine_02 --frames 0:48",
             'bmaya motion "*_ctrl" --frames 20000:20960:2',
+            "bmaya motion hand_r --clip zombie_walk --values",
+            "bmaya motion hand_r_ik_ctrl --frames 0:30 --attrs translate,ik",
         ),
     )
     motion.add_argument("names", nargs="*", help="nodes to check; * and ? work")
@@ -274,6 +278,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     motion.add_argument(
         "--ground", default="", metavar="H", help="ground height in scene units (default 0)"
+    )
+    motion.add_argument(
+        "--values", action="store_true", help="add the world position of each node per frame"
+    )
+    motion.add_argument(
+        "--attrs", default="", metavar="A,B", help="list these attributes per frame instead"
     )
 
     export = add(
