@@ -112,6 +112,10 @@ def fitted_camera(
         for attr in ("translate", "rotate", "scale"):
             for axis in "XYZ":
                 cmds.setAttr(f"{copy}.{attr}{axis}", lock=False)
+        # A copy of a renderable camera such as persp makes two renderable cameras, and then
+        # ogsRender writes into a per-camera subfolder instead of the path it was given.
+        for camera_shape in cmds.listRelatives(copy, shapes=True, fullPath=True) or []:
+            cmds.setAttr(camera_shape + ".renderable", False)
         aim(copy, box, shape)
         yield copy
     finally:
