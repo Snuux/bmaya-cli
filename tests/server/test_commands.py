@@ -416,6 +416,8 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
             assert f"bmaya {name}" in command.epilog
     for name in ("scene", "object", "exec", "shot", "audit", "anim", "export", "file", "undo"):
         assert f"bmaya {name}" in guide
+    for name in ("motion", "rig", "playblast"):
+        assert f"bmaya {name}" in guide
     for name in ("sessions", "use", "start", "stop"):
         assert f"bmaya {name}" in guide
 

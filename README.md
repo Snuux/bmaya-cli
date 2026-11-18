@@ -118,6 +118,7 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 
 - [Sessions, sharing one Maya, start and stop](docs/sessions.md): several Mayas, who owns which undo step, environment variables, screenshots without a window.
 - [FBX export](docs/export.md): what each preset writes.
+- [Animation](docs/animation.md): frame specs and clips, motion checks, rig inventory, trails, curve plots, previews.
 - [Troubleshooting](docs/troubleshooting.md): common messages, the crash journal, where state is kept.
 
 ## Security

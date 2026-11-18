@@ -10,7 +10,7 @@ Exit codes: `0` done, `1` failed, `2` bad arguments, `3` not ready. Code 3 means
 
 1. `bmaya scene` to see what exists (unit, up axis, fps, nodes). Filter with `--query` and `--type`.
 2. Act: a dedicated command if one fits, otherwise `bmaya exec`.
-3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya anim` for keys and skeletons, `bmaya shot -o shot.png` to look. Open the PNG it names.
+3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya anim` for keys and skeletons, `bmaya motion` for how things move, `bmaya shot -o shot.png` to look. Open the PNG it names.
 
 With no Maya running, the first command starts one without a window and says so in a `note:` line on stderr. If it answers with exit code 3, wait about 15 seconds and run it again. A Maya started this way is yours to stop: when the work is done, save with `bmaya file save PATH` and run `bmaya stop`.
 
@@ -46,17 +46,35 @@ bmaya exec -f build_crate.py
 - `bmaya file new|open|save|import [PATH]`. `new` and `open` refuse to discard unsaved work, and to replace the scene while another client works in that Maya. Never pass `--force` unless the user asked.
 - `bmaya undo [STEPS]` reverts one of your own `bmaya exec` calls per step.
 - `bmaya shot --frames 1,6,12,18,24 -o walk.png` puts up to 12 frames on one contact sheet. Use it to review animation instead of many single shots. A range like `--frames 0:32` (both ends included) or `0:32:4` is thinned evenly to 12 tiles. `--clip NAME` takes the frames of a clip. `--camera NAME` gives a fixed view.
-- `bmaya shot --clip walk --trail hand_r,foot_l --camera side` draws the world path of up to 4 nodes over the frames: a dot per frame shows spacing (dots close together are slow, far apart fast), a bigger numbered dot marks each key, a ring shows where the node is on each tile. Use it to judge arcs and eases.
-- `bmaya shot --clip walk --camera side --fit zombie` frames the named nodes on every frame of the shot through a temporary copy of the camera, so a character that walks away stays in view. The camera itself is not moved. Prefer it to moving cameras with `viewFit`.
-- `bmaya anim` lists the clips: Game Exporter clips and time slider bookmarks, with their frame ranges. Commands that take `--frames` also take `--clip NAME`.
-- `bmaya playblast walk.gif --clip walk --camera side --fit zombie` renders every frame and joins them into a GIF or MP4 with ffmpeg, for the user to watch. Never step `currentTime` and call `bmaya shot` per frame for this. You cannot watch the result yourself: judge motion with `bmaya motion` and contact sheets. Long ranges take 0.2-0.4 s per frame; run them in the background.
-- `bmaya anim hips --plot -o curves.png` draws a node's curves like the Graph Editor: a panel each for translate, rotate, scale and the rest, dots on keys, red ticks on Euler jumps. Open it to check eases, overshoot, holds and whether a cycle's ends meet. `--attrs ty,rx` and `--frames` / `--clip` narrow it.
-- `bmaya rig [ROOT]` before animating someone else's rig: which controls to key, which attributes are `driven` (keys on them do nothing), limits, rotate orders, IK handles with their pole and driver, and switches like `ik` that blend IK and FK.
-- `bmaya motion --clip walk --loop --contacts foot_l,foot_r` checks motion frame by frame, in numbers: pops, flips, foot slide, sinking, a loop seam that does not close, Euler jumps, keys between frames, outside clips or missing on a clip's edge. Each issue names the node, the frames and how big it is. Run it after every change to an animation; a picture shows a pose, not a one-frame pop. `--values` adds world positions per frame, `--attrs rx,ik` lists attributes per frame.
 - `bmaya shot --aspect 1:1 --light unlit` sets the frame shape and the lighting for that one shot, and puts everything back after. `--light unlit` shows texture and base colors as they are, `soft` adds an even studio light, `scene` uses the scene's lights. Use these instead of building lights, swapping materials or changing color management yourself.
 - Never call `cmds.ogs(reset=True)`: it can crash a Maya without a window, and `bmaya shot` does not need it. Save before changing color spaces.
 
 Relative paths are resolved against the directory you run `bmaya` in.
+
+## Animating
+
+Writing keys is plain `bmaya exec`. What you cannot do is watch the motion, so check it in numbers and in pictures after every change:
+
+1. Before keying: `bmaya scene` for fps and the playback range, `bmaya anim` for the clips, `bmaya rig ROOT` for the controls you may key. Set the fps (`cmds.currentUnit(time="ntsc")`) before the first key.
+2. Block the key poses with stepped tangents, a few poses per `bmaya exec`. Look at them on one sheet: `bmaya shot --frames 0,8,16,24 --fit hero`.
+3. Switch to auto or spline tangents, then check:
+   - `bmaya motion --clip walk --loop --contacts foot_l,foot_r`: fix each issue or know why it stays. Stepped keys pop by design, so run this after splining.
+   - `bmaya shot --clip walk --camera side --fit hero --trail hand_r,foot_l`: arcs and spacing.
+   - `bmaya anim hips --plot -o hips.png`: eases, overshoot, holds, cycle ends.
+4. Register the clip as a Game Exporter clip or a time slider bookmark (recipe below), so `--clip NAME` and `bmaya export --clip NAME` find it.
+5. `bmaya playblast walk.gif --clip walk --camera side --fit hero` when the user wants to watch it.
+
+For game clips: the last frame of a cycle repeats the first pose (`bmaya motion --loop` checks that), and every animated channel has a key on the first and last frame of its clip; otherwise the pose at the clip's edge leans toward the next clip on the timeline.
+
+The commands:
+
+- `bmaya anim` lists the clips: Game Exporter clips and time slider bookmarks, with their frame ranges. Commands that take `--frames` also take `--clip NAME`.
+- `bmaya rig [ROOT]` before animating someone else's rig: which controls to key, which attributes are `driven` (keys on them do nothing), limits, rotate orders, IK handles with their pole and driver, and switches like `ik` that blend IK and FK.
+- `bmaya motion --clip walk --loop --contacts foot_l,foot_r` checks motion frame by frame, in numbers: pops, flips, foot slide, sinking, a loop seam that does not close, Euler jumps, keys between frames, outside clips or missing on a clip's edge. Each issue names the node, the frames and how big it is. Run it after every change to an animation; a picture shows a pose, not a one-frame pop. `--values` adds world positions per frame, `--attrs rx,ik` lists attributes per frame.
+- `bmaya shot --clip walk --trail hand_r,foot_l --camera side` draws the world path of up to 4 nodes over the frames: a dot per frame shows spacing (dots close together are slow, far apart fast), a bigger numbered dot marks each key, a ring shows where the node is on each tile. Use it to judge arcs and eases.
+- `bmaya shot --clip walk --camera side --fit hero` frames the named nodes on every frame of the shot through a temporary copy of the camera, so a character that walks away stays in view. The camera itself is not moved. Prefer it to moving cameras with `viewFit`.
+- `bmaya anim hips --plot -o curves.png` draws a node's curves like the Graph Editor: a panel each for translate, rotate, scale and the rest, dots on keys, red ticks on Euler jumps. Open it to check eases, overshoot, holds and whether a cycle's ends meet. `--attrs ty,rx` and `--frames` / `--clip` narrow it.
+- `bmaya playblast walk.gif --clip walk --camera side --fit hero` renders every frame and joins them into a GIF or MP4 with ffmpeg, for the user to watch. Never step `currentTime` and call `bmaya shot` per frame for this. You cannot watch the result yourself: judge motion with `bmaya motion` and contact sheets. Long ranges take 0.2-0.4 s per frame; run them in the background.
 
 ## Sessions
 
@@ -64,7 +82,7 @@ Relative paths are resolved against the directory you run `bmaya` in.
 - `bmaya start` starts one more Maya without a window (`--scene FILE` opens a file, `--gui` shows the window) and makes it your current session.
 - A Maya without a window has `headless: true`. It has no timer and runs until `bmaya stop`. When you are done with one you started: save with `bmaya file save PATH`, then `bmaya stop`. Leave a Maya you did not start alone.
 - `bmaya stop` never closes a Maya that has a window. That one is the user's.
-- Screenshots of a Maya without a window are rendered offscreen from `persp` or the `--camera` you pass, in the shape of the render resolution (`defaultResolution`). Frame the subject first: `cmds.viewFit("persp", all=True)`. UI commands (`modelPanel`, `playblast`, `getPanel`) fail there.
+- Screenshots of a Maya without a window are rendered offscreen from `persp` or the `--camera` you pass, in the shape of the render resolution (`defaultResolution`). Frame the subject with `--fit NAME`, or move the camera first: `cmds.viewFit("persp", all=True)`. UI commands (`modelPanel`, `playblast`, `getPanel`) fail there.
 - If a session you used is gone, the next command says so once and names its journal. Tell the user; unsaved work in it is lost.
 
 ## Sharing a Maya
@@ -141,6 +159,46 @@ cmds.keyTangent("crate", attribute="rotateY", edit=True,
 ```
 
 Changing `currentUnit(time=...)` after keying retimes the keys. To keep key frame numbers, pass `updateAnimation=False`.
+
+```python
+# key a pose on several controls at once, stepped while blocking
+pose = {"hips_ctrl": {"translateY": -4}, "hand_r_ctrl": {"translateX": 12, "rotateZ": -30}}
+for node, values in pose.items():
+    for attr, value in values.items():
+        cmds.setKeyframe(node, attribute=attr, time=12, value=value)
+controls = list(pose)
+cmds.keyTangent(controls, edit=True, outTangentType="step")
+# later, to spline: cmds.keyTangent(controls, edit=True, inTangentType="auto", outTangentType="auto")
+```
+
+```python
+# close a cycle: every curve gets its first-frame value keyed on the last frame
+# (copyKey/pasteKey across several nodes can paste onto the wrong curves)
+controls, start, end = ["hips_ctrl", "hand_r_ctrl"], 0, 32
+for curve in cmds.keyframe(controls, query=True, name=True) or []:
+    value = cmds.keyframe(curve, query=True, eval=True, time=(start, start))[0]
+    cmds.setKeyframe(curve, time=end, value=value)
+cmds.setInfinity(controls, preInfinite="cycle", postInfinite="cycle")  # loops the preview
+```
+
+```python
+# Euler flips after rotating by hand, keys between frames, IK and constraints baked to joints
+cmds.filterCurve(cmds.listConnections(controls, type="animCurveTA"))
+cmds.snapKey(controls, timeMultiple=1)
+joints = cmds.ls("|root", dagObjects=True, type="joint", long=True)
+cmds.bakeResults(joints, time=(0, 32), simulation=True, sampleBy=1, preserveOutsideKeys=True)
+```
+
+```python
+# register a clip for `--clip walk` and for the Game Exporter
+cmds.loadPlugin("gameFbxExporter", quiet=True)
+exporter = (cmds.ls(type="gameFbxExporter") or [cmds.createNode("gameFbxExporter")])[0]
+used = cmds.getAttr(exporter + ".animClips", multiIndices=True) or []
+clip = f"{exporter}.animClips[{max(used) + 1 if used else 0}]"
+cmds.setAttr(clip + ".animClipName", "walk", type="string")
+cmds.setAttr(clip + ".animClipStart", 0)
+cmds.setAttr(clip + ".animClipEnd", 32)
+```
 
 ```python
 # joints and skin
