@@ -58,13 +58,13 @@ Writing keys is plain `bmaya exec`. What you cannot do is watch the motion, so c
 1. Before keying: `bmaya scene` for fps and the playback range, `bmaya anim` for the clips, `bmaya rig ROOT` for the controls you may key. Set the fps (`cmds.currentUnit(time="ntsc")`) before the first key.
 2. Block the key poses with stepped tangents, a few poses per `bmaya exec`. Look at them on one sheet: `bmaya shot --frames 0,8,16,24 --fit hero`.
 3. Switch to auto or spline tangents, then check:
-   - `bmaya motion --clip walk --loop --contacts foot_l,foot_r`: fix each issue or know why it stays. Stepped keys pop by design, so run this after splining.
+   - `bmaya motion root --clip walk --loop --contacts foot_l,foot_r`: fix each issue or know why it stays. Stepped keys pop by design, so run this after splining.
    - `bmaya shot --clip walk --camera side --fit hero --trail hand_r,foot_l`: arcs and spacing.
    - `bmaya anim hips --plot -o hips.png`: eases, overshoot, holds, cycle ends.
 4. Register the clip as a Game Exporter clip or a time slider bookmark (recipe below), so `--clip NAME` and `bmaya export --clip NAME` find it.
 5. `bmaya playblast walk.gif --clip walk --camera side --fit hero` when the user wants to watch it.
 
-Pass `bmaya motion` the nodes of the clip you check (a group name means everything under it): without names it takes the selection, or every animated node in the scene, so other characters' cycles show up as issues and widen the limits. Put every node that touches the ground in `--contacts`, toes included. Shots draw geometry only: a bare skeleton shows nothing, so give it proxy meshes or look at it through `--trail`.
+Pass `bmaya motion` the nodes of the clip you check (a group name means everything under it, a skeleton's top joint the whole skeleton): without names it takes the selection, or every animated node in the scene, so other characters' cycles show up as issues and widen the limits. Put every node that touches the ground in `--contacts`, toes included. Shots draw geometry only: a bare skeleton shows nothing, so give it proxy meshes or look at it through `--trail`.
 
 For game clips: the last frame of a cycle repeats the first pose (`bmaya motion --loop` checks that), and every animated channel has a key on the first and last frame of its clip; otherwise the pose at the clip's edge leans toward the next clip on the timeline.
 
@@ -72,7 +72,7 @@ The commands:
 
 - `bmaya anim` lists the clips: Game Exporter clips and time slider bookmarks, with their frame ranges. Commands that take `--frames` also take `--clip NAME`.
 - `bmaya rig [ROOT]` before animating someone else's rig: which controls to key, which attributes are `driven` (keys on them do nothing), limits, rotate orders, IK handles with their pole and driver, and switches like `ik` that blend IK and FK.
-- `bmaya motion --clip walk --loop --contacts foot_l,foot_r` checks motion frame by frame, in numbers: pops, flips, foot slide, sinking, a loop seam that does not close, Euler jumps, keys between frames, outside clips or missing on a clip's edge. Each issue names the node, the frames and how big it is. Run it after every change to an animation; a picture shows a pose, not a one-frame pop. `--values` adds world positions per frame, `--attrs rx,ik` lists attributes per frame.
+- `bmaya motion root --clip walk --loop --contacts foot_l,foot_r` checks motion frame by frame, in numbers: pops, flips, foot slide, sinking, a loop seam that does not close, Euler jumps, keys between frames, outside clips or missing on a clip's edge. Each issue names the node, the frames and how big it is. Run it after every change to an animation; a picture shows a pose, not a one-frame pop. `--values` adds world positions per frame, `--attrs rx,ik` lists attributes per frame.
 - `bmaya shot --clip walk --trail hand_r,foot_l --camera side` draws the world path of up to 4 nodes over the frames: a dot per frame shows spacing (dots close together are slow, far apart fast), a bigger numbered dot marks each key, a ring shows where the node is on each tile. Use it to judge arcs and eases.
 - `bmaya shot --clip walk --camera side --fit hero` frames the named nodes on every frame of the shot through a temporary copy of the camera, so a character that walks away stays in view. The camera itself is not moved. Prefer it to moving cameras with `viewFit`.
 - `bmaya anim hips --plot -o curves.png` draws a node's curves like the Graph Editor: a panel each for translate, rotate, scale and the rest, dots on keys, red ticks on Euler jumps. Open it to check eases, overshoot, holds and whether a cycle's ends meet. `--attrs ty,rx` and `--frames` / `--clip` narrow it.

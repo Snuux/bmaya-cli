@@ -339,11 +339,13 @@ def build_parser() -> argparse.ArgumentParser:
         "  subframe_keys, stray_keys  keys between frames, or outside every clip\n"
         "Thresholds scale with the size of what is checked; `size` and `limits` say what\n"
         "was used. Distances are scene units, speeds scene units per second, turns degrees.\n"
-        "Without names it checks the selection, else every joint and animated object.\n\n"
+        "Name what you check: a group stands for everything under it, a skeleton's top\n"
+        "joint for the whole skeleton. Without names it checks the selection, else every\n"
+        "joint and animated object, which mixes in other characters.\n\n"
         "--values adds the world position of each node per frame; --attrs lists those\n"
         "attributes instead. Both keep to 3000 numbers by taking every Nth frame.",
         examples(
-            "bmaya motion --clip zombie_walk --loop --contacts foot_l,foot_r",
+            "bmaya motion root --clip zombie_walk --loop --contacts foot_l,foot_r",
             "bmaya motion hand_r spine_02 --frames 0:48",
             'bmaya motion "*_ctrl" --frames 20000:20960:2',
             "bmaya motion hand_r --clip zombie_walk --values",

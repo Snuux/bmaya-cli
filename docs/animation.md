@@ -10,7 +10,7 @@ Every command that takes frames reads the same spec: `1,12,24`, a range `0:30` (
 
 ## Checking motion
 
-`bmaya motion [NAMES]` samples the world position and rotation of nodes on every frame, the way playback shows them (IK, constraints, expressions), and reports:
+`bmaya motion [NAMES]` (a group means everything under it, a skeleton's top joint the whole skeleton) samples the world position and rotation of nodes on every frame, the way playback shows them (IK, constraints, expressions), and reports:
 
 | Issue | Means |
 |---|---|

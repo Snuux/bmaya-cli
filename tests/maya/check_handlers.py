@@ -590,6 +590,13 @@ def check_get_motion() -> str:
     cmds.select(clear=True)
     grouped = call("get_motion", names="walker", frames="0:24")
     assert grouped["nodes"]["total"] == 3, grouped["nodes"]
+    cmds.select(clear=True)
+    cmds.joint(name="chain_root", position=(0, 0, 0))
+    cmds.joint(name="chain_mid", position=(0, 5, 0))
+    cmds.joint(name="chain_tip", position=(0, 10, 0))
+    cmds.select(clear=True)
+    skeleton = call("get_motion", names="chain_root", frames="0:24")
+    assert skeleton["nodes"]["total"] == 3, skeleton["nodes"]
     whole = call("get_motion")
     assert whole["nodes"]["source"] == "scene" and whole["range"] == [0, 24], whole["nodes"]
     expect_error("get_motion", "bmaya scene", names="nobody")

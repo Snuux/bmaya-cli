@@ -72,12 +72,27 @@ def named_nodes(names: list[str]) -> list[str]:
     return unique(found)
 
 
+def is_top_joint(node: str) -> bool:
+    if cmds.nodeType(node) != "joint":
+        return False
+    parents = cmds.listRelatives(node, parent=True, fullPath=True) or []
+    return not parents or cmds.nodeType(parents[0]) != "joint"
+
+
 def group_members(node: str) -> list[str]:
-    """A group stands for the transforms under it; any other node for itself."""
+    """A group stands for the transforms and joints under it, a skeleton's top joint for the
+    whole skeleton; any other node for itself."""
+    if is_top_joint(node):
+        below = cmds.listRelatives(node, allDescendents=True, fullPath=True, type="joint")
+        return [node] + sorted(below or [])
     if cmds.nodeType(node) != "transform" or cmds.listRelatives(node, shapes=True):
         return [node]
     below = cmds.listRelatives(node, allDescendents=True, fullPath=True, type="transform")
-    members = [path for path in below or [] if not is_camera_or_light(path)]
+    members = [
+        path
+        for path in below or []
+        if cmds.nodeType(path) in ("transform", "joint") and not is_camera_or_light(path)
+    ]
     return sorted(members) or [node]
 
 
