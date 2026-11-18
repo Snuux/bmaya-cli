@@ -234,6 +234,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="lighting for this shot (default: as the viewport has it)",
     )
 
+    playblast = add(
+        "playblast",
+        "cmd_playblast",
+        "render frames into a GIF, an MP4 or a folder of PNGs",
+        "Renders every frame of a range or clip and joins them with ffmpeg when it is on\n"
+        "PATH: a GIF with its own palette, or an H.264 MP4, at the scene's frame rate (divided\n"
+        "by the step). Without ffmpeg the PNG frames stay in a folder next to OUT; a folder\n"
+        "name as OUT always gives PNGs. Frames go to Maya in chunks small enough to answer in\n"
+        "time, so a long range never times out. A frame takes about 0.2-0.4 s, so run long\n"
+        "ranges in the background. --camera, --size, --aspect, --light, --trail and --fit\n"
+        "work as in `bmaya shot`.\n\n"
+        "A preview is for people. To judge motion yourself use `bmaya motion` and\n"
+        "`bmaya shot --frames`, which you can read.",
+        examples(
+            "bmaya playblast walk.gif --clip zombie_walk --camera side --fit zombie",
+            "bmaya playblast out/attack.mp4 --frames 3380:3416 --light soft --size 960",
+            "bmaya playblast frames/walk --clip zombie_walk   # PNG frames only",
+        ),
+        module="playblast",
+    )
+    playblast.add_argument("output", metavar="OUT", help="walk.gif, walk.mp4, or a folder")
+    add_frames(playblast, "frames to render (default: the playback range)")
+    playblast.add_argument("--camera", default="", help="camera to look through")
+    playblast.add_argument(
+        "--size", type=int, default=0, help="longest side in pixels (default 640)"
+    )
+    playblast.add_argument("--aspect", default="", metavar="W:H", help="frame shape like 16:9")
+    playblast.add_argument(
+        "--light", default="", choices=("unlit", "soft", "scene"), help="lighting for the frames"
+    )
+    playblast.add_argument("--trail", default="", metavar="A,B", help="draw these nodes' paths")
+    playblast.add_argument(
+        "--fit", default="", metavar="A,B", help="keep these nodes in view on every frame"
+    )
+
     audit = add(
         "audit",
         "cmd_audit",

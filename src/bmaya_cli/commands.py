@@ -101,19 +101,23 @@ def manager_for(args: argparse.Namespace, autostart: bool = True) -> SessionMana
     )
 
 
+def note_autostart(manager: SessionManager) -> None:
+    started = manager.autostarted
+    if started is not None:
+        # Nothing stops this Maya by itself, so whoever caused it has to be told.
+        print(
+            f"note: no Maya was running, so session {started.id} was started without a "
+            "window. It runs until `bmaya stop`.",
+            file=sys.stderr,
+        )
+
+
 def call(args: argparse.Namespace, command: str, params: dict[str, Any]) -> dict[str, Any]:
     manager = manager_for(args)
     try:
         return manager.call(command, params)
     finally:
-        started = manager.autostarted
-        if started is not None:
-            # Nothing stops this Maya by itself, so whoever caused it has to be told.
-            print(
-                f"note: no Maya was running, so session {started.id} was started without a "
-                "window. It runs until `bmaya stop`.",
-                file=sys.stderr,
-            )
+        note_autostart(manager)
 
 
 def forward(args: argparse.Namespace, command: str, params: dict[str, Any]) -> int:

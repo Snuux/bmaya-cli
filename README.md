@@ -90,6 +90,7 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya object NAME` | One node: transform, bounding box, mesh counts, UV sets, materials, history, keys. |
 | `bmaya exec [CODE] [-f FILE]` | Runs Python in Maya with `cmds`, `mel` and `om` loaded. Assign to `result` to return data. One undo step per call. Code also comes from stdin. |
 | `bmaya shot [-o FILE] [--camera C] [--frames 1,12,24\|0:30:2\|--clip NAME] [--size N] [--aspect W:H] [--light unlit\|soft\|scene] [--trail A,B] [--fit A,B]` | Writes a PNG of the viewport and prints its path. `--frames` makes a contact sheet (a range is thinned to 12 tiles), `--aspect` sets the frame shape, `--light` the lighting for this shot, `--trail` draws node paths with a dot per frame, `--fit` frames nodes on every frame without moving the camera. |
+| `bmaya playblast OUT.gif\|OUT.mp4\|DIR [--frames\|--clip] [--camera C] [--fit A,B]` | Renders every frame and joins them into a GIF or MP4 with ffmpeg (PNG frames without it). For people to watch. |
 | `bmaya audit [NAME ...]` | Game-readiness check: n-gons, non-manifold geometry, UVs, materials, history, transforms. |
 | `bmaya anim [NAME]` | Clips (Game Exporter, time slider bookmarks), curves, key ranges, fps, skeletons, skin clusters. |
 | `bmaya rig [ROOT]` | A rig's controls: keyable and driven attributes, values, limits, rotate order, keys, IK handles, constraints, ik/fk switches, character sets. |
