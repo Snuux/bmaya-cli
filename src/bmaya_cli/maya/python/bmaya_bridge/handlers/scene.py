@@ -129,6 +129,8 @@ def transform_info(path: str) -> dict[str, Any]:
         bbox = []
     if bbox and bbox[0] <= bbox[3]:
         info["bbox"] = rnd_list(bbox)
+        info["size"] = rnd_list(bbox[axis + 3] - bbox[axis] for axis in range(3))
+    info["pivot"] = rnd_list(cmds.xform(path, query=True, worldSpace=True, rotatePivot=True))
     info["visible"] = bool(cmds.getAttr(path + ".visibility"))
 
     parents = cmds.listRelatives(path, parent=True, fullPath=True) or []

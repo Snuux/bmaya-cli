@@ -11,11 +11,13 @@ from bmaya_bridge.handlers import (
     execute,
     export,
     mesh,
+    modeling,
     motion,
     plot,
     rig,
     scene,
     viewport,
+    views,
 )
 
 Handler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -44,7 +46,9 @@ UNRECORDED: dict[str, Handler] = {
     "get_object_info": without_undo(scene.get_object_info),
     "get_viewport_screenshot": without_undo(viewport.get_viewport_screenshot),
     "render_frames": without_undo(viewport.render_frames),
+    "get_model_views": without_undo(views.get_model_views),
     "audit_mesh": without_undo(mesh.audit_mesh),
+    "diff_mesh": without_undo(mesh.diff_mesh),
     "get_animation_info": without_undo(animation.get_animation_info),
     "plot_animation": without_undo(plot.plot_animation),
     "get_motion": without_undo(motion.get_motion),
@@ -55,6 +59,9 @@ UNRECORDED: dict[str, Handler] = {
 COMMANDS: dict[str, Handler] = {
     **UNRECORDED,
     "execute_maya_code": execute.execute_maya_code,
+    "remesh_mesh": modeling.remesh_mesh,
+    "reduce_mesh": modeling.reduce_mesh,
+    "cleanup_mesh": modeling.cleanup_mesh,
     "scene_file": scene.scene_file,
     "undo": scene.undo,
     "stop": scene.stop,

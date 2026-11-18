@@ -234,6 +234,65 @@ def build_parser() -> argparse.ArgumentParser:
         help="lighting for this shot (default: as the viewport has it)",
     )
 
+    views = add(
+        "views",
+        "cmd_views",
+        "draw a model from several sides in one PNG: parts, edges, sizes",
+        "Writes one PNG with the model seen from several sides, each tile labelled, and\n"
+        "prints its path. This is the way to check modeling work: proportions, how parts\n"
+        "meet, topology. With no names it draws the selection, or every visible mesh.\n\n"
+        "Views: front, back, left, right, top, bottom, persp and persp-back (three-quarter\n"
+        "from the front and from behind), or all. The default is front,right,top,persp.\n"
+        "Straight-on views carry the width and height of what they show, in scene units.\n\n"
+        "Styles:\n"
+        "  parts       a color per mesh (`parts` in the result names them), edges on top.\n"
+        "              A face seen from behind is dark: reversed normals show at once\n"
+        "  silhouette  the outline alone, to judge the shape\n"
+        "  xray        pale surfaces with every edge, hidden ones too: what is inside\n"
+        "  shaded      Maya's own render with materials and textures; takes --light. It\n"
+        "              shows the whole scene, framed on the named nodes\n"
+        "The first three are drawn by bmaya itself, so they look the same with or without\n"
+        "a Maya window and change nothing in the scene. Past about 10000 triangles per\n"
+        "400 px tile the edges are left out and `note` says so.\n\n"
+        "--section cuts the model with a plane across a world axis and adds a tile that\n"
+        "looks at the cut: wall thickness, parts hidden inside, what pokes through.",
+        examples(
+            "bmaya views crate -o crate.png",
+            "bmaya views hand --views all -o hand.png",
+            "bmaya views hand --views front,persp --style silhouette -o shape.png",
+            "bmaya views engine --style xray --section x -o inside.png",
+            "bmaya views engine --section y=12.5 -o cut.png",
+            "bmaya views hero --style shaded --light soft -o look.png",
+        ),
+    )
+    views.add_argument("names", nargs="*", help="mesh or group names")
+    views.add_argument("-o", "--output", default="", metavar="FILE", help="where to write the PNG")
+    views.add_argument(
+        "--views", default="", metavar="A,B", help="views to draw, or all (default 4 views)"
+    )
+    views.add_argument(
+        "--style",
+        default="",
+        choices=("parts", "silhouette", "xray", "shaded"),
+        help="how to draw (default parts)",
+    )
+    views.add_argument("--no-wire", action="store_true", help="leave the edges out")
+    views.add_argument(
+        "--section",
+        default="",
+        metavar="AXIS[=POS]",
+        help="add a cut across x, y or z, at POS or through the middle",
+    )
+    views.add_argument(
+        "--light",
+        default="",
+        choices=("unlit", "soft", "scene"),
+        help="lighting for --style shaded",
+    )
+    views.add_argument(
+        "--size", type=int, default=0, help="longest side of the sheet in pixels (default 1600)"
+    )
+
     playblast = add(
         "playblast",
         "cmd_playblast",
@@ -273,12 +332,130 @@ def build_parser() -> argparse.ArgumentParser:
         "audit",
         "cmd_audit",
         "check meshes for game export: n-gons, history, transforms, UVs",
-        "Reports vertex and triangle counts and the issues that matter for a game asset:\n"
-        "n-gons, non-manifold geometry, unfrozen transforms, construction history, missing\n"
-        "UVs. With no names it audits the selection, or every mesh when nothing is selected.",
-        examples("bmaya audit", "bmaya audit barrel_geo crate"),
+        "Reports per mesh the vertex and triangle counts, faces by kind, the size in scene\n"
+        "units, and the issues that matter for a game asset: n-gons, non-manifold geometry,\n"
+        "faces wound against their neighbours, normals pointing inward, unfrozen transforms,\n"
+        "construction history, missing or overlapping UVs. Locked normals, UVs outside 0-1\n"
+        "and mirrored UV faces are counted but are not issues: assets have them on purpose.\n"
+        "With no names it audits the selection, or every mesh when nothing is selected.\n\n"
+        "--symmetry checks that every vertex has a twin mirrored across the plane through\n"
+        "the mesh's pivot, and lists a few vertices that have none.\n\n"
+        "`bmaya cleanup NAME` fixes most of the geometry issues listed here.",
+        examples("bmaya audit", "bmaya audit barrel_geo crate", "bmaya audit hero --symmetry x"),
     )
     audit.add_argument("names", nargs="*", help="mesh or group names")
+    audit.add_argument(
+        "--symmetry",
+        default="",
+        choices=("x", "y", "z"),
+        help="check mirror symmetry across this world axis",
+    )
+
+    diff = add(
+        "diff",
+        "cmd_diff",
+        "show what an edit changed in a mesh: counts, size, moved vertices",
+        "Compares a mesh with how it was at `bmaya diff NAME --mark`: vertex, triangle and\n"
+        "face counts, size, surface area and volume before and after. When the topology is\n"
+        "the same it also says how many vertices moved, how far, and the box they are in,\n"
+        "so an edit that touched more than it should shows up. `remesh`, `reduce` and\n"
+        "`cleanup` mark the mesh themselves before they run.\n\n"
+        "A mark is yours alone and lives in that Maya until it stops. --against compares\n"
+        "two meshes as they are now, like a copy made before the edit.",
+        examples(
+            "bmaya diff crate --mark        # before the edit",
+            "bmaya diff crate               # after it",
+            "bmaya diff crate --against crate_backup",
+        ),
+    )
+    diff.add_argument("name", help="the mesh")
+    diff.add_argument("--mark", action="store_true", help="remember the mesh as it is now")
+    diff.add_argument(
+        "--against", default="", metavar="OTHER", help="compare with this mesh instead of the mark"
+    )
+
+    remesh = add(
+        "remesh",
+        "cmd_remesh",
+        "rebuild a mesh's topology: even triangles, or clean quads",
+        "Replaces the topology of one mesh and keeps its shape. Use it instead of moving\n"
+        "and merging vertices by hand.\n"
+        "  --to tris   even triangles with edges near --edge (default: an edge that keeps\n"
+        "              about the triangle count). Good before sculpting, booleans or a\n"
+        "              retopology. At most 500000 triangles come out\n"
+        "  --to quads  Maya's Retopologize: a quad mesh of about --faces faces (default:\n"
+        "              half the triangle count). It can take a minute on a dense mesh\n"
+        "UVs, vertex colors and skin weights do not survive: remesh first, unwrap and\n"
+        "skin after. The result has `before`, `after` and the audit `issues` of the new\n"
+        "mesh. It is one undo step.\n\n"
+        "If the command exits with code 3, Maya is still working on it: do not send it\n"
+        "again. Wait, then `bmaya diff NAME` shows the mesh before and after.",
+        examples(
+            "bmaya remesh rock --to tris --edge 0.5",
+            "bmaya remesh rock --to quads --faces 800",
+            "bmaya views rock -o rock.png     # look at the result",
+        ),
+    )
+    remesh.add_argument("name", help="the mesh")
+    remesh.add_argument(
+        "--to", default="", choices=("tris", "quads"), help="what to build (default tris)"
+    )
+    remesh.add_argument(
+        "--edge", type=float, default=0, metavar="LENGTH", help="edge length for --to tris"
+    )
+    remesh.add_argument(
+        "--faces", type=int, default=0, metavar="N", help="face count for --to quads"
+    )
+    remesh.add_argument(
+        "--keep-hard-edges", action="store_true", help="--to quads: keep hard edges in place"
+    )
+
+    reduce = add(
+        "reduce",
+        "cmd_reduce",
+        "lower a mesh's triangle count and keep its shape",
+        "Reduces one mesh to a triangle budget (--tris) or to a share of its triangles\n"
+        "(--percent 50 keeps half). UVs and the silhouette are kept as well as the budget\n"
+        "allows; the --keep flags pin borders, UV seams, hard edges or quads. The result\n"
+        "has `before`, `after` and the audit `issues` of the new mesh. It is one undo step.",
+        examples(
+            "bmaya reduce statue --tris 5000",
+            "bmaya reduce statue --percent 25 --keep-uvs --keep-borders",
+        ),
+    )
+    reduce.add_argument("name", help="the mesh")
+    reduce.add_argument("--tris", type=int, default=0, metavar="N", help="triangles to end with")
+    reduce.add_argument(
+        "--percent", type=float, default=0, metavar="P", help="share of triangles to keep"
+    )
+    reduce.add_argument("--keep-borders", action="store_true", help="do not move open borders")
+    reduce.add_argument("--keep-uvs", action="store_true", help="do not move UV seams")
+    reduce.add_argument("--keep-hard-edges", action="store_true", help="do not move hard edges")
+    reduce.add_argument("--keep-quads", action="store_true", help="keep quads where possible")
+
+    cleanup = add(
+        "cleanup",
+        "cmd_cleanup",
+        "fix a mesh's geometry: merge vertices, drop bad faces, conform normals",
+        "Fixes what `bmaya audit` complains about in one mesh: merges vertices that sit on\n"
+        "the same spot, removes zero-area faces, zero-length edges and lamina faces, splits\n"
+        "non-manifold geometry, makes all faces wind the same way and turns the normals\n"
+        "outward. UV seams are kept. The result has `before`, `after` and the audit\n"
+        "`issues` that are left. It is one undo step.",
+        examples(
+            "bmaya cleanup crate",
+            "bmaya cleanup scan --merge 0.01 --ngons   # also triangulate n-gons",
+        ),
+    )
+    cleanup.add_argument("name", help="the mesh")
+    cleanup.add_argument(
+        "--merge",
+        type=float,
+        default=0,
+        metavar="DIST",
+        help="merge vertices closer than this (default: 0.001%% of the mesh's size)",
+    )
+    cleanup.add_argument("--ngons", action="store_true", help="triangulate faces with 5+ sides")
 
     anim = add(
         "anim",
@@ -426,7 +603,8 @@ def build_parser() -> argparse.ArgumentParser:
         "undo",
         "cmd_undo",
         "undo your own last steps, never someone else's",
-        "Undoes your last `bmaya exec` steps, one per step. It stops at a change made by\n"
+        "Undoes your last steps, one per `bmaya exec`, `remesh`, `reduce` or `cleanup`\n"
+        "call. It stops at a change made by\n"
         "another client or by the user in the Maya window: the result then carries\n"
         "`blocked_by`, and with nothing undone it is an error. Ask the user before going\n"
         "on. --force also undoes changes the user made in the Maya window on top of your\n"

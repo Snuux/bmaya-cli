@@ -401,7 +401,265 @@ def check_audit_mesh() -> str:
     whole = assert_read_only("audit_mesh")
     assert whole["source"] == "scene" and whole["total"] >= 6, whole
     expect_error("audit_mesh", "bmaya scene", names="missing_mesh")
-    return f"broken mesh flagged ({len(broken['issues'])} issues), clean mesh clean"
+    numbers = check_audit_numbers()
+    return f"broken mesh flagged ({len(broken['issues'])} issues), clean mesh clean; {numbers}"
+
+
+def check_audit_numbers() -> str:
+    report = call("audit_mesh", names="clean_box")
+    clean = report["meshes"][0]
+    assert clean["faces"] == {"tris": 0, "quads": 6, "ngons": 0}, clean
+    assert clean["size"] == [1, 1, 1], clean
+
+    crate = call("get_object_info", name="crate")
+    assert crate["size"] == [1, 1, 1] and crate["pivot"] == [2, 0, 0], crate
+
+    made = []
+    try:
+        inward = cmds.polyCube(name="audit_inward", constructionHistory=False)[0]
+        made.append(inward)
+        cmds.polyNormal(inward, normalMode=0, userNormalMode=0, constructionHistory=False)
+        issues = call("audit_mesh", names=inward)["meshes"][0]["issues"]
+        assert "normals point inward" in issues, issues
+
+        turned = cmds.polyCube(name="audit_turned", constructionHistory=False)[0]
+        made.append(turned)
+        cmds.polyNormal(turned + ".f[0]", normalMode=0, userNormalMode=0, constructionHistory=False)
+        issues = call("audit_mesh", names=turned)["meshes"][0]["issues"]
+        assert "1 faces with flipped winding" in issues, issues
+        assert "normals point inward" not in issues, issues
+
+        pair = [cmds.polyCube(constructionHistory=False)[0] for _ in range(2)]
+        stacked = cmds.polyUnite(pair, constructionHistory=False, name="audit_stacked")[0]
+        made.append(stacked)
+        entry = assert_read_only("audit_mesh", names=stacked)["meshes"][0]
+        assert any("overlapping UV faces" in issue for issue in entry["issues"]), entry
+
+        mirrored = cmds.polyCube(name="audit_mirrored", constructionHistory=False)[0]
+        made.append(mirrored)
+        even = assert_read_only("audit_mesh", names=mirrored, symmetry="x")["meshes"][0]
+        assert even["symmetry"] == {"axis": "x", "at": 0, "matched": 8, "unmatched": 0}, even
+        cmds.move(0, 0.3, 0, mirrored + ".vtx[0]", relative=True)
+        uneven = call("audit_mesh", names=mirrored, symmetry="x")["meshes"][0]
+        assert uneven["symmetry"]["unmatched"] == 2, uneven
+        assert len(uneven["symmetry"]["sample"]) == 2, uneven
+        assert "2 verts without a mirror twin across x" in uneven["issues"], uneven
+        expect_error("audit_mesh", "--symmetry", names=mirrored, symmetry="w")
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+    return "face kinds, size, pivot, inward and flipped normals, UV overlap, symmetry ok"
+
+
+def pixel(path: str, x: int, y: int) -> tuple[int, int, int]:
+    from PySide6 import QtGui
+
+    return QtGui.QImage(path).pixelColor(x, y).getRgb()[:3]
+
+
+def check_get_model_views() -> str:
+    outer = cmds.polyCube(name="views_outer", width=2, height=2, depth=2)[0]
+    inner = cmds.polyCube(name="views_inner", width=0.5, height=0.5, depth=0.5)[0]
+    dense = cmds.polySphere(name="views_dense", subdivisionsX=200, subdivisionsY=200)[0]
+    cmds.select(clear=True)
+    cmds.file(modified=False)
+    names = f"{outer},{inner}"
+    try:
+        nodes = sorted(cmds.ls())
+        sheet = assert_read_only("get_model_views", names=names, max_size=800)
+        assert (sheet["width"], sheet["height"]) == (800, 800), sheet
+        assert sheet["views"] == ["front", "right", "top", "persp"], sheet
+        assert sheet["size"] == [2, 2, 2] and sheet["wire"] is True, sheet
+        assert sheet["parts"][0] == {"name": outer, "color": "#1f77b4"}, sheet
+        assert sheet["shown"] == 2 and sheet["total"] == 2, sheet
+        red, _, blue = pixel(sheet["path"], 170, 230)
+        assert blue > red + 60, f"the front tile does not show the outer part's color: {red} {blue}"
+
+        shape = assert_read_only(
+            "get_model_views", names=names, style="silhouette", views="front", max_size=400
+        )
+        assert pixel(shape["path"], 200, 200) == (20, 20, 20), shape
+        assert "parts" not in shape and shape["wire"] is False, shape
+
+        cut = assert_read_only("get_model_views", names=names, section="x", max_size=900)
+        assert cut["views"][-1] == "section x=0" and cut["section"] == {"axis": "x", "at": 0}, cut
+        assert (cut["width"], cut["height"]) == (900, 600), cut
+        red, _, blue = pixel(cut["path"], 450, 450)
+        assert red > blue, f"the cut does not show the inner part: {red} {blue}"
+
+        whole = assert_read_only("get_model_views", names=names, views="all", style="xray")
+        assert len(whole["views"]) == 8 and whole["style"] == "xray", whole
+
+        heavy = assert_read_only("get_model_views", names=dense, max_size=800)
+        assert heavy["wire"] is False and "edges left out" in heavy["note"], heavy
+
+        shaded = assert_read_only(
+            "get_model_views", names=names, style="shaded", light="soft", views="front,persp"
+        )
+        assert shaded["offscreen"] is True and shaded["light"] == "soft", shaded
+        assert (shaded["width"], shaded["height"]) == (1600, 800), shaded
+        assert max(pixel(shaded["path"], 400, 400)) > 100, "the shaded tile is empty"
+
+        tower = cmds.polyCube(name="views_tower")[0]
+        cmds.scale(1, 1, 4, tower)
+        cmds.upAxis(axis="z")
+        try:
+            turned = call(
+                "get_model_views", names=tower, views="front,top", section="y", max_size=900
+            )
+            assert turned["up"] == "z" and turned["views"][-1] == "section y=0", turned
+            background = (236, 236, 236)
+            assert pixel(turned["path"], 150, 45) != background, "front does not look along Y"
+            assert pixel(turned["path"], 45, 150) == background, "front shows the tower lying"
+            assert pixel(turned["path"], 345, 150) != background, "top does not look down Z"
+            assert pixel(turned["path"], 750, 45) != background, "the section lost the tower"
+            assert pixel(turned["path"], 645, 150) == background, "the section is not upright"
+        finally:
+            cmds.upAxis(axis="y")
+            cmds.delete(tower)
+            cmds.select(clear=True)
+            cmds.file(modified=False)
+
+        assert sorted(cmds.ls()) == nodes, "views left nodes behind"
+        assert not cmds.file(query=True, modified=True), "views marked the scene modified"
+
+        expect_error("get_model_views", "--views", names=names, views="front,under")
+        expect_error("get_model_views", "--style", names=names, style="clay")
+        expect_error("get_model_views", "--section", names=names, section="w")
+        expect_error("get_model_views", "inside that span", names=names, section="x=5")
+        expect_error("get_model_views", "--style shaded", names=names, light="soft")
+        expect_error("get_model_views", "bmaya scene", names="missing_mesh")
+    finally:
+        cmds.delete(outer, inner, dense)
+    return "parts, silhouette, section, xray, dense mesh without edges, shaded ok"
+
+
+def check_diff_mesh() -> str:
+    box = cmds.polyCube(name="diff_box", constructionHistory=False)[0]
+    cmds.select(clear=True)
+    try:
+        expect_error("diff_mesh", "--mark", name=box)
+        marked = assert_read_only("diff_mesh", name=box, mark=True)
+        assert marked["marked"]["verts"] == 8 and marked["marked"]["volume"] == 1, marked
+        same = assert_read_only("diff_mesh", name=box)
+        assert same["topology_changed"] is False and same["moved"] == 0, same
+
+        cmds.move(0, 1, 0, box + ".vtx[2]", relative=True)
+        moved = call("diff_mesh", name=box)
+        assert moved["against"] == "mark" and moved["moved"] == 1, moved
+        assert moved["max_move"] == 1 and moved["after"]["size"] == [1, 2, 1], moved
+        assert moved["moved_box"][1] == moved["moved_box"][4] == 1.5, moved
+
+        copy = cmds.duplicate(box, name="diff_copy")[0]
+        cmds.polySmooth(box, constructionHistory=False)
+        changed = call("diff_mesh", name=box, against=copy)
+        assert changed["topology_changed"] is True and changed["against"] == copy, changed
+        assert changed["before"]["verts"] == 8 and changed["after"]["verts"] == 26, changed
+        cmds.delete(copy)
+
+        expect_error("diff_mesh", "one mesh at a time", name="props")
+        expect_error("diff_mesh", "--against", name=box, mark=True, against=box)
+    finally:
+        cmds.delete(box)
+    return "mark, moved vertices and their box, topology change, --against ok"
+
+
+def tris_of(node: str) -> int:
+    return cmds.polyEvaluate(node, triangle=True)
+
+
+def check_reduce_mesh() -> str:
+    ball = cmds.polySphere(name="reduce_ball", constructionHistory=False)[0]
+    cmds.select("crate", replace=True)
+    try:
+        cmds.flushUndo()
+        lean = call("reduce_mesh", name=ball, tris=200)
+        assert lean["before"]["tris"] == 760 and lean["after"]["tris"] <= 210, lean
+        assert tris_of(ball) == lean["after"]["tris"], lean
+        assert "bmaya undo" in lean["next"], lean
+        assert cmds.ls(selection=True) == ["crate"], "reduce changed the selection"
+        cmds.undo()
+        assert tris_of(ball) == 760, "one undo did not take the reduce back"
+
+        half = call("reduce_mesh", name=ball, percent=50, keep_quads=True)
+        assert 340 <= half["after"]["tris"] <= 420 and half["percent"] == 50, half
+        after = call("diff_mesh", name=ball)
+        assert after["before"]["tris"] == 760 and after["topology_changed"] is True, after
+
+        expect_error("reduce_mesh", "--tris", name=ball)
+        expect_error("reduce_mesh", "one of them", name=ball, tris=100, percent=50)
+        expect_error("reduce_mesh", "between 0 and 100", name=ball, percent=150)
+        expect_error("reduce_mesh", "already has", name=ball, tris=5000)
+    finally:
+        cmds.delete(ball)
+        cmds.select(clear=True)
+    return "triangle budget, percent, own mark, one undo step ok"
+
+
+def check_remesh_mesh() -> str:
+    import time
+
+    ball = cmds.polySphere(name="remesh_ball", constructionHistory=False)[0]
+    dense = cmds.polySphere(
+        name="remesh_dense", subdivisionsX=140, subdivisionsY=140, constructionHistory=False
+    )[0]
+    cmds.select(clear=True)
+    try:
+        cmds.flushUndo()
+        even = call("remesh_mesh", name=ball, to="tris", edge=0.3)
+        assert even["after"]["faces"]["quads"] == 0 and even["after"]["tris"] > 50, even
+        assert even["edge"] == 0.3 and even["before"]["tris"] == 760, even
+        cmds.undo()
+        assert tris_of(ball) == 760, "one undo did not take the remesh back"
+
+        finer = call("remesh_mesh", name=ball, to="tris", edge=0.15)
+        ratio = finer["after"]["tris"] / even["after"]["tris"]
+        assert 3 < ratio < 5, f"half the edge should give about 4x the triangles, got {ratio}"
+        cmds.undo()
+
+        by_default = call("remesh_mesh", name=ball)
+        assert by_default["to"] == "tris", by_default
+        assert 500 < by_default["after"]["tris"] < 1200, by_default
+        expect_error("remesh_mesh", "the most is", name=ball, edge=0.0005)
+
+        quads = call("remesh_mesh", name=ball, to="quads", faces=200)
+        kinds = quads["after"]["faces"]
+        assert kinds["quads"] > 100 and kinds["quads"] > 5 * kinds["tris"], quads
+
+        started = time.perf_counter()
+        call("remesh_mesh", name=dense, to="quads", faces=1000)
+        spent = time.perf_counter() - started
+
+        expect_error("remesh_mesh", "--to", name=ball, to="hexes")
+        expect_error("remesh_mesh", "--faces", name=ball, to="quads", edge=0.3)
+        expect_error("remesh_mesh", "--edge", name=ball, to="tris", faces=300)
+    finally:
+        cmds.delete(ball, dense)
+    return f"even triangles, quads, undo ok; retopology of 39k triangles took {spent:.1f}s"
+
+
+def check_cleanup_mesh() -> str:
+    box = cmds.polyCube(name="cleanup_box", constructionHistory=False)[0]
+    cmds.polySplitVertex(box + ".vtx[0]", constructionHistory=False)
+    cmds.polyNormal(box, normalMode=0, userNormalMode=0, constructionHistory=False)
+    cmds.select(clear=True)
+    try:
+        before = call("audit_mesh", names=box)["meshes"][0]
+        assert before["verts"] == 10 and before["open_edges"], before
+        uvs = cmds.polyEvaluate(box, uvcoord=True)
+        cmds.flushUndo()
+        fixed = call("cleanup_mesh", name=box)
+        assert fixed["before"]["verts"] == 10 and fixed["after"]["verts"] == 8, fixed
+        assert fixed["normals_reversed"] is True, fixed
+        left = " | ".join(fixed["issues"])
+        assert "inward" not in left and "flipped" not in left, fixed
+        assert fixed["after"]["volume"] == 1, fixed
+        assert cmds.polyEvaluate(box, uvcoord=True) == uvs, "cleanup merged UVs across seams"
+        cmds.undo()
+        assert cmds.polyEvaluate(box, vertex=True) == 10, "one undo did not take the cleanup back"
+        expect_error("cleanup_mesh", "bmaya scene", name="missing_mesh")
+    finally:
+        cmds.delete(box)
+    return "split vertices merged, normals turned outward, one undo step ok"
 
 
 def check_get_animation_info() -> str:
@@ -1050,6 +1308,11 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("get_viewport_screenshot", check_get_viewport_screenshot),
     ("render_frames", check_render_frames),
     ("audit_mesh", check_audit_mesh),
+    ("get_model_views", check_get_model_views),
+    ("diff_mesh", check_diff_mesh),
+    ("reduce_mesh", check_reduce_mesh),
+    ("remesh_mesh", check_remesh_mesh),
+    ("cleanup_mesh", check_cleanup_mesh),
     ("get_animation_info", check_get_animation_info),
     ("plot_animation", check_plot_animation),
     ("export_fbx", check_export_fbx),

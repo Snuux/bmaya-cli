@@ -183,15 +183,12 @@ def load_opaque(path: str) -> QImage:
     return gui.QImage(path).convertToFormat(gui.QImage.Format_RGB32)
 
 
-def contact_sheet(
-    tiles: list[tuple[float, str]],
-    size: tuple[int, int],
-    path: str,
-    decorate: Decorate | None = None,
-) -> None:
+def compose_sheet(
+    tiles: list[tuple[str, QImage]], columns: int, size: tuple[int, int], path: str
+) -> tuple[int, int]:
+    """Lays labelled images out in a grid, saves it and returns the sheet's size."""
     gui = qt_gui()
     core = qt_core()
-    columns = math.ceil(math.sqrt(len(tiles)))
     rows = math.ceil(len(tiles) / columns)
     width, height = size
     sheet = gui.QImage(columns * width, rows * height, gui.QImage.Format_RGB32)
@@ -203,14 +200,10 @@ def contact_sheet(
         font.setPixelSize(LABEL_HEIGHT - 6)
         font.setBold(True)
         painter.setFont(font)
-        for index, (at, tile_path) in enumerate(tiles):
+        for index, (label, image) in enumerate(tiles):
             x = (index % columns) * width
             y = (index // columns) * height
-            image = load_opaque(tile_path)
-            if decorate:
-                decorate(at, image, index == 0)
             painter.drawImage(core.QRect(x, y, width, height), image)
-            label = f"{frame(at)}"
             label_width = painter.fontMetrics().horizontalAdvance(label) + 12
             box = core.QRect(x, y, label_width, LABEL_HEIGHT)
             painter.fillRect(box, gui.QColor(0, 0, 0, 170))
@@ -220,6 +213,22 @@ def contact_sheet(
         painter.end()
     if not sheet.save(path, "PNG"):
         raise BridgeError(f"Could not write the contact sheet to {path}.")
+    return sheet.width(), sheet.height()
+
+
+def contact_sheet(
+    tiles: list[tuple[float, str]],
+    size: tuple[int, int],
+    path: str,
+    decorate: Decorate | None = None,
+) -> None:
+    images = []
+    for index, (at, tile_path) in enumerate(tiles):
+        image = load_opaque(tile_path)
+        if decorate:
+            decorate(at, image, index == 0)
+        images.append((f"{frame(at)}", image))
+    compose_sheet(images, math.ceil(math.sqrt(len(tiles))), size, path)
 
 
 def capture(

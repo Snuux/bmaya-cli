@@ -10,7 +10,7 @@ Exit codes: `0` done, `1` failed, `2` bad arguments, `3` not ready. Code 3 means
 
 1. `bmaya scene` to see what exists (unit, up axis, fps, nodes). Filter with `--query` and `--type`.
 2. Act: a dedicated command if one fits, otherwise `bmaya exec`.
-3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya anim` for keys and skeletons, `bmaya motion` for how things move, `bmaya shot -o shot.png` to look. Open the PNG it names.
+3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya views NAME -o views.png` to look at a model from several sides, `bmaya anim` for keys and skeletons, `bmaya motion` for how things move, `bmaya shot -o shot.png` for the viewport. Open the PNG it names.
 
 With no Maya running, the first command starts one without a window and says so in a `note:` line on stderr. If it answers with exit code 3, wait about 15 seconds and run it again. A Maya started this way is yours to stop: when the work is done, save with `bmaya file save PATH` and run `bmaya stop`.
 
@@ -42,14 +42,50 @@ bmaya exec -f build_crate.py
 ## Dedicated commands first
 
 - `bmaya audit [NAME ...]` instead of hand-written topology checks.
+- `bmaya views [NAME ...] -o views.png` instead of several `bmaya shot` calls with moved cameras, when the subject is a model.
+- `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` instead of moving, merging and deleting vertices one by one.
 - `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")`. Add `--selection`, `--animation`, `--start N --end N` (frame 0 works), or `--clip NAME` to bake one clip. Units are not converted; the scene unit is what the importer sees.
 - `bmaya file new|open|save|import [PATH]`. `new` and `open` refuse to discard unsaved work, and to replace the scene while another client works in that Maya. Never pass `--force` unless the user asked.
-- `bmaya undo [STEPS]` reverts one of your own `bmaya exec` calls per step.
+- `bmaya undo [STEPS]` reverts one of your own `bmaya exec`, `remesh`, `reduce` or `cleanup` calls per step.
 - `bmaya shot --frames 1,6,12,18,24 -o walk.png` puts up to 12 frames on one contact sheet. Use it to review animation instead of many single shots. A range like `--frames 0:32` (both ends included) or `0:32:4` is thinned evenly to 12 tiles. `--clip NAME` takes the frames of a clip. `--camera NAME` gives a fixed view.
 - `bmaya shot --aspect 1:1 --light unlit` sets the frame shape and the lighting for that one shot, and puts everything back after. `--light unlit` shows texture and base colors as they are, `soft` adds an even studio light, `scene` uses the scene's lights. Use these instead of building lights, swapping materials or changing color management yourself.
 - Never call `cmds.ogs(reset=True)`: it can crash a Maya without a window, and `bmaya shot` does not need it. Save before changing color spaces.
 
 Relative paths are resolved against the directory you run `bmaya` in.
+
+## Modeling
+
+Building geometry is plain `bmaya exec`. What you cannot do is see the model, so check it in numbers and in pictures after every step that changes its shape:
+
+1. Before building: `bmaya scene` for the unit and up axis. Decide the real size first and build to it.
+2. Build in small steps, one `bmaya exec` each. Use Maya's tools (recipes below), not vertex-by-vertex edits: booleans, mirror, bevel, extrude, bridge, and `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` for whole-mesh work.
+3. After each step:
+   - `bmaya views NAME -o views.png` and open it: front, right, top and a three-quarter view on one sheet, a color per mesh, edges on top, width and height written on the straight-on views.
+   - `bmaya audit NAME`: counts, size, and what is wrong with the geometry.
+   - `bmaya diff NAME` when the step was an edit of an existing mesh: what it changed, and whether it touched more than it should (`bmaya diff NAME --mark` first).
+4. Before export: `bmaya cleanup NAME` if the audit lists geometry issues, freeze transforms, delete history, then `bmaya audit` again.
+
+Reading a `views` sheet:
+
+- Each mesh has its own color; `parts` in the result says which name has which color. Parts that should be one mesh, or that float apart, show here.
+- A dark face is seen from behind: its normal points away. On a closed model that means reversed normals; `bmaya cleanup` turns them out.
+- `front` looks from +Z in a Y-up scene (the model's face, if it faces +Z), `right` from +X, `top` from above. Width and height on these tiles are in scene units: compare them with the size you meant.
+- `--views all` adds back, left, bottom and a three-quarter view from behind. Name only the views you need for bigger tiles: `--views front,right`.
+- `--style silhouette` shows the outline alone: the fastest way to judge the overall shape and proportions.
+- `--style xray` shows every edge, hidden ones too, so parts inside other parts are visible.
+- `--section x` (or `y`, `z`, or `x=12.5`) cuts the model and looks at the cut: wall thickness, what is inside, what pokes through. The cut line is red.
+- `--style shaded --light soft` is Maya's own render, for materials and textures. It shows the whole scene; the other styles draw only the meshes you name.
+- Past about 10000 triangles per 400 px tile the edges are left out and `note` says so. Name fewer meshes or fewer views to get them back.
+
+The commands:
+
+- `bmaya audit NAME --symmetry x` checks that every vertex has a twin across the plane through the mesh's pivot, and gives the positions of a few that have none. Run it after editing one side of a mirrored model.
+- `bmaya diff NAME --mark` remembers a mesh; `bmaya diff NAME` after the edit gives counts, size, area and volume before and after, and for an unchanged topology how many vertices moved, how far, and the box they are in. `--against OTHER` compares two meshes.
+- `bmaya remesh NAME --to tris --edge 0.5` rebuilds the mesh as even triangles; `--to quads --faces 800` runs Maya's Retopologize for a quad mesh. UVs and skin weights are lost, so remesh before unwrapping and skinning.
+- `bmaya reduce NAME --tris 5000` (or `--percent 50`) lowers the triangle count and keeps the shape; `--keep-uvs`, `--keep-borders`, `--keep-hard-edges`, `--keep-quads` pin what matters.
+- `bmaya cleanup NAME` merges vertices on the same spot, removes zero-area faces, zero-length edges and lamina faces, makes the faces wind one way and turns the normals outward.
+
+`remesh`, `reduce` and `cleanup` work on one mesh, are one undo step each (`bmaya undo`), answer with `before`, `after` and the audit `issues` that are left, and mark the mesh first. If one exits with code 3, Maya is still working: do not send it again, wait and run `bmaya diff NAME`.
 
 ## Animating
 
@@ -128,6 +164,56 @@ cmds.polyExtrudeFacet("crate.f[1]", localTranslateZ=5, localScale=(0.5, 0.5, 1))
 cmds.polyBevel3("crate.e[0:3]", fraction=0.3, segments=2, chamfer=True)
 cmds.move(0, 2, 0, "crate.vtx[0:3]", relative=True)
 cmds.delete("crate", constructionHistory=True)
+```
+
+```python
+# boolean: 1 union, 2 difference, 3 intersection
+wall = cmds.polyCube(name="wall", width=4, height=3, depth=0.4)[0]
+hole = cmds.polyCylinder(name="hole", radius=0.6, height=2, axis=(0, 0, 1))[0]
+cut = cmds.polyCBoolOp(wall, hole, operation=2, name="wall_cut")[0]
+cmds.delete(cut, constructionHistory=True)
+```
+
+```python
+# mirror: model the +X half with the middle open, then mirror across X and weld the seam
+cmds.delete("half.f[5]")  # the face on the mirror plane
+cmds.polyMirrorFace("half", axis=0, axisDirection=1, mirrorAxis=2, mergeMode=1,
+                    mergeThreshold=0.001)
+cmds.delete("half", constructionHistory=True)
+# then: bmaya audit half --symmetry x
+```
+
+```python
+# edge loop, fill a hole, bridge two border edges, weld close vertices
+cmds.polySplitRing("box.e[4]", splitType=1, weight=0.5)
+cmds.polyCloseBorder("box")
+cmds.polyBridgeEdge("strips.e[3]", "strips.e[6]", divisions=0)
+cmds.polyMergeVertex("box", distance=0.001)
+```
+
+```python
+# smooth, soften or harden edges by angle, make all faces wind one way
+cmds.polySmooth("rock", divisions=1)
+cmds.polySoftEdge("rock", angle=30)  # 0 hardens every edge, 180 softens every edge
+cmds.polyNormal("rock", normalMode=2, userNormalMode=0)  # 0 reverses, 2 conforms
+```
+
+```python
+# sit a prop on the ground and put its pivot at the base
+low = cmds.exactWorldBoundingBox("prop")
+cmds.move(0, -low[1], 0, "prop", relative=True)
+center = cmds.objectCenter("prop")
+cmds.xform("prop", worldSpace=True, pivots=(center[0], 0, center[2]))
+```
+
+```python
+# UVs: unfold and pack with Unfold3D, or copy them from another mesh of the same shape
+cmds.loadPlugin("Unfold3D", quiet=True)
+cmds.polyAutoProjection("crate.f[*]", layoutMethod=1, percentageSpace=0.2)
+cmds.u3dUnfold("crate.map[*]", iterations=1, pack=False)
+cmds.u3dLayout("crate", resolution=256, shellSpacing=0.01, tileMargin=0.01)
+cmds.transferAttributes("high", "low", transferUVs=2, transferNormals=1, sampleSpace=0)
+cmds.delete("low", constructionHistory=True)
 ```
 
 ```python
@@ -231,5 +317,6 @@ Then run `bmaya export crate.fbx`. For Unreal add `--preset unreal`, which trian
 - Keep each `bmaya exec` call small and about one logical step. Undo works per call and only on your own calls, and the crash journal records the last call that started.
 - If a call raises, the error names the exception and the line. No rollback happens: inspect the scene before retrying.
 - Freeze transforms and delete history on game assets before export. `bmaya audit` flags both.
+- Look at a model with `bmaya views` after every change to its shape. A count that looks right says nothing about a part that points the wrong way.
 - Exit code 3 with "still running" means Maya is still working or blocked by a dialog. Do not resend the command; check `bmaya sessions` (`busy`) and inspect the scene.
 - Keep the user's unit and up axis unless asked; convert values to the scene's centimeters and degrees.

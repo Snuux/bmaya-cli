@@ -88,8 +88,10 @@ def test_simple_commands_map_their_arguments(
     }
     one_maya(home, make_bridge, handlers)
     assert run(capsys, "object", "|props|crate")[1] == {"got": {"name": "|props|crate"}}
-    assert run(capsys, "audit", "barrel", "crate")[1] == {"got": {"names": "barrel,crate"}}
-    assert run(capsys, "audit")[1] == {"got": {"names": ""}}
+    assert run(capsys, "audit", "barrel", "crate")[1] == {
+        "got": {"names": "barrel,crate", "symmetry": ""}
+    }
+    assert run(capsys, "audit", "--symmetry", "x")[1] == {"got": {"names": "", "symmetry": "x"}}
     assert run(capsys, "anim")[1] == {"got": {"name": ""}}
     assert run(capsys, "rig", "rig_ctrls")[1] == {"got": {"root": "rig_ctrls"}}
     assert run(capsys, "undo")[1] == {"got": {"steps": 1, "force": False}}
@@ -251,6 +253,83 @@ def test_shot_moves_the_png_to_the_asked_place(
     default = Path(run(capsys, "shot")[1]["path"])
     assert default.parent == home / "shots"
     assert default.read_bytes() == PNG
+
+
+def test_views_maps_its_flags_and_moves_the_png(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    temp = tmp_path / "from-maya.png"
+
+    def views(params: dict[str, Any]) -> dict[str, Any]:
+        temp.write_bytes(PNG)
+        return {"path": str(temp), "width": 1600, "height": 1600, "got": params}
+
+    one_maya(home, make_bridge, {"get_model_views": views})
+    target = tmp_path / "hand.png"
+    code, out, _ = run(
+        capsys,
+        "views",
+        "hand",
+        "glove",
+        "-o",
+        str(target),
+        "--views",
+        "front,persp",
+        "--style",
+        "xray",
+        "--section",
+        "x=0.5",
+        "--no-wire",
+        "--size",
+        "1200",
+    )
+    assert code == 0
+    assert out["path"] == target.resolve().as_posix()
+    assert out["got"] == {
+        "names": "hand,glove",
+        "views": "front,persp",
+        "style": "xray",
+        "no_wire": True,
+        "section": "x=0.5",
+        "light": "",
+        "max_size": 1200,
+    }
+    assert target.read_bytes() == PNG
+    assert run(capsys, "views")[1]["got"]["names"] == ""
+
+
+def test_mesh_edits_map_their_arguments(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    handlers = {
+        **echo("diff_mesh"),
+        **echo("remesh_mesh"),
+        **echo("reduce_mesh"),
+        **echo("cleanup_mesh"),
+    }
+    one_maya(home, make_bridge, handlers)
+    assert run(capsys, "diff", "crate", "--mark")[1] == {
+        "got": {"name": "crate", "mark": True, "against": ""}
+    }
+    assert run(capsys, "diff", "crate", "--against", "old")[1]["got"]["against"] == "old"
+    assert run(capsys, "remesh", "rock", "--to", "quads", "--faces", "800")[1] == {
+        "got": {"name": "rock", "to": "quads", "edge": 0, "faces": 800, "keep_hard_edges": False}
+    }
+    assert run(capsys, "remesh", "rock", "--edge", "0.5")[1]["got"]["edge"] == 0.5
+    assert run(capsys, "reduce", "statue", "--tris", "5000", "--keep-uvs")[1] == {
+        "got": {
+            "name": "statue",
+            "tris": 5000,
+            "percent": 0,
+            "keep_borders": False,
+            "keep_uvs": True,
+            "keep_hard_edges": False,
+            "keep_quads": False,
+        }
+    }
+    assert run(capsys, "cleanup", "scan", "--merge", "0.01", "--ngons")[1] == {
+        "got": {"name": "scan", "merge": 0.01, "ngons": True}
+    }
 
 
 def test_expected_failure_goes_to_stderr_with_its_hint(
@@ -417,6 +496,8 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
     for name in ("scene", "object", "exec", "shot", "audit", "anim", "export", "file", "undo"):
         assert f"bmaya {name}" in guide
     for name in ("motion", "rig", "playblast"):
+        assert f"bmaya {name}" in guide
+    for name in ("views", "diff", "remesh", "reduce", "cleanup"):
         assert f"bmaya {name}" in guide
     for name in ("sessions", "use", "start", "stop"):
         assert f"bmaya {name}" in guide

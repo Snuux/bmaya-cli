@@ -203,8 +203,57 @@ def cmd_shot(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_views(args: argparse.Namespace) -> int:
+    params = {
+        "names": ",".join(args.names),
+        "views": args.views,
+        "style": args.style,
+        "no_wire": args.no_wire,
+        "section": args.section,
+        "light": args.light,
+        "max_size": args.size,
+    }
+    deliver_png(call(args, "get_model_views", params), args.output)
+    return EXIT_OK
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
-    return forward(args, "audit_mesh", {"names": ",".join(args.names)})
+    params = {"names": ",".join(args.names), "symmetry": args.symmetry}
+    return forward(args, "audit_mesh", params)
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    params = {"name": args.name, "mark": args.mark, "against": args.against}
+    return forward(args, "diff_mesh", params)
+
+
+def cmd_remesh(args: argparse.Namespace) -> int:
+    params = {
+        "name": args.name,
+        "to": args.to,
+        "edge": args.edge,
+        "faces": args.faces,
+        "keep_hard_edges": args.keep_hard_edges,
+    }
+    return forward(args, "remesh_mesh", params)
+
+
+def cmd_reduce(args: argparse.Namespace) -> int:
+    params = {
+        "name": args.name,
+        "tris": args.tris,
+        "percent": args.percent,
+        "keep_borders": args.keep_borders,
+        "keep_uvs": args.keep_uvs,
+        "keep_hard_edges": args.keep_hard_edges,
+        "keep_quads": args.keep_quads,
+    }
+    return forward(args, "reduce_mesh", params)
+
+
+def cmd_cleanup(args: argparse.Namespace) -> int:
+    params = {"name": args.name, "merge": args.merge, "ngons": args.ngons}
+    return forward(args, "cleanup_mesh", params)
 
 
 def cmd_anim(args: argparse.Namespace) -> int:
