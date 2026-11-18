@@ -201,6 +201,18 @@ def cmd_anim(args: argparse.Namespace) -> int:
     return forward(args, "get_animation_info", {"name": args.name})
 
 
+def cmd_motion(args: argparse.Namespace) -> int:
+    params = {
+        "names": ",".join(args.names),
+        "frames": args.frames,
+        "clip": args.clip,
+        "loop": args.loop,
+        "contacts": args.contacts,
+        "ground": args.ground,
+    }
+    return forward(args, "get_motion", params)
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     params = {
         "path": absolute(args.path),

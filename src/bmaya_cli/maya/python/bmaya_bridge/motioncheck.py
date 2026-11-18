@@ -439,9 +439,12 @@ def inside(at: float, ranges: list[tuple[float, float]]) -> bool:
 
 
 def key_issues(
-    curves: list[Curve], clip_ranges: list[tuple[float, float]], edges: list[tuple[float, float]]
+    curves: list[Curve],
+    window: tuple[float, float],
+    clip_ranges: list[tuple[float, float]],
+    edges: list[tuple[float, float]],
 ) -> list[dict[str, Any]]:
-    """Problems in the keys themselves.
+    """Problems in the keys inside `window`, the frames being checked.
 
     `clip_ranges` decide which keys are stray: keys outside every one of them. `edges` are
     the clips whose first and last frame should carry a key on every animated channel.
@@ -459,6 +462,8 @@ def key_issues(
                 delta = curve.values[index] - curve.values[index - 1]
                 if abs(delta) <= EULER_JUMP:
                     continue
+                if not (inside(times[index - 1], [window]) or inside(times[index], [window])):
+                    continue
                 entry = jumps.setdefault(
                     f"{curve.node}.{curve.attr}",
                     {
@@ -474,6 +479,8 @@ def key_issues(
                 )
                 entry["count"] += 1
         for at in times:
+            if not inside(at, [window]):
+                continue
             if abs(at - round(at)) > SUBFRAME:
                 subframes.setdefault(curve.node, []).append(at)
             if clip_ranges and not inside(at, clip_ranges):

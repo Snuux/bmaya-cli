@@ -238,6 +238,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
     anim.add_argument("name", nargs="?", default="", help="node to describe")
 
+    motion = add(
+        "motion",
+        "cmd_motion",
+        "check motion: pops, flips, foot slide, loop seam, key problems",
+        "Samples the world position and rotation of nodes on every frame, the way playback\n"
+        "shows them (IK, constraints, expressions), and reports per node the path length,\n"
+        "height range and peak speed, plus problems with their measurements:\n"
+        "  pop, flip       a jump in one frame, far above the motion around it\n"
+        "  loop_pose/speed with --loop: the last frame does not repeat the first\n"
+        "  foot_slide      with --contacts: a planted node moves along the ground\n"
+        "  below_ground    with --contacts: a node under --ground (default 0)\n"
+        "  euler_jump      a rotate curve jumps more than 180 between keys\n"
+        "  clip_edge       a channel has no key on a clip's first or last frame\n"
+        "  subframe_keys, stray_keys  keys between frames, or outside every clip\n"
+        "Thresholds scale with the size of what is checked; `size` and `limits` say what\n"
+        "was used. Distances are scene units, speeds scene units per second, turns degrees.\n"
+        "Without names it checks the selection, else every joint and animated object.",
+        examples(
+            "bmaya motion --clip zombie_walk --loop --contacts foot_l,foot_r",
+            "bmaya motion hand_r spine_02 --frames 0:48",
+            'bmaya motion "*_ctrl" --frames 20000:20960:2',
+        ),
+    )
+    motion.add_argument("names", nargs="*", help="nodes to check; * and ? work")
+    add_frames(motion, "frames to sample (default: the playback range)")
+    motion.add_argument(
+        "--loop", action="store_true", help="the frames are a cycle: compare the first and last"
+    )
+    motion.add_argument(
+        "--contacts",
+        default="",
+        metavar="A,B",
+        help="nodes that touch the ground, like feet: check sliding and sinking",
+    )
+    motion.add_argument(
+        "--ground", default="", metavar="H", help="ground height in scene units (default 0)"
+    )
+
     export = add(
         "export",
         "cmd_export",

@@ -137,7 +137,7 @@ def test_key_problems() -> None:
         mc.Curve("arm", "translateY", [0, 12.5, 30, 50], [0, 1, 2, 3], False),
         mc.Curve("hip", "translateX", [0, 32], [0, 1], False),
     ]
-    issues = mc.key_issues(curves, [(0, 32)], [(0, 32)])
+    issues = mc.key_issues(curves, (0, 60), [(0, 32)], [(0, 32)])
     by_type = {issue["type"]: issue for issue in issues}
     jump = by_type["euler_jump"]
     assert (jump["node"], jump["attr"], jump["frames"], jump["delta"]) == (
@@ -157,6 +157,8 @@ def test_key_problems() -> None:
         "attrs": 1,
     }
     assert len(issues) == 4
+    elsewhere = mc.key_issues(curves, (100, 200), [(0, 32)], [])
+    assert elsewhere == []
 
 
 def test_size_and_limits() -> None:

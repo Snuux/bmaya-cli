@@ -94,6 +94,23 @@ def test_simple_commands_map_their_arguments(
     assert run(capsys, "undo", "3", "--force")[1] == {"got": {"steps": 3, "force": True}}
 
 
+def test_motion_maps_names_frames_and_checks(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    one_maya(home, make_bridge, echo("get_motion"))
+    argv = ["motion", "hand_r", "foot_*", "--frames", "0:30", "--loop", "--contacts", "foot_l"]
+    assert run(capsys, *argv)[1]["got"] == {
+        "names": "hand_r,foot_*",
+        "frames": "0:30",
+        "clip": "",
+        "loop": True,
+        "contacts": "foot_l",
+        "ground": "",
+    }
+    clip = run(capsys, "motion", "--clip", "walk", "--ground", "0")[1]["got"]
+    assert (clip["names"], clip["clip"], clip["ground"]) == ("", "walk", "0")
+
+
 def test_relative_paths_are_resolved_where_the_command_runs(
     home: Path,
     make_bridge: BridgeFactory,

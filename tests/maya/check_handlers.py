@@ -424,6 +424,98 @@ def check_export_fbx() -> str:
     return f"unreal+anim {result['size']} bytes, selection-only and errors ok"
 
 
+def build_walker() -> None:
+    cmds.file(new=True, force=True)
+    cmds.loadPlugin("timeSliderBookmark", quiet=True)
+    walker = cmds.group(empty=True, name="walker")
+    for name, x in (("foot_l", 10), ("foot_r", -10)):
+        cmds.parent(cmds.spaceLocator(name=name)[0], walker)
+        cmds.setAttr(name + ".translateX", x)
+    cmds.parent(cmds.spaceLocator(name="hand")[0], walker)
+    cmds.setAttr("hand.translateY", 100)
+
+    for at, x in ((0, 0), (11, 11), (12, 21), (24, 33)):
+        cmds.setKeyframe("hand", attribute="translateX", time=at, value=x)
+    cmds.setKeyframe("hand", attribute="rotateY", time=0, value=0)
+    cmds.setKeyframe("hand", attribute="rotateY", time=24, value=350)
+    cmds.keyTangent("hand", edit=True, inTangentType="linear", outTangentType="linear")
+
+    for at, x in ((0, -10), (5, -10), (10, -5), (24, -5)):
+        cmds.setKeyframe("foot_r", attribute="translateX", time=at, value=x)
+    cmds.keyTangent("foot_r", edit=True, inTangentType="linear", outTangentType="linear")
+    cmds.setKeyframe("foot_r", attribute="translateZ", time=12.5, value=0)
+    cmds.setKeyframe("foot_r", attribute="translateZ", time=40, value=0)
+    for at, y in ((0, 0), (19, 0), (20, -2), (21, 0), (30, 0)):
+        cmds.setKeyframe("foot_l", attribute="translateY", time=at, value=y)
+    cmds.keyTangent("foot_l", edit=True, inTangentType="linear", outTangentType="linear")
+
+    mark = cmds.createNode("timeSliderBookmark", name="mark_walk")
+    cmds.setAttr(mark + ".name", "walk", type="string")
+    cmds.setAttr(mark + ".timeRangeStop", 24)
+    cmds.playbackOptions(minTime=0, maxTime=24, animationStartTime=0, animationEndTime=24)
+    cmds.currentTime(7)
+    cmds.select(clear=True)
+
+
+def check_get_motion() -> str:
+    build_walker()
+    cmds.file(modified=False)
+    report = assert_read_only(
+        "get_motion", names="hand,foot_*", clip="walk", loop=True, contacts="foot_l,foot_r"
+    )
+    assert cmds.currentTime(query=True) == 7, "motion moved the current time"
+    assert not cmds.file(query=True, modified=True), "motion marked the scene modified"
+    assert report["range"] == [0, 24] and report["clip"] == "walk" and report["step"] == 1
+    assert report["size"] == 100 and report["limits"]["pop"] == 3, report["limits"]
+    issues = report["issues"]["items"]
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for issue in issues:
+        by_type.setdefault(issue["type"], []).append(issue)
+    expected = {
+        "pop",
+        "loop_pose",
+        "foot_slide",
+        "below_ground",
+        "euler_jump",
+        "clip_edge",
+        "subframe_keys",
+    }
+    assert expected <= set(by_type), sorted(by_type)
+    assert "stray_keys" not in by_type, "keys after the checked clip were reported"
+    pop = by_type["pop"][0]
+    assert (pop["node"], pop["frames"], pop["move"]) == ("hand", [11, 12], 10), pop
+    slide = by_type["foot_slide"][0]
+    assert slide["node"] == "foot_r" and slide["frames"] == [5, 10], slide
+    assert by_type["below_ground"][0]["depth"] == 2, by_type["below_ground"]
+    assert by_type["clip_edge"][0] == {
+        "type": "clip_edge",
+        "node": "foot_l",
+        "edge": "end",
+        "frame": 24,
+        "attrs": 1,
+    }, by_type["clip_edge"]
+    assert by_type["euler_jump"][0]["delta"] == 350, by_type["euler_jump"]
+    assert report["contacts"]["foot_l"]["lowest"] == -2, report["contacts"]
+    assert report["loop"]["root"] == "walker", report["loop"]
+    assert report["nodes"]["source"] == "names" and report["nodes"]["total"] == 3
+
+    wider = call("get_motion", names="foot_*", frames="0:40")
+    strays = [issue for issue in wider["issues"]["items"] if issue["type"] == "stray_keys"]
+    assert {issue["first"] for issue in strays} == {30, 40}, wider["issues"]
+    assert wider.get("clips_checked") is None and "loop" not in wider, wider
+
+    cmds.select("hand")
+    picked = call("get_motion", frames="0:24:4")
+    assert picked["nodes"]["source"] == "selection" and picked["step"] == 4, picked
+    assert "note" in picked and "pop" not in picked["issues"]["counts"], picked
+    cmds.select(clear=True)
+    whole = call("get_motion")
+    assert whole["nodes"]["source"] == "scene" and whole["range"] == [0, 24], whole["nodes"]
+    expect_error("get_motion", "bmaya scene", names="nobody")
+    expect_error("get_motion", "--clip", names="hand", frames="3")
+    return f"{len(issues)} issues of {len(by_type)} kinds found, state kept"
+
+
 def check_scene_file() -> str:
     saved = call("scene_file", action="save", path=str(WORK_DIR / "scenes" / "check.ma"))
     assert saved["scene"].endswith("scenes/check.ma") and saved["modified"] is False, saved
@@ -674,6 +766,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("get_animation_info", check_get_animation_info),
     ("export_fbx", check_export_fbx),
     ("scene_file", check_scene_file),
+    ("get_motion", check_get_motion),
     ("undo", check_undo),
     ("stop", check_stop),
 ]
