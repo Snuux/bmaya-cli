@@ -8,6 +8,7 @@ from maya import cmds
 
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import frame
+from bmaya_bridge.projection import View
 
 SAMPLE_SECONDS = 30.0
 
@@ -86,6 +87,25 @@ def sample_plugs(plugs: list[str], frames: list[float], deadline: float) -> list
                 )
             values[index].append(float(value))
     return values
+
+
+def camera_view(camera: str, width: int, height: int, overscan: bool = False) -> View:
+    """How `camera` frames an image of width x height at the current time.
+
+    An offscreen render ignores the camera's overscan; pass overscan=True for a view that
+    draws it.
+    """
+    transform = dag_path(camera)
+    shape = om.MDagPath(transform)
+    shape.extendToShape()
+    lens = om.MFnCamera(shape)
+    left, right, bottom, top = lens.getViewingFrustum(width / float(height), overscan, False, True)
+    near = lens.nearClippingPlane
+    ortho = lens.isOrtho()
+    if not ortho:
+        left, right, bottom, top = left / near, right / near, bottom / near, top / near
+    inverse = transform.inclusiveMatrixInverse()
+    return View(tuple(inverse[i] for i in range(16)), left, right, bottom, top, ortho, near)
 
 
 def linear_scale() -> float:

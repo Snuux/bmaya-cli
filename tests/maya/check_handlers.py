@@ -828,7 +828,72 @@ def check_sampling() -> str:
     return "IK end, expression, restored time and selection, deadline ok"
 
 
+def bright_centroid(path: str) -> tuple[float, float]:
+    from PySide6 import QtGui
+
+    image = QtGui.QImage(path)
+    xs = ys = count = 0.0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            if QtGui.qGray(image.pixel(x, y)) > 200:
+                xs += x + 0.5
+                ys += y + 0.5
+                count += 1
+    assert count, f"no bright pixels in {path}"
+    return xs / count, ys / count
+
+
+def build_marker(point: tuple[float, float, float]) -> str:
+    cmds.file(new=True, force=True)
+    ball = cmds.polySphere(name="marker", radius=0.15)[0]
+    cmds.move(*point, ball)
+    shader = cmds.shadingNode("surfaceShader", asShader=True)
+    cmds.setAttr(shader + ".outColor", 1, 1, 1, type="double3")
+    engine = cmds.sets(renderable=True, noSurfaceShader=True, empty=True)
+    cmds.connectAttr(shader + ".outColor", engine + ".surfaceShader")
+    cmds.sets(ball, edit=True, forceElement=engine)
+    camera = cmds.camera(focalLength=35, name="aim_cam")[0]
+    cmds.move(9, 5, 14, camera)
+    cmds.viewLookAt(camera, position=(0, 0, 0))
+    return camera
+
+
+def check_projection() -> str:
+    from bmaya_bridge.handlers import _sampling
+    from bmaya_bridge.projection import project
+
+    point = (3.0, 2.0, -1.0)
+    camera = build_marker(point)
+    shape = cmds.listRelatives(camera, shapes=True)[0]
+    ortho = cmds.camera(orthographic=True, orthographicWidth=12, name="flat_cam")[0]
+    cmds.move(0, 0, 20, ortho)
+    cases = [
+        (camera, 1, "16:9", 1.0),
+        (camera, 0, "1:1", 1.3),
+        (camera, 3, "9:16", 1.0),
+        (ortho, 1, "16:9", 1.0),
+    ]
+    worst = 0.0
+    for cam, fit, aspect, overscan in cases:
+        cam_shape = cmds.listRelatives(cam, shapes=True)[0]
+        cmds.setAttr(cam_shape + ".filmFit", fit)
+        cmds.setAttr(cam_shape + ".overscan", overscan)
+        shot = call(
+            "get_viewport_screenshot", camera=cam, aspect=aspect, light="unlit", max_size=400
+        )
+        seen = bright_centroid(shot["path"])
+        view = _sampling.camera_view(cam, shot["width"], shot["height"])
+        pixel = project(point, view, shot["width"], shot["height"])
+        assert pixel is not None, (cam, fit, aspect)
+        miss = max(abs(seen[0] - pixel[0]), abs(seen[1] - pixel[1]))
+        assert miss < 1.5, f"{cam} fit {fit} {aspect}: drawn at {seen}, projected at {pixel}"
+        worst = max(worst, miss)
+    cmds.setAttr(shape + ".overscan", 1.0)
+    return f"sphere lands within {worst:.2f} px of its projection, perspective and ortho"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
+    ("projection", check_projection),
     ("sampling", check_sampling),
     ("bridge dispatch", check_bridge_dispatch),
     ("shared maya", check_shared_maya),
