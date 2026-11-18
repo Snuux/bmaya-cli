@@ -16,7 +16,14 @@ from maya import cmds
 
 from bmaya_bridge import framespec
 from bmaya_bridge.errors import BridgeError
-from bmaya_bridge.handlers._common import frame, int_param, resolve, text_param
+from bmaya_bridge.handlers._common import (
+    frame,
+    int_param,
+    resolve,
+    scene_kept,
+    select_only,
+    text_param,
+)
 from bmaya_bridge.handlers._timeline import resolve_frames
 
 MAX_FRAMES = 12
@@ -319,13 +326,6 @@ def render_settings(prefix: str) -> Iterator[None]:
         cmds.setAttr("defaultRenderGlobals.animation", saved["animation"])
 
 
-def restore_selection(selection: list[str]) -> None:
-    if selection:
-        cmds.select(selection, replace=True)
-    else:
-        cmds.select(clear=True)
-
-
 @contextlib.contextmanager
 def soft_lights(light: str, camera: str) -> Iterator[None]:
     if light != "soft":
@@ -347,13 +347,13 @@ def soft_lights(light: str, camera: str) -> Iterator[None]:
             cmds.xform(key, rotation=rotation)
         rotation = cmds.xform(camera, query=True, worldSpace=True, rotation=True)
         cmds.xform(rig, worldSpace=True, rotation=rotation)
-        restore_selection(selection)
+        select_only(selection)
         yield
     finally:
         existing = [node for node in created if cmds.objExists(node)]
         if existing:
             cmds.delete(existing)
-        restore_selection(selection)
+        select_only(selection)
 
 
 @contextlib.contextmanager
@@ -547,17 +547,12 @@ def get_viewport_screenshot(params: dict[str, Any]) -> dict[str, Any]:
 
     camera_path = camera_transform(camera) if camera else ""
     offscreen = bool(cmds.about(batch=True))
-    clean = not cmds.file(query=True, modified=True)
-    try:
+    with scene_kept():
         if offscreen:
             camera_path = camera_path or default_camera()
             result = capture_offscreen(camera_path, frames, longest, aspect, light)
         else:
             result = capture_panel(camera_path, frames, longest, aspect, light)
-    finally:
-        cmds.currentTime(current, update=True)
-        if clean:
-            cmds.file(modified=False)
 
     result["frames"] = [frame(at) for at in frames]
     if len(requested) > MAX_FRAMES:

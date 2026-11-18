@@ -612,7 +612,54 @@ def check_stop() -> str:
     return "stop refuses a Maya with a window, unsaved work and a shared Maya"
 
 
+def build_reach() -> tuple[str, str]:
+    cmds.file(new=True, force=True)
+    cmds.select(clear=True)
+    start = cmds.joint(name="reach_start", position=(0, 0, 0))
+    cmds.joint(name="reach_mid", position=(0, 10, 2))
+    end = cmds.joint(name="reach_end", position=(0, 20, 0))
+    handle = cmds.ikHandle(startJoint=start, endEffector=end, solver="ikRPsolver")[0]
+    ctrl = cmds.circle(name="reach_ctrl")[0]
+    cmds.move(0, 20, 0, ctrl)
+    cmds.pointConstraint(ctrl, handle)
+    cmds.setKeyframe(ctrl, attribute="translateY", time=1, value=20)
+    cmds.setKeyframe(ctrl, attribute="translateY", time=24, value=12)
+    rising = cmds.spaceLocator(name="rising")[0]
+    cmds.expression(string=f"{rising}.translateY = frame * 0.5")
+    return end, rising
+
+
+def check_sampling() -> str:
+    import time
+
+    from bmaya_bridge.handlers import _sampling
+    from bmaya_bridge.handlers._common import scene_kept
+
+    end, rising = build_reach()
+    cmds.currentTime(5)
+    cmds.select("reach_ctrl")
+    cmds.file(modified=False)
+    with scene_kept():
+        poses = _sampling.sample_poses([end, rising], [1, 12, 24], _sampling.deadline_after())
+    tip = [round(pose.position[1], 3) for pose in poses[0]]
+    assert tip[0] == 20 and tip[2] == 12, f"IK end did not follow the control: {tip}"
+    heights = [round(pose.position[1], 3) for pose in poses[1]]
+    assert heights == [0.5, 6, 12], f"expression not evaluated per frame: {heights}"
+    assert cmds.currentTime(query=True) == 5, "sampling moved the current time"
+    assert cmds.ls(selection=True) == ["reach_ctrl"], "sampling changed the selection"
+    assert not cmds.file(query=True, modified=True), "sampling marked the scene modified"
+    try:
+        _sampling.sample_poses([rising], [1, 2], time.perf_counter() - 1)
+    except BridgeError as exc:
+        assert "Sampling stopped at frame 1" in exc.message and exc.hint, exc.message
+    else:
+        raise AssertionError("an expired deadline did not stop sampling")
+    assert _sampling.linear_scale() == 1.0 and _sampling.up_index() == 1
+    return "IK end, expression, restored time and selection, deadline ok"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
+    ("sampling", check_sampling),
     ("bridge dispatch", check_bridge_dispatch),
     ("shared maya", check_shared_maya),
     ("screenshot looks", check_screenshot_looks),

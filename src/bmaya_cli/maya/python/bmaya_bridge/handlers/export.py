@@ -12,6 +12,7 @@ from bmaya_bridge.handlers._common import (
     frame,
     listing,
     number_text,
+    select_only,
     text_param,
 )
 from bmaya_bridge.handlers._timeline import find_clip
@@ -152,15 +153,6 @@ def apply_options(options: dict[str, Any]) -> None:
         mel.eval(command)
 
 
-def restore_selection(selection: list[str]) -> None:
-    if (cmds.ls(selection=True, long=True) or []) == selection:
-        return
-    if selection:
-        cmds.select(selection, replace=True)
-    else:
-        cmds.select(clear=True)
-
-
 def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     preset = text_param(params, "preset").lower() or "unity"
     if preset not in PRESETS:
@@ -204,7 +196,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
         flag = " -s" if selection_only else ""
         mel.eval(f'FBXExport -f "{path}"{flag}')
     finally:
-        restore_selection(selection)
+        select_only(selection)
 
     if not os.path.isfile(path):
         raise BridgeError(

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from maya import cmds
@@ -119,6 +120,30 @@ def resolve(name: str) -> str:
             hint=f"Use a full path instead: {shown}{more}.",
         )
     return matches[0]
+
+
+def select_only(selection: list[str]) -> None:
+    if (cmds.ls(selection=True, long=True) or []) == selection:
+        return
+    if selection:
+        cmds.select(selection, replace=True)
+    else:
+        cmds.select(clear=True)
+
+
+@contextlib.contextmanager
+def scene_kept() -> Iterator[None]:
+    """Puts back the current time, the selection and a clean scene's unmodified flag."""
+    current = cmds.currentTime(query=True)
+    clean = not cmds.file(query=True, modified=True)
+    selection = cmds.ls(selection=True, long=True) or []
+    try:
+        yield
+    finally:
+        cmds.currentTime(current, update=True)
+        select_only(selection)
+        if clean:
+            cmds.file(modified=False)
 
 
 def is_default_camera(node: str) -> bool:
