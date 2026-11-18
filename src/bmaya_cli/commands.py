@@ -209,6 +209,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         "animation": args.animation,
         "start": args.start,
         "end": args.end,
+        "clip": args.clip,
     }
     return forward(args, "export_fbx", params)
 

@@ -47,6 +47,21 @@ def float_param(params: dict[str, Any], key: str) -> float | None:
         raise BridgeError(f"'{key}' must be a number, got {value!r}.") from exc
 
 
+def number_text(params: dict[str, Any], key: str) -> float | None:
+    """A number sent as text, where "0" is a real 0 and "" is not set."""
+    value = params.get(key)
+    if not isinstance(value, str):
+        # A number from an older command line still means "not set" when it is 0.
+        return float_param(params, key)
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError as exc:
+        raise BridgeError(f"'{key}' must be a number, got {value!r}.") from exc
+
+
 def bool_param(params: dict[str, Any], key: str) -> bool:
     value = params.get(key)
     if isinstance(value, str):

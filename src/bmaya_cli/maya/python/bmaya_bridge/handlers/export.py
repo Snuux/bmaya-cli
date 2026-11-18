@@ -9,11 +9,12 @@ from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
     display_name,
-    float_param,
     frame,
     listing,
+    number_text,
     text_param,
 )
+from bmaya_bridge.handlers._timeline import find_clip
 
 NODE_LIMIT = 30
 
@@ -93,8 +94,17 @@ def target_path(raw: str) -> str:
 
 
 def bake_range(params: dict[str, Any]) -> tuple[float, float]:
-    start = float_param(params, "start")
-    end = float_param(params, "end")
+    start = number_text(params, "start")
+    end = number_text(params, "end")
+    clip = text_param(params, "clip")
+    if clip:
+        if start is not None or end is not None:
+            raise BridgeError(
+                "Pass --clip or --start/--end, not both.",
+                hint="--clip NAME bakes the frames of that clip.",
+            )
+        first, last = find_clip(clip)["range"]
+        return float(first), float(last)
     if start is None:
         start = cmds.playbackOptions(query=True, minTime=True)
     if end is None:
@@ -160,7 +170,8 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
         )
     path = target_path(text_param(params, "path"))
     selection_only = bool_param(params, "selection_only")
-    animation = bool_param(params, "animation")
+    clip = text_param(params, "clip")
+    animation = bool_param(params, "animation") or bool(clip)
 
     selection = cmds.ls(selection=True, long=True) or []
     if selection_only:
@@ -183,6 +194,8 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     if animation:
         start, end = bake_range(params)
         options["bake"] = [frame(start), frame(end)]
+        if clip:
+            options["clip"] = clip
 
     ensure_fbx_plugin()
     os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -243,20 +243,27 @@ def build_parser() -> argparse.ArgumentParser:
         "cmd_export",
         "export FBX with a Unity, Unreal or Godot preset",
         "Writes an FBX file. Units are not converted: the scene unit is what the importer\n"
-        "sees. The unreal preset triangulates and writes smoothing groups.",
+        "sees. The unreal preset triangulates and writes smoothing groups. --animation bakes\n"
+        "the playback range, or --start/--end, or the frames of --clip (which implies\n"
+        "--animation).",
         examples(
             "bmaya export hero.fbx",
-            "bmaya export out/walk.fbx --preset unreal --selection --animation --start 1 --end 24",
+            "bmaya export out/walk.fbx --preset unreal --selection --animation --start 0 --end 24",
+            "bmaya export out/walk.fbx --preset godot --selection --clip zombie_walk",
         ),
     )
     export.add_argument("path", metavar="FILE.fbx", help="target file")
     export.add_argument("--preset", default="", help="unity (default), unreal or godot")
     export.add_argument("--selection", action="store_true", help="export only the selection")
     export.add_argument("--animation", action="store_true", help="bake and export animation")
+    export.add_argument("--start", default="", help="first frame (default: playback range)")
+    export.add_argument("--end", default="", help="last frame (default: playback range)")
     export.add_argument(
-        "--start", type=int, default=0, help="first frame (default: playback range)"
+        "--clip",
+        default="",
+        metavar="NAME",
+        help="bake the frames of this clip (`bmaya anim` lists them)",
     )
-    export.add_argument("--end", type=int, default=0, help="last frame (default: playback range)")
 
     file = add(
         "file",

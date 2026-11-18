@@ -117,9 +117,12 @@ def test_relative_paths_are_resolved_where_the_command_runs(
         "preset": "unreal",
         "selection_only": True,
         "animation": False,
-        "start": 0,
-        "end": 0,
+        "start": "",
+        "end": "",
+        "clip": "",
     }
+    exported = run(capsys, "export", "walk.fbx", "--animation", "--start", "0", "--end", "30")[1]
+    assert (exported["got"]["start"], exported["got"]["end"]) == ("0", "30")
 
 
 def test_exec_takes_code_from_argument_file_or_stdin(

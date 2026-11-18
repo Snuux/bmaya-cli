@@ -408,6 +408,15 @@ def check_export_fbx() -> str:
     assert mel.eval("FBXExportTriangulate -q") == 0, "unity triangulate not applied"
     assert mel.eval("FBXExportCameras -q") == 0, "cameras not turned off"
 
+    from_zero = call("export_fbx", path=str(target), animation=True, start="0", end="5")
+    assert from_zero["options"]["bake"] == [0, 5], from_zero["options"]
+    old_cli = call("export_fbx", path=str(target), animation=True, start=0, end=0)
+    assert old_cli["options"]["bake"] == [1, 24], old_cli["options"]
+    clip = call("export_fbx", path=str(target), clip="nod")
+    assert clip["options"]["bake"] == [2, 4] and clip["options"]["clip"] == "nod", clip
+    assert clip["options"]["animation"] is True, clip["options"]
+    expect_error("export_fbx", "not both", path=str(target), clip="nod", start="1")
+
     cmds.select(clear=True)
     expect_error("export_fbx", "nothing is selected", path=str(target), selection_only=True)
     expect_error("export_fbx", ".fbx", path=str(WORK_DIR / "x.obj"))
