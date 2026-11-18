@@ -20,6 +20,8 @@ MAX_NODES = 4
 MAX_POINTS = 600
 KEY_LABELS = 16
 KEYS_LISTED = 30
+LABEL_NEAR = 12.0
+LABEL_TRIES = 4
 COLORS = ((255, 190, 0), (0, 200, 255), (255, 80, 200), (120, 230, 90))
 SHADOW = (0, 0, 0, 130)
 
@@ -105,6 +107,31 @@ def draw_label(painter: QPainter, x: float, y: float, text: str) -> None:
     painter.drawText(core.QPointF(x, y), text)
 
 
+def place_labels(painter: QPainter, labels: list[tuple[Pixel, str]], taken: list[Any]) -> None:
+    """Key numbers: those on nearly the same spot share one label, the rest step aside."""
+    core = qt_core()
+    merged: list[tuple[Pixel, list[str]]] = []
+    for pixel, text in labels:
+        for anchor, texts in merged:
+            if abs(anchor[0] - pixel[0]) < LABEL_NEAR and abs(anchor[1] - pixel[1]) < LABEL_NEAR:
+                texts.append(text)
+                break
+        else:
+            merged.append((pixel, [text]))
+    metrics = painter.fontMetrics()
+    for (x, y), texts in merged:
+        text = ", ".join(texts)
+        box = core.QRectF(
+            x + 5, y - 5 - metrics.ascent(), metrics.horizontalAdvance(text), metrics.height()
+        )
+        for _ in range(LABEL_TRIES):
+            if not any(box.intersects(other) for other in taken):
+                break
+            box.translate(0, metrics.height())
+        taken.append(box)
+        draw_label(painter, box.left(), box.top() + metrics.ascent(), text)
+
+
 def draw_legend(painter: QPainter, names: list[str], height: int) -> None:
     gui = qt_gui()
     core = qt_core()
@@ -128,6 +155,7 @@ def draw(image: QImage, trail: Trail, view: View, at: float, legend: bool) -> in
     keys = set(trail.keys)
     current = round(at, 4)
     missed = 0
+    taken: list[Any] = []
     painter = gui.QPainter(image)
     try:
         painter.setRenderHint(gui.QPainter.Antialiasing)
@@ -139,6 +167,7 @@ def draw(image: QImage, trail: Trail, view: View, at: float, legend: bool) -> in
             pixels = [project(point, view, width, height) for point in trail.paths[index]]
             missed += sum(1 for p in pixels if p is None or not inside(p, width, height))
             draw_runs(painter, pixels, color)
+            labels: list[tuple[Pixel, str]] = []
             for step, pixel in enumerate(pixels):
                 if pixel is None:
                     continue
@@ -148,13 +177,12 @@ def draw(image: QImage, trail: Trail, view: View, at: float, legend: bool) -> in
                     painter.setBrush(color)
                     painter.drawEllipse(spot, 3.5, 3.5)
                     if len(keys) <= KEY_LABELS:
-                        draw_label(
-                            painter, pixel[0] + 5, pixel[1] - 5, f"{frame(trail.frames[step])}"
-                        )
+                        labels.append((pixel, f"{frame(trail.frames[step])}"))
                 else:
                     painter.setPen(gui.QPen(core.Qt.NoPen))
                     painter.setBrush(color)
                     painter.drawEllipse(spot, 1.6, 1.6)
+            place_labels(painter, labels, taken)
             if current in trail.frames:
                 pixel = pixels[trail.frames.index(current)]
                 if pixel is not None:

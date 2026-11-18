@@ -635,6 +635,7 @@ def shoot_frames(
         trail = None
         if trail_paths:
             trail = build_trail(trail_paths, trail_span(requested), frames)
+            fit_samples = sorted(set(fit_samples) | set(framespec.thin(trail.frames, FIT_SAMPLES)))
         if offscreen:
             camera_path = camera_path or default_camera()
         with framed(camera_path, fit_paths, fit_samples, aspect, offscreen) as shooting:
