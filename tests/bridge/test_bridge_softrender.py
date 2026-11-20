@@ -147,3 +147,24 @@ def test_dense_meshes_lose_their_edges() -> None:
     assert softrender.wire_fits(5000, 400)
     assert not softrender.wire_fits(50000, 400)
     assert softrender.wire_fits(50000, 1000)
+
+
+def test_marks_draw_over_the_mesh_without_a_depth_test() -> None:
+    view = View((1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1), -2, 2, -2, 2, True, 0.1)
+    wall = softrender.Part(
+        [(-2.0, -2.0, 1.0), (2.0, -2.0, 1.0), (2.0, 2.0, 1.0), (-2.0, 2.0, 1.0)],
+        [0, 1, 2, 0, 2, 3],
+        [],
+        (200, 200, 200),
+    )
+    red = (230, 20, 20)
+    blue = (20, 20, 230)
+    loop = softrender.Mark([(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0)], red, True)
+    dot = softrender.Mark([(0.0, 0.0, -1.0)], blue, dots=True)
+    canvas = softrender.render([wall], view, 40, 40, "parts", False, 1, None, [loop, dot])
+    assert canvas.color_at(20, 30) == red
+    assert canvas.color_at(20, 20) == blue
+    assert canvas.color_at(15, 25) == red
+    open_line = softrender.Mark(loop.points, red)
+    plain = softrender.render([wall], view, 40, 40, "parts", False, 1, None, [open_line])
+    assert plain.color_at(15, 25) != red

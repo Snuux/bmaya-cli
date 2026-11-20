@@ -55,6 +55,16 @@ class Part(NamedTuple):
     colors: list[Color] | None = None
 
 
+class Mark(NamedTuple):
+    """Something to draw over the meshes without a depth test: a line through world points,
+    closed into a loop or not, or a dot at each point."""
+
+    points: list[Vec]
+    color: Color
+    closed: bool = False
+    dots: bool = False
+
+
 class Cut(NamedTuple):
     """What a section keeps: the parts on the far side of the plane and the cut outline."""
 
@@ -361,6 +371,7 @@ def render(
     wire: bool = True,
     thickness: int = 1,
     outline: list[tuple[Vec, Vec]] | None = None,
+    marks: list[Mark] | None = None,
 ) -> Canvas:
     canvas = Canvas(width, height)
     placed = []
@@ -417,7 +428,38 @@ def render(
         b = place(end_point, view, width, height)
         if a is not None and b is not None:
             draw_line(canvas, a[0], b[0], pack(CUT), thickness + 1, None)
+    for mark in marks or []:
+        draw_mark(canvas, mark, view, thickness)
     return canvas
+
+
+def draw_mark(canvas: Canvas, mark: Mark, view: View, thickness: int) -> None:
+    spots = [place(point, view, canvas.width, canvas.height) for point in mark.points]
+    value = pack(mark.color)
+    if mark.dots:
+        for spot in spots:
+            if spot is not None:
+                draw_dot(canvas, spot[0], 3 * thickness + 1, value)
+        return
+    count = len(spots)
+    last = count if mark.closed and count > 2 else count - 1
+    for index in range(last):
+        a = spots[index]
+        b = spots[(index + 1) % count]
+        if a is not None and b is not None:
+            draw_line(canvas, a[0], b[0], value, thickness + 1, None)
+
+
+def draw_dot(canvas: Canvas, spot: Spot, radius: int, value: int) -> None:
+    center_x = int(spot[0])
+    center_y = int(spot[1])
+    for row in range(center_y - radius, center_y + radius + 1):
+        if not 0 <= row < canvas.height:
+            continue
+        for column in range(center_x - radius, center_x + radius + 1):
+            inside = (column - center_x) ** 2 + (row - center_y) ** 2 <= radius * radius
+            if inside and 0 <= column < canvas.width:
+                canvas.pixels[row * canvas.width + column] = value
 
 
 def draw_edges(
