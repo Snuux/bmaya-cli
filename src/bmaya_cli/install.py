@@ -93,7 +93,7 @@ def install(app_dir: Path) -> ModulePaths:
     paths = module_paths(app_dir)
     if not (PACKAGED / "python" / "bmaya_bridge").is_dir():
         raise InstallError(f"The packaged Maya files are missing from {PACKAGED}.")
-    _refuse_link(paths.module_dir)
+    refuse_link(paths.module_dir)
     paths.modules_dir.mkdir(parents=True, exist_ok=True)
     if paths.module_dir.exists():
         shutil.rmtree(paths.module_dir)
@@ -111,7 +111,7 @@ def remove_legacy(modules_dir: Path) -> list[Path]:
     """Two modules in one Maya would start two bridges, so the pre-rename one goes."""
     module_dir = modules_dir / LEGACY_MODULE_NAME
     mod_file = modules_dir / f"{LEGACY_MODULE_NAME}.mod"
-    _refuse_link(module_dir)
+    refuse_link(module_dir)
     removed = []
     if mod_file.is_file():
         mod_file.unlink()
@@ -124,7 +124,7 @@ def remove_legacy(modules_dir: Path) -> list[Path]:
 
 def uninstall(app_dir: Path) -> list[Path]:
     paths = module_paths(app_dir)
-    _refuse_link(paths.module_dir)
+    refuse_link(paths.module_dir)
     removed = []
     if paths.mod_file.is_file():
         paths.mod_file.unlink()
@@ -136,18 +136,22 @@ def uninstall(app_dir: Path) -> list[Path]:
 
 
 def installed_version(app_dir: Path) -> str | None:
+    return mod_version(module_paths(app_dir).mod_file, MODULE_NAME)
+
+
+def mod_version(mod_file: Path, name: str) -> str | None:
     try:
-        lines = module_paths(app_dir).mod_file.read_text(encoding="utf-8").splitlines()
+        lines = mod_file.read_text(encoding="utf-8").splitlines()
     except OSError:
         return None
     for line in lines:
         parts = line.split()
-        if len(parts) >= 3 and parts[0] == "+" and parts[1] == MODULE_NAME:
+        if len(parts) >= 3 and parts[0] == "+" and parts[1] == name:
             return parts[2]
     return None
 
 
-def _refuse_link(path: Path) -> None:
+def refuse_link(path: Path) -> None:
     try:
         info = os.lstat(path)
     except FileNotFoundError:

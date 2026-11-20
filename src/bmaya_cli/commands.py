@@ -574,6 +574,8 @@ def cmd_file(args: argparse.Namespace) -> int:
         "path": absolute(args.path) if args.path else "",
         "force": args.force,
     }
+    if args.action == "import" and Path(args.path).suffix.lower() in (".glb", ".gltf"):
+        return forward(args, "import_gltf", {"path": params["path"]})
     return forward(args, "scene_file", params)
 
 

@@ -1,4 +1,4 @@
-"""`bmaya export`: write FBX in Maya, then read the file back and check it."""
+"""`bmaya export`: write FBX or glTF in Maya, then read the file back and check it."""
 
 from __future__ import annotations
 
@@ -25,7 +25,9 @@ from bmaya_cli.sessions import SessionManager
 ISSUES_SHOWN = 40
 WRITTEN_SHOWN = 200
 ALL_NODES = "*"
-FILE_ONLY_FLAGS = ("preset", "selection", "animation", "start", "end")
+FILE_ONLY_FLAGS = ("preset", "selection", "animation", "start", "end", "clips")
+GLTF_SUFFIXES = (".glb", ".gltf")
+FBX_ONLY_FLAGS = ("preset", "copy_textures")
 UDIM_TOKENS = ("<udim>", "<uvtile>", "<f>", "u<u>_v<v>")
 
 
@@ -58,6 +60,31 @@ def export_file(args: argparse.Namespace, params: dict[str, Any]) -> dict[str, A
     return checked(reply, back)
 
 
+def is_gltf(path: str) -> bool:
+    return Path(path).suffix.lower() in GLTF_SUFFIXES
+
+
+def old_module(what: str) -> CommandFailed:
+    return CommandFailed(
+        f"This Maya does not know {what} yet.",
+        hint="The Maya module is older than this bmaya: run `bmaya install` and restart that Maya.",
+    )
+
+
+def export_gltf(args: argparse.Namespace, params: dict[str, Any]) -> dict[str, Any]:
+    """Exports through maya-glb-io and reads the file back."""
+    manager = manager_for(args)
+    try:
+        reply = manager.call("export_gltf", params)
+    except BridgeCommandError as error:
+        if error.type == "UnknownCommand":
+            raise old_module("glTF export") from error
+        raise
+    finally:
+        note_autostart(manager)
+    return checked(reply, read_back(reply["path"], reply.get("expected")))
+
+
 def refuse(message: str, hint: str) -> CommandFailed:
     return CommandFailed(message, hint, code=EXIT_USAGE)
 
@@ -83,6 +110,22 @@ def check_arguments(args: argparse.Namespace) -> None:
             "Give the file to write, or --game-exporter.",
             "bmaya export hero.fbx --preset godot, or bmaya export --game-exporter to export "
             "the way the scene's Game Exporter nodes are set up.",
+        )
+    if is_gltf(args.path):
+        used = [flag for flag in FBX_ONLY_FLAGS if getattr(args, flag)]
+        if used:
+            names = ", ".join("--" + flag.replace("_", "-") for flag in used)
+            raise refuse(
+                f"{names} cannot go with a glTF file.",
+                "glTF has no presets: it is Y-up, in metres, with textures embedded in .glb and "
+                "copied next to .gltf.",
+            )
+        return
+    if args.clips:
+        raise refuse(
+            "--clips goes with a .glb or .gltf file.",
+            "An FBX gets one take: export each clip with --clip NAME, or all of them with "
+            "--game-exporter.",
         )
     if args.copy_textures:
         raise refuse(
@@ -222,11 +265,7 @@ def export_game(args: argparse.Namespace) -> dict[str, Any]:
         return export_jobs(manager, plan, args.copy_textures)
     except BridgeCommandError as error:
         if error.type == "UnknownCommand":
-            raise CommandFailed(
-                "This Maya does not know --game-exporter yet.",
-                hint="The Maya module is older than this bmaya: run `bmaya install` and restart "
-                "that Maya.",
-            ) from error
+            raise old_module("--game-exporter") from error
         raise
     finally:
         note_autostart(manager)
@@ -247,5 +286,10 @@ def cmd_export(args: argparse.Namespace) -> int:
         "clip": args.clip,
         "ignore_checks": args.ignore_checks,
     }
+    if is_gltf(args.path):
+        params.pop("preset")
+        params["clips"] = args.clips
+        emit(export_gltf(args, params))
+        return EXIT_OK
     emit(export_file(args, params))
     return EXIT_OK

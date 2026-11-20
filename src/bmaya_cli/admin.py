@@ -4,7 +4,7 @@ import sys
 import time
 from pathlib import Path
 
-from bmaya_cli import __version__
+from bmaya_cli import __version__, gltflib
 from bmaya_cli.client import BridgeClient, BridgeCommandError, BridgeConnectionError
 from bmaya_cli.install import (
     InstallError,
@@ -37,6 +37,8 @@ def resolve_app_dir(app_dir: Path | None) -> Path:
 
 def cmd_install(args: argparse.Namespace) -> int:
     target = resolve_app_dir(args.maya_app_dir)
+    if args.gltf:
+        return install_gltf(target)
     try:
         paths = install(target)
     except (InstallError, OSError) as exc:
@@ -55,20 +57,51 @@ def cmd_install(args: argparse.Namespace) -> int:
     return 0
 
 
+def install_gltf(target: Path) -> int:
+    print(f"Downloading {gltflib.NAME} {gltflib.VERSION} from {gltflib.URL}")
+    try:
+        paths = gltflib.install_library(target)
+    except (InstallError, OSError) as exc:
+        print(f"Install failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"Installed {gltflib.NAME} {gltflib.VERSION} for Maya in {target}")
+    print(f"  module folder  {paths.module_dir}")
+    print(f"  module file    {paths.mod_file}")
+    print(f"  source         {gltflib.SOURCE}")
+    print()
+    print("bmaya export FILE.glb and bmaya file import FILE.glb use it. Restart a Maya that is")
+    print("already running so it finds the module; `bmaya stop` ends one without a window.")
+    return 0
+
+
 def cmd_uninstall(args: argparse.Namespace) -> int:
     target = resolve_app_dir(args.maya_app_dir)
+    what = gltflib.NAME if args.gltf else "bmaya"
     try:
-        removed = uninstall(target)
+        removed = gltflib.uninstall_library(target) if args.gltf else uninstall(target)
     except (InstallError, OSError) as exc:
         print(f"Uninstall failed: {exc}", file=sys.stderr)
         return 1
     if not removed:
-        print(f"bmaya is not installed in {target}")
+        print(f"{what} is not installed in {target}")
         return 0
     for path in removed:
         print(f"Removed {path}")
-    print("Restart Maya to stop the bridge.")
+    if not args.gltf:
+        print("Restart Maya to stop the bridge.")
     return 0
+
+
+def report_gltf(target: Path) -> None:
+    found = gltflib.library_version(target)
+    if found is None:
+        print(f"glTF: {gltflib.NAME} is not installed; .glb and .gltf export and import need it.")
+        print("  `bmaya install --gltf` downloads and installs it.")
+    elif found != gltflib.VERSION:
+        print(f"glTF: {gltflib.NAME} {found} is installed but this bmaya pins {gltflib.VERSION}.")
+        print("  Run `bmaya install --gltf`, then restart Maya.")
+    else:
+        print(f"glTF: {gltflib.NAME} {found} in {gltflib.library_paths(target).module_dir}")
 
 
 def report_autostart() -> bool:
@@ -102,6 +135,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("  Run `bmaya install` again, then restart Maya.")
     else:
         print(f"Module: installed, version {version}, in {paths.module_dir}")
+    report_gltf(target)
 
     can_start = report_autostart()
     live = report_sessions(home)

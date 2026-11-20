@@ -262,3 +262,71 @@ def test_game_exporter_on_an_old_maya_module(
     assert main(["export", "--game-exporter"]) == 1
     err = capsys.readouterr().err
     assert "does not know --game-exporter" in err and "bmaya install" in err
+
+
+ARM = {
+    "meshes": ["arm"],
+    "joints": ["root", "hand"],
+    "takes": [{"name": "wave", "frames": [0, 10]}],
+    "fps": 24,
+    "up": "y",
+}
+
+
+def export_gltf(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, handler: Handler, *argv: str
+) -> tuple[int, Any, str]:
+    bridge = make_bridge({"export_gltf": handler})
+    bridge.write_registry(home, 111)
+    code = main(["export", *argv])
+    captured = capsys.readouterr()
+    out = captured.out.strip()
+    return code, json.loads(out) if out else None, captured.err
+
+
+def test_a_glb_goes_to_the_gltf_export_and_is_read_back(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    target = tmp_path / "arm.glb"
+    handler = exporter("arm.glb", ARM)
+    code, out, _ = export_gltf(home, make_bridge, capsys, handler, str(target), "--clips")
+    assert code == 0
+    assert out["got"]["clips"] is True and "preset" not in out["got"]
+    assert out["got"]["path"] == target.resolve().as_posix()
+    (written,) = out["written"]["items"]
+    assert (written["meshes"], written["joints"]) == (1, 2)
+    assert written["takes"] == [{"name": "wave", "frames": [0.0, 10.0]}]
+    assert out["issues"]["total"] == 0, out["issues"]
+
+
+def test_a_glb_that_lacks_a_clip_says_so(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    wanted = {
+        **ARM,
+        "takes": [{"name": "wave", "frames": [0, 10]}, {"name": "run", "frames": [20, 30]}],
+    }
+    handler = exporter("arm.glb", wanted)
+    code, out, _ = export_gltf(home, make_bridge, capsys, handler, str(tmp_path / "arm.gltf"))
+    assert code == 0
+    assert out["issues"]["items"] == ["no take named 'run' in the file (takes: wave)"]
+
+
+def test_gltf_arguments(capsys: Output) -> None:
+    for argv in (
+        ["export", "a.glb", "--preset", "godot"],
+        ["export", "a.gltf", "--copy-textures"],
+        ["export", "a.fbx", "--clips"],
+        ["export", "--game-exporter", "--clips"],
+    ):
+        assert main(argv) == 2, argv
+        assert "error:" in capsys.readouterr().err
+
+
+def test_gltf_export_on_an_old_maya_module(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    make_bridge({}).write_registry(home, 111)
+    assert main(["export", str(tmp_path / "a.glb")]) == 1
+    err = capsys.readouterr().err
+    assert "does not know glTF export" in err and "bmaya install" in err

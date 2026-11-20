@@ -939,11 +939,15 @@ def build_parser() -> argparse.ArgumentParser:
     export = add(
         "export",
         "cmd_export",
-        "export FBX with a Unity, Unreal or Godot preset, then check the written file",
+        "export FBX with a Unity, Unreal or Godot preset, or glTF, then check the written file",
         "Writes an FBX file. Units are not converted: the scene unit is what the importer\n"
         "sees. The unreal preset triangulates and writes smoothing groups. --animation bakes\n"
         "the playback range, or --start/--end, or the frames of --clip (which implies\n"
         "--animation), into one take named after the clip or the file.\n"
+        "FILE.glb or FILE.gltf writes glTF through maya-glb-io (`bmaya install --gltf`): Y-up,\n"
+        "metres, textures embedded in .glb and copied next to .gltf, every moving node sampled\n"
+        "each frame (keys, constraints, IK). --clips writes every clip of the scene as its own\n"
+        "animation in the one file. --preset does not apply.\n"
         "Before writing, the meshes are checked: a mesh with no faces, or one whose opposite\n"
         "flag hides inside-out faces, stops the export (--ignore-checks writes it anyway).\n"
         "After writing, the file is read back: `written` says what it holds, and `issues`\n"
@@ -958,13 +962,16 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya export hero.fbx",
             "bmaya export out/walk.fbx --preset unreal --selection --animation --start 0 --end 24",
             "bmaya export out/walk.fbx --preset godot --selection --clip zombie_walk",
+            "bmaya export out/zombie.glb --clips               # every clip, one file",
             "bmaya export --game-exporter                     # every Game Exporter node",
             "bmaya export --game-exporter gameExporter_fp --clip fp_eat",
             "bmaya export --game-exporter gameExporter_model --copy-textures",
         ),
         module="exporting",
     )
-    export.add_argument("path", metavar="FILE.fbx", nargs="?", default="", help="target file")
+    export.add_argument(
+        "path", metavar="FILE", nargs="?", default="", help="target .fbx, .glb or .gltf file"
+    )
     export.add_argument("--preset", default="", help="unity (default), unreal or godot")
     export.add_argument("--selection", action="store_true", help="export only the selection")
     export.add_argument("--animation", action="store_true", help="bake and export animation")
@@ -975,6 +982,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         metavar="NAME",
         help="bake the frames of this clip (`bmaya anim` lists them)",
+    )
+    export.add_argument(
+        "--clips",
+        action="store_true",
+        help="glTF: every clip of the scene as its own animation (`bmaya clip` lists them)",
     )
     export.add_argument(
         "--ignore-checks",
@@ -1031,7 +1043,9 @@ def build_parser() -> argparse.ArgumentParser:
         "and when another client used this Maya in the last 10 minutes. --force overrides\n"
         "both; use it only when the user asked for it.\n"
         "save without a path saves the current file; with a path it saves as .ma or .mb.\n"
-        "import adds a .ma, .mb, .fbx or .obj file to the scene.\n\n"
+        "import adds a .ma, .mb, .fbx or .obj file to the scene, and .glb or .gltf through\n"
+        "maya-glb-io (`bmaya install --gltf`), with the file's transforms kept as they are;\n"
+        "`bmaya undo` takes a glTF import back.\n\n"
         "status says what changed since the scene was last opened, created or saved, in this\n"
         "Maya or by the user in its window: nodes `added`, `deleted` and `renamed`, and\n"
         "`changed` nodes with what changed (points, uvs, materials, translate, keys, path,\n"
@@ -1045,6 +1059,7 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya file save scenes/barrel.ma",
             "bmaya file open scenes/barrel.ma",
             "bmaya file import props/crate.fbx",
+            "bmaya file import downloads/robot.glb",
             "bmaya file new",
         ),
     )
@@ -1121,15 +1136,24 @@ def build_parser() -> argparse.ArgumentParser:
         "install",
         "cmd_install",
         "install the Maya module, so a Maya you open has the bridge",
+        "Copies the bmaya module into the Maya user folder.\n"
+        "--gltf instead downloads maya-glb-io, the library behind .glb and .gltf export and\n"
+        "import, at the release this bmaya pins (checked by its checksum), and installs it as\n"
+        "its own Maya module. bmaya works without it; only glTF needs it.",
+        examples("bmaya install", "bmaya install --gltf"),
         module="admin",
         for_maya=False,
     )
     install.add_argument("--maya-app-dir", type=Path, help="Maya user folder (MAYA_APP_DIR)")
+    install.add_argument(
+        "--gltf", action="store_true", help="download and install maya-glb-io for glTF instead"
+    )
 
     uninstall = add(
         "uninstall", "cmd_uninstall", "remove the Maya module", module="admin", for_maya=False
     )
     uninstall.add_argument("--maya-app-dir", type=Path, help="Maya user folder (MAYA_APP_DIR)")
+    uninstall.add_argument("--gltf", action="store_true", help="remove maya-glb-io instead")
 
     doctor = add(
         "doctor",
