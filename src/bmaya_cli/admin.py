@@ -37,8 +37,8 @@ def resolve_app_dir(app_dir: Path | None) -> Path:
 
 def cmd_install(args: argparse.Namespace) -> int:
     target = resolve_app_dir(args.maya_app_dir)
-    if args.gltf:
-        return install_gltf(target)
+    if args.gltf or args.draco:
+        return install_gltf(target, args.draco)
     try:
         paths = install(target)
     except (InstallError, OSError) as exc:
@@ -57,10 +57,21 @@ def cmd_install(args: argparse.Namespace) -> int:
     return 0
 
 
-def install_gltf(target: Path) -> int:
+def install_gltf(target: Path, draco: bool = False) -> int:
+    maya = find_maya() if draco else None
+    if draco and maya is None:
+        print(
+            "Install failed: the Draco decoder is installed with Maya's own Python, and no Maya "
+            f"installation was found. Set {MAYA_ENV} to the Maya folder.",
+            file=sys.stderr,
+        )
+        return 1
     print(f"Downloading {gltflib.NAME} {gltflib.VERSION} from {gltflib.URL}")
     try:
         paths = gltflib.install_library(target)
+        if maya is not None:
+            print(f"Installing the Draco decoder (DracoPy) with {maya.mayapy}")
+            where = gltflib.install_draco(target, maya.mayapy)
     except (InstallError, OSError) as exc:
         print(f"Install failed: {exc}", file=sys.stderr)
         return 1
@@ -68,6 +79,8 @@ def install_gltf(target: Path) -> int:
     print(f"  module folder  {paths.module_dir}")
     print(f"  module file    {paths.mod_file}")
     print(f"  source         {gltflib.SOURCE}")
+    if maya is not None:
+        print(f"  Draco decoder  {where} (for Maya {maya.version})")
     print()
     print("bmaya export FILE.glb and bmaya file import FILE.glb use it. Restart a Maya that is")
     print("already running so it finds the module; `bmaya stop` ends one without a window.")
@@ -102,6 +115,13 @@ def report_gltf(target: Path) -> None:
         print("  Run `bmaya install --gltf`, then restart Maya.")
     else:
         print(f"glTF: {gltflib.NAME} {found} in {gltflib.library_paths(target).module_dir}")
+    if found is not None:
+        pythons = gltflib.draco_pythons(target)
+        if pythons:
+            print("  Draco decoder: installed for Python " + ", ".join(pythons))
+        else:
+            print("  Draco decoder: not installed; files compressed with Draco need it.")
+            print("  `bmaya install --draco` adds it.")
 
 
 def report_autostart() -> bool:

@@ -1613,7 +1613,77 @@ def check_import_gltf() -> str:
     assert not cmds.ls("bookmark_import_me*"), "undo left the bookmark"
     expect_error("import_gltf", "File not found", path=str(WORK_DIR / "nothing.glb"))
     expect_error("import_gltf", ".glb and .gltf", path=str(Path(__file__)))
-    return f"{len(added)} roots, skin, morphs, a bookmark, one undo step takes it all back"
+    names = check_gltf_names()
+    return f"{len(added)} roots, skin, morphs, a bookmark, one undo step takes it all back; {names}"
+
+
+def check_gltf_names() -> str:
+    from bmaya_bridge.handlers import _gltf
+
+    from bmaya_cli.modelfile import compare, read
+
+    missing = gltf_missing()
+    if missing:
+        return f"skipped, {missing}"
+    folder = WORK_DIR / "gltf"
+    cmds.undoInfo(openChunk=True)
+    try:
+        lid = cmds.polyCube(name="lid_part")[0]
+        for attr, value in (("gltfName", "Lid Part.001"), ("gltfNameOf", "lid_part")):
+            cmds.addAttr(lid, longName=attr, dataType="string")
+            cmds.setAttr(f"{lid}.{attr}", value, type="string")
+        assert _gltf.written_name(lid) == "Lid Part.001"
+        cmds.select(lid, replace=True)
+        kept = call("export_gltf", path=str(folder / "lid.glb"), selection_only=True)
+        assert kept["expected"]["meshes"] == ["Lid Part.001"], kept["expected"]
+        contents = read(folder / "lid.glb")
+        assert [mesh.name for mesh in contents.meshes] == ["Lid Part.001"], contents.meshes
+        assert compare(contents, kept["expected"]) == [], compare(contents, kept["expected"])
+
+        renamed = cmds.rename(lid, "lid_renamed")
+        assert _gltf.written_name(renamed) == "lid_renamed"
+        cmds.select(renamed, replace=True)
+        plain = call("export_gltf", path=str(folder / "lid2.glb"), selection_only=True)
+        assert plain["expected"]["meshes"] == ["lid_renamed"], plain["expected"]
+        assert [mesh.name for mesh in read(folder / "lid2.glb").meshes] == ["lid_renamed"]
+
+        from maya_glb_io import importer
+
+        if importer.draco_ready():
+            draco = "the decoder is installed"
+        else:
+            source = folder / "draco.gltf"
+            source.write_text(
+                json.dumps(
+                    {
+                        "asset": {"version": "2.0"},
+                        "meshes": [
+                            {
+                                "primitives": [
+                                    {
+                                        "attributes": {},
+                                        "extensions": {
+                                            "KHR_draco_mesh_compression": {
+                                                "bufferView": 0,
+                                                "attributes": {},
+                                            }
+                                        },
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            expect_error("import_gltf", "bmaya install --draco", path=str(source))
+            draco = "a Draco file is refused with the install hint"
+    finally:
+        cmds.undoInfo(closeChunk=True)
+        cmds.undo()
+        cmds.select(clear=True)
+    assert not cmds.objExists("lid_part") and not cmds.objExists("lid_renamed")
+    return f"a kept glTF name is written and expected, a renamed node is not; {draco}"
 
 
 def check_scene_file() -> str:

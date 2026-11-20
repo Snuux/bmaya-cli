@@ -118,6 +118,15 @@ def test_read_layout_gives_the_uvs_of_a_named_mesh() -> None:
     assert all(0.0 <= u <= 1.0 and 0.0 <= v <= 1.0 for u, v in layout["uvs"])
 
 
+def test_a_file_name_is_matched_the_way_maya_holds_it() -> None:
+    from bmaya_cli.modelfile import maya_name
+
+    assert maya_name("Body.001") == "Body_001"
+    assert maya_name("Left Arm") == "Left_Arm"
+    assert maya_name("crate_7") == "crate_7"
+    assert maya_name("\u30eb\u30fc\u30c8") == "___"
+
+
 def test_read_layout_takes_the_only_mesh_whatever_its_name() -> None:
     from bmaya_cli.modelfile import read_layout
 

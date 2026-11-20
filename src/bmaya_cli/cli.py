@@ -1140,14 +1140,21 @@ def build_parser() -> argparse.ArgumentParser:
         "Copies the bmaya module into the Maya user folder.\n"
         "--gltf instead downloads maya-glb-io, the library behind .glb and .gltf export and\n"
         "import, at the release this bmaya pins (checked by its checksum), and installs it as\n"
-        "its own Maya module. bmaya works without it; only glTF needs it.",
-        examples("bmaya install", "bmaya install --gltf"),
+        "its own Maya module. bmaya works without it; only glTF needs it.\n"
+        "--draco does the same and adds the Draco decoder (the DracoPy wheel, from PyPI, with\n"
+        "Maya's own pip) inside that module: importing a Draco-compressed .glb needs it.",
+        examples("bmaya install", "bmaya install --gltf", "bmaya install --draco"),
         module="admin",
         for_maya=False,
     )
     install.add_argument("--maya-app-dir", type=Path, help="Maya user folder (MAYA_APP_DIR)")
     install.add_argument(
         "--gltf", action="store_true", help="download and install maya-glb-io for glTF instead"
+    )
+    install.add_argument(
+        "--draco",
+        action="store_true",
+        help="--gltf plus the Draco decoder, for importing Draco-compressed files",
     )
 
     uninstall = add(

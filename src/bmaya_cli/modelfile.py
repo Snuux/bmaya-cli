@@ -34,6 +34,11 @@ def read(path: str | Path) -> Contents:
     raise ModelFileError(f"Not a model file this command reads: {file.name}", f"It reads {READS}.")
 
 
+def maya_name(name: str) -> str:
+    """A file's name the way Maya holds it: a glTF mesh called Body.001 is Body_001 there."""
+    return "".join(ch if ch.isascii() and (ch.isalnum() or ch == "_") else "_" for ch in name)
+
+
 def read_layout(path: str | Path, mesh: str, uv_set: str = "") -> dict[str, Any]:
     """The UV layout of the mesh named `mesh` in a model file, or of its only mesh: the UV
     set named `uv_set` when an FBX has one, else the first. The UVs go out unrounded: the
@@ -50,6 +55,8 @@ def read_layout(path: str | Path, mesh: str, uv_set: str = "") -> dict[str, Any]
         )
     wanted = leaf(mesh)
     picked = [layout for layout in layouts if leaf(layout.mesh) == wanted]
+    if not picked:
+        picked = [layout for layout in layouts if maya_name(leaf(layout.mesh)) == wanted]
     if not picked and len(layouts) == 1:
         picked = layouts
     if len(picked) != 1:

@@ -10,6 +10,7 @@ from maya import cmds
 
 from bmaya_bridge import skeleton, skinweights
 from bmaya_bridge.errors import BridgeError
+from bmaya_bridge.handlers import _gltf
 from bmaya_bridge.handlers._common import (
     bool_param,
     cm_per_unit,
@@ -388,6 +389,12 @@ def skin_states(clusters: list[str]) -> list[dict[str, Any]]:
     return states
 
 
+def file_name(joint: str) -> str:
+    if not joint:
+        return ""
+    return skeleton.leaf(_gltf.written_name(joint))
+
+
 def against_file(
     params: dict[str, Any], against: dict[str, Any], bones: list[Bone], clashing: list[str]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -399,10 +406,11 @@ def against_file(
             hint='Name the top joint of one skeleton: bmaya bones "|rig|hand" --against FILE.',
         )
     rename = skinweights.renamer(text_param(params, "rename"))
-    by_leaf = [
-        Bone(skeleton.leaf(bone.name), skeleton.leaf(bone.parent), bone.at, bone.axes)
-        for bone in bones
-    ]
+    # A glTF file holds the names the library wrote, which are not always the Maya names.
+    name = skeleton.leaf
+    if str(against.get("path", "")).lower().endswith(_gltf.SUFFIXES):
+        name = file_name
+    by_leaf = [Bone(name(bone.name), name(bone.parent), bone.at, bone.axes) for bone in bones]
     compared, issues = skeleton.compare(by_leaf, reference_bones(against), rename)
     return {"path": against.get("path", ""), **compared}, issues
 

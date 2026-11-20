@@ -1,5 +1,6 @@
 import hashlib
 import io
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -113,6 +114,82 @@ def test_install_and_uninstall_from_the_command_line(
     assert "Removed" in capsys.readouterr().out
     main(["doctor", "--maya-app-dir", str(app_dir)])
     assert "`bmaya install --gltf`" in capsys.readouterr().out
+
+
+def test_a_reinstall_keeps_the_draco_decoder(tmp_path: Path, pinned: list[str]) -> None:
+    paths = gltflib.install_library(tmp_path)
+    assert gltflib.draco_pythons(tmp_path) == []
+    decoder = paths.module_dir / "draco" / "py313"
+    decoder.mkdir(parents=True)
+    (decoder / "DracoPy.pyd").write_bytes(b"wheel")
+    (paths.module_dir / "draco" / "py311").mkdir()
+    gltflib.install_library(tmp_path)
+    assert (decoder / "DracoPy.pyd").read_bytes() == b"wheel"
+    assert gltflib.draco_pythons(tmp_path) == ["3.13"]
+
+
+def test_the_draco_decoder_is_installed_by_the_library_with_mayapy(
+    tmp_path: Path, pinned: list[str]
+) -> None:
+    paths = gltflib.install_library(tmp_path)
+    with pytest.raises(InstallError, match="is not installed"):
+        gltflib.install_draco(tmp_path, Path("mayapy"))
+    (paths.module_dir / "scripts" / "maya_glb_io" / "_draco.py").write_text("\n", encoding="utf-8")
+    ran: list[list[str]] = []
+
+    def run(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        ran.append(command)
+        return subprocess.CompletedProcess(
+            command, 0, "pip says things\nC:/modules/draco/py313\n", ""
+        )
+
+    assert gltflib.install_draco(tmp_path, Path("mayapy"), run) == "C:/modules/draco/py313"
+    assert ran[0][0] == "mayapy" and ran[0][1] == "-c"
+    assert "_draco.install()" in ran[0][2]
+    assert ran[0][3] == str(paths.module_dir / "scripts")
+
+    def fail(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 1, "ERROR: No matching distribution\n", "")
+
+    with pytest.raises(InstallError, match="No matching distribution"):
+        gltflib.install_draco(tmp_path, Path("mayapy"), fail)
+
+
+def test_install_draco_from_the_command_line(
+    tmp_path: Path,
+    pinned: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from bmaya_cli import admin
+    from bmaya_cli.launch import MayaInstall
+
+    app_dir = tmp_path / "maya"
+    monkeypatch.setattr(admin, "find_maya", lambda: None)
+    assert main(["install", "--draco", "--maya-app-dir", str(app_dir)]) == 1
+    assert "no Maya installation was found" in capsys.readouterr().err
+    assert pinned == []
+
+    asked: list[Path] = []
+
+    def install_draco(target: Path, mayapy: Path) -> str:
+        asked.append(mayapy)
+        decoder = gltflib.library_paths(target).module_dir / "draco" / "py313"
+        decoder.mkdir(parents=True)
+        (decoder / "DracoPy.pyd").write_bytes(b"wheel")
+        return str(decoder)
+
+    monkeypatch.setattr(admin, "find_maya", lambda: MayaInstall(tmp_path / "bin", "2027"))
+    monkeypatch.setattr(gltflib, "install_draco", install_draco)
+    main(["install", "--gltf", "--maya-app-dir", str(app_dir)])
+    main(["doctor", "--maya-app-dir", str(app_dir)])
+    assert "`bmaya install --draco` adds it" in capsys.readouterr().out
+    assert main(["install", "--draco", "--maya-app-dir", str(app_dir)]) == 0
+    out = capsys.readouterr().out
+    assert "Draco decoder" in out and "for Maya 2027" in out
+    assert asked == [MayaInstall(tmp_path / "bin", "2027").mayapy]
+    main(["doctor", "--maya-app-dir", str(app_dir)])
+    assert "Draco decoder: installed for Python 3.13" in capsys.readouterr().out
 
 
 def test_doctor_names_an_old_library(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

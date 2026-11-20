@@ -374,6 +374,12 @@ def import_gltf(params: dict[str, Any]) -> dict[str, Any]:
     gltf = _gltf.library()
     from maya_glb_io import importer
 
+    if importer.uses_draco(path) and not importer.draco_ready():
+        raise BridgeError(
+            f"{os.path.basename(path)} is compressed with Draco, and the Draco decoder is not "
+            "installed in this Maya.",
+            hint="Run `bmaya install --draco`, then import again.",
+        )
     before = set(cmds.ls(assemblies=True, long=True) or [])
     marks = {entry["bookmark"] for entry in bookmark_clips()}
     importer.import_file(path, options=dict(GLTF_IMPORT_OPTIONS))

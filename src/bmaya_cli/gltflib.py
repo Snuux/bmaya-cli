@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import shutil
+import subprocess
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -19,16 +20,28 @@ from bmaya_cli.install import InstallError, mod_version, module_paths, refuse_li
 
 NAME = "maya-glb-io"
 MODULE_NAME = "maya_glb_io"
-VERSION = "1.0.4"
-URL = "https://github.com/Snuux/maya-glb-io/releases/download/v1.0.4/maya-glb-io-v1.0.4.zip"
-SHA256 = "3932de9f075aef2ac3fedcf96eca793f28d89058ee410a928d85d94e7162b73e"
+VERSION = "1.1.0"
+URL = "https://github.com/Snuux/maya-glb-io/releases/download/v1.1.0/maya-glb-io-v1.1.0.zip"
+SHA256 = "05ef8e23429c13a89c7ccbfbdfce7edb7d46de212976e72f316e91d58b3e0b5d"
 SOURCE = "https://github.com/Snuux/maya-glb-io"
 ARCHIVE_ROOT = "maya-glb-io"
 KEPT = ("scripts", "plug-ins", "LICENSE", "CHANGELOG.md", "README.md")
 DOWNLOAD_SECONDS = 60
 USER_AGENT = "bmaya-cli"
+# The library puts the Draco decoder (the DracoPy wheel) here, one folder per Python version.
+DRACO_DIR = "draco"
+DRACO_SECONDS = 360
+DRACO_SCRIPT = (
+    "import sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "from maya_glb_io import _draco\n"
+    "ok, text = _draco.install()\n"
+    "print(text)\n"
+    "sys.exit(0 if ok else 1)\n"
+)
 
 Fetch = Callable[[str], bytes]
+Run = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
 @dataclass(frozen=True)
@@ -111,6 +124,9 @@ def install_library(app_dir: Path, fetch: Fetch | None = None) -> LibraryPaths:
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+    decoder = paths.module_dir / DRACO_DIR
+    if decoder.is_dir():
+        decoder.rename(staging / DRACO_DIR)
     if paths.module_dir.exists():
         shutil.rmtree(paths.module_dir)
     staging.rename(paths.module_dir)
@@ -129,6 +145,47 @@ def uninstall_library(app_dir: Path) -> list[Path]:
         shutil.rmtree(paths.module_dir)
         removed.append(paths.module_dir)
     return removed
+
+
+def draco_pythons(app_dir: Path) -> list[str]:
+    """The Python versions the Draco decoder is installed for, as `3.13`."""
+    folder = library_paths(app_dir).module_dir / DRACO_DIR
+    if not folder.is_dir():
+        return []
+    found = []
+    for entry in sorted(folder.iterdir()):
+        digits = entry.name[2:]
+        if (
+            entry.is_dir()
+            and entry.name.startswith("py")
+            and digits.isdigit()
+            and any(entry.iterdir())
+        ):
+            found.append(f"{digits[0]}.{digits[1:]}")
+    return found
+
+
+def install_draco(app_dir: Path, mayapy: Path, run: Run | None = None) -> str:
+    """Have the installed library pip-install its Draco decoder with this Maya's Python.
+    Returns where it went."""
+    paths = library_paths(app_dir)
+    scripts = paths.module_dir / "scripts"
+    if not (scripts / MODULE_NAME / "_draco.py").is_file():
+        raise InstallError(f"{NAME} is not installed in {paths.module_dir}.")
+    command = [str(mayapy), "-c", DRACO_SCRIPT, str(scripts)]
+    try:
+        done = (run or subprocess.run)(
+            command, capture_output=True, text=True, timeout=DRACO_SECONDS, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InstallError(
+            f"Could not run {mayapy} to install the Draco decoder: {error}"
+        ) from error
+    lines = [line for line in (done.stdout or "").splitlines() if line.strip()]
+    if done.returncode != 0:
+        tail = "\n".join((lines + (done.stderr or "").splitlines())[-12:])
+        raise InstallError(f"pip could not install the Draco decoder (DracoPy):\n{tail}")
+    return lines[-1] if lines else str(paths.module_dir / DRACO_DIR)
 
 
 def library_version(app_dir: Path) -> str | None:

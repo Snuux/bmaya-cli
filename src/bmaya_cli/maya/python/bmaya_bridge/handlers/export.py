@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import Any
 
 from maya import cmds, mel
@@ -232,8 +233,14 @@ def skin_joints(transforms: list[str]) -> list[str]:
     return out
 
 
-def expectation(nodes: list[str], options: dict[str, Any], children: bool = True) -> dict[str, Any]:
-    """What the written file should hold; the command line reads the file and compares."""
+def expectation(
+    nodes: list[str],
+    options: dict[str, Any],
+    children: bool = True,
+    name: Callable[[str], str] = leaf,
+) -> dict[str, Any]:
+    """What the written file should hold; the command line reads the file and compares.
+    `name` is the name a node has in the file."""
     transforms = mesh_transforms(nodes)
     if not children:
         transforms = [transform for transform in transforms if transform in nodes]
@@ -246,10 +253,10 @@ def expectation(nodes: list[str], options: dict[str, Any], children: bool = True
             below = cmds.listRelatives(node, allDescendents=True, type="joint", fullPath=True)
             found += reversed(below or [])
     for joint in found + skin_joints(transforms):
-        name = leaf(joint)
-        if name not in joints:
-            joints.append(name)
-    meshes = [leaf(transform) for transform in transforms]
+        written = name(joint)
+        if written not in joints:
+            joints.append(written)
+    meshes = [name(transform) for transform in transforms]
     takes = []
     if options["animation"]:
         takes.append({"name": options["take"], "frames": options["bake"]})
@@ -350,6 +357,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
 
 
 GLTF_SUFFIXES = (".glb", ".gltf")
+TEXTURES_NAMED = 5
 
 
 def gltf_animations(params: dict[str, Any], path: str) -> list[tuple[str, float, float]]:
@@ -384,6 +392,11 @@ def gltf_animations(params: dict[str, Any], path: str) -> list[tuple[str, float,
     return [(clip or os.path.splitext(os.path.basename(path))[0], start, end)]
 
 
+def gltf_name(node: str) -> str:
+    """A node's name in a glTF file, the way the command line compares names."""
+    return leaf(_gltf.written_name(node))
+
+
 def export_gltf(params: dict[str, Any]) -> dict[str, Any]:
     gltf = _gltf.library()
     from maya_glb_io import exporter
@@ -406,7 +419,7 @@ def export_gltf(params: dict[str, Any]) -> dict[str, Any]:
         "take": animations[0][0] if animations else "",
         "bake": [frame(animations[0][1]), frame(animations[0][2])] if animations else [],
     }
-    expected = expectation(nodes, options)
+    expected = expectation(nodes, options, name=gltf_name)
     expected["takes"] = [
         {"name": name, "frames": [frame(first), frame(last)]} for name, first, last in animations
     ]
@@ -419,18 +432,25 @@ def export_gltf(params: dict[str, Any]) -> dict[str, Any]:
         "exportSkin": True,
         "exportMorphTargets": True,
         "exportAnimation": bool(animations),
+        "reduceKeys": True,
         "clips": [{"name": name, "start": first, "end": last} for name, first, last in animations],
     }
     os.makedirs(os.path.dirname(path), exist_ok=True)
     before = file_stamp(path)
     with scene_kept():
-        exporter.export_nodes(nodes, path, options=library_options)
+        written = exporter.export_nodes(nodes, path, options=library_options)
     after = file_stamp(path)
     if after is None or after == before:
         raise BridgeError(
             f"glTF export did not write {path}.",
             hint="Check the Script Editor for [glb_io] errors, and that the file is not open "
             "in another program.",
+        )
+    lost = [os.path.basename(texture) for texture in written.get("missing_textures", [])]
+    if lost:
+        issues.append(
+            f"{len(lost)} texture files are not on disk, so the file has no such maps: "
+            + ", ".join(lost[:TEXTURES_NAMED])
         )
     return {
         "path": path,
