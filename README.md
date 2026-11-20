@@ -99,6 +99,12 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 
 Pictures are PNG files an agent opens and reads: viewport shots and contact sheets, a model from several sides, skin weights, UV layouts, edge loops, animation curves. Checks answer with numbers and a list of `issues`. Exports are read back from disk and compared with the scene.
 
+<p align="center">
+  <img src="assets/views.png" alt="A low-poly character drawn from the front, the right and three-quarter view, colored by the joint that moves each vertex, with edges on top and its width and height in centimetres" width="100%">
+</p>
+
+That sheet is `bmaya views --style influence --views front,right,persp -o views.png`, drawn in a Maya without a window: a color per joint of the skin. The character is from Kenney's [Animated Characters](https://kenney.nl/assets) (CC0).
+
 [All commands with their options](docs/commands.md) are on one page, with the exit codes. `bmaya COMMAND --help` explains each one with examples, and `bmaya guide` prints the manual for agents.
 
 ## Security
