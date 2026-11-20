@@ -12,12 +12,12 @@
 | `shells`, `border_edges` | Separate pieces, and edges with one face (a hole or an open end). |
 | `valence` | How many vertices have each number of edges: `{"4": 590, "3": 16, ...}`. Loops pass only through vertices with four edges; the others are poles where loops stop. |
 | `loops` | Closed edge loops that go around a tube: `at` (centre), `radius` (mean distance of its vertices from the centre), `normal` (of the plane it lies in), `verts`, and `tube` when it belongs to one. `--ids` adds the vertex numbers, for selecting them. |
-| `tubes` | Loops of a size that sit closer than their radius. Each lists its `loops` from the thick end to the thin end, `radius` at both ends, `length` along the centres, `axis` (from the first loop to the last), the `gaps` between neighbouring loops, `runs` and `joints`. |
-| `joints` (count) and `tubes[].joints` | Where joints go: the centre of the middle loop of every run of three or more loops. |
+| `tubes` | Loops of a size, in parallel planes, one further along than the other and closer than their radius. Each lists its `loops` from the thick end to the thin end, `radius` at both ends, `length` along the centres, `axis` (from the first loop to the last), the `gaps` between neighbouring loops, `runs` and `joints`. |
+| `joints` (count) and `tubes[].joints` | Where joints go: the centre of the middle loop of every run of three or more loops (`loops` names it), or halfway between the two middle loops of a run with an even count. |
 
-A loop is walked edge by edge: at each four-edge vertex it takes the edge that shares no face with the one it came along, the way Maya's edge loop selection goes across a quad. Only loops that come back to where they started count. Two loops join a tube when the larger radius is under 1.3 times the smaller and their centres are closer than half the sum of their radii. Tubes come thinnest first.
+Tubes are ordered along the shortest tree that joins their loops' centres, so a bent tube, like a curled finger or a U, keeps its loops in order. A loop is walked edge by edge: at each four-edge vertex it takes the edge that shares no face with the one it came along, the way Maya's edge loop selection goes across a quad. Only loops that come back to where they started count. Two loops join a tube when the larger radius is under 1.3 times the smaller and their centres are closer than half the sum of their radii. Tubes come thinnest first.
 
-A run is a stretch of tightly spaced loops. Within a tube a gap larger than `--gap` times the tube's closest gap (1.2 by default) starts a new run. Modelers put three close loops around a knuckle, an elbow or a wrist, so the middle one of such a run is where the joint bends. A run of one loop marks no joint.
+A run is a stretch of tightly spaced loops. Within a tube a gap larger than `--gap` times the tube's closest gap (1.2 by default) starts a new run. Modelers put three close loops around a knuckle, an elbow or a wrist, so the middle one of such a run is where the joint bends. A run of one loop marks no joint, and neither does a tube whose loops are all evenly spaced: it is one run, and nothing in it stands out.
 
 Loops need quads: a triangulated mesh has none, and `note` says so.
 
