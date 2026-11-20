@@ -1599,6 +1599,7 @@ def check_import_gltf() -> str:
     shapes = len(cmds.ls(type="blendShape"))
     result = call("import_gltf", path=str(source))
     assert len(cmds.ls(type="blendShape")) == shapes + 1, "the morph targets did not come in"
+    assert result["clips"]["items"] == [{"name": "import_me", "range": [1, 24]}], result
     added = result["imported"]["items"]
     assert added and result["modified"] is True, result
     new_joints = set(cmds.ls(type="joint", long=True)) - joints
@@ -1609,9 +1610,10 @@ def check_import_gltf() -> str:
     assert len(skins) == 1, skins
     cmds.undo()
     assert cmds.ls(assemblies=True, long=True) == before, "undo left imported nodes"
+    assert not cmds.ls("bookmark_import_me*"), "undo left the bookmark"
     expect_error("import_gltf", "File not found", path=str(WORK_DIR / "nothing.glb"))
     expect_error("import_gltf", ".glb and .gltf", path=str(Path(__file__)))
-    return f"{len(added)} roots, skin and morphs, one undo step takes it all back"
+    return f"{len(added)} roots, skin, morphs, a bookmark, one undo step takes it all back"
 
 
 def check_scene_file() -> str:

@@ -19,9 +19,9 @@ from bmaya_cli.install import InstallError, mod_version, module_paths, refuse_li
 
 NAME = "maya-glb-io"
 MODULE_NAME = "maya_glb_io"
-VERSION = "1.0.3"
-URL = "https://github.com/Snuux/maya-glb-io/releases/download/v1.0.3/maya-glb-io-v1.0.3.zip"
-SHA256 = "7c766a97014a2d40560006dd47dc4aa01a7b1780946b8a7ab98f5945f34ac865"
+VERSION = "1.0.4"
+URL = "https://github.com/Snuux/maya-glb-io/releases/download/v1.0.4/maya-glb-io-v1.0.4.zip"
+SHA256 = "3932de9f075aef2ac3fedcf96eca793f28d89058ee410a928d85d94e7162b73e"
 SOURCE = "https://github.com/Snuux/maya-glb-io"
 ARCHIVE_ROOT = "maya-glb-io"
 KEPT = ("scripts", "plug-ins", "LICENSE", "CHANGELOG.md", "README.md")

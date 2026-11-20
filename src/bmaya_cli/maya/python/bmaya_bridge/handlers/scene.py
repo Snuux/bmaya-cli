@@ -25,6 +25,7 @@ from bmaya_bridge.handlers._common import (
     text_param,
     time_info,
 )
+from bmaya_bridge.handlers._timeline import bookmark_clips
 
 SELECTION_LIMIT = 20
 CHILDREN_LIMIT = 20
@@ -359,6 +360,7 @@ GLTF_IMPORT_OPTIONS: dict[str, Any] = {
     "convertSpecGloss": True,
     "materialPrefix": "",
     "emissionLuminance": "1000.0",
+    "animationBookmarks": True,
 }
 
 
@@ -373,11 +375,19 @@ def import_gltf(params: dict[str, Any]) -> dict[str, Any]:
     from maya_glb_io import importer
 
     before = set(cmds.ls(assemblies=True, long=True) or [])
+    marks = {entry["bookmark"] for entry in bookmark_clips()}
     importer.import_file(path, options=dict(GLTF_IMPORT_OPTIONS))
     after = cmds.ls(assemblies=True, long=True) or []
     added = [display_name(node) for node in after if node not in before]
     result = scene_state()
     result["imported"] = listing(added, 50)
+    clips = [
+        {"name": entry["name"], "range": entry["range"]}
+        for entry in bookmark_clips()
+        if entry["bookmark"] not in marks
+    ]
+    if clips:
+        result["clips"] = listing(clips, 50)
     result["library"] = {"name": _gltf.NAME, "version": gltf.__version__}
     return result
 

@@ -12,7 +12,7 @@ from bmaya_bridge.errors import BridgeError
 
 LIBRARY = "maya_glb_io"
 NAME = "maya-glb-io"
-NEEDED = (1, 0, 3)
+NEEDED = (1, 0, 4)
 INSTALL_HINT = "Run `bmaya install --gltf`, then restart that Maya."
 
 
