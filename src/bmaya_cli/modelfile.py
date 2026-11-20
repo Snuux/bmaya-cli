@@ -283,6 +283,16 @@ class ReadBack(NamedTuple):
     stale_rate: bool
 
 
+def at_scene_rate(contents: Contents, fps: float | None) -> Contents:
+    """A glTF has no frame rate, and keys left after thinning are several frames apart:
+    when they all sit on the scene's frames, the scene's rate is the one to report."""
+    if not fps or contents.fps_from != "keys":
+        return contents
+    if any(off_rate(take, fps) for take in contents.takes):
+        return contents
+    return contents._replace(fps=fps)
+
+
 def read_back(path: str, expected: dict[str, Any] | None) -> ReadBack:
     """The written file as `written` reports it, the issues found by comparing it, and whether
     its keys were baked at another rate than the file's (Maya's FBX plugin needs a reload)."""
@@ -291,6 +301,8 @@ def read_back(path: str, expected: dict[str, Any] | None) -> ReadBack:
     except ModelFileError as error:
         issue = f"{Path(path).name}: could not read it back: {error.message}"
         return ReadBack({"path": path}, [issue], False)
+    if expected is not None:
+        contents = at_scene_rate(contents, expected.get("fps"))
     issues = issues_of(contents)
     if expected is not None:
         issues += compare(contents, expected)

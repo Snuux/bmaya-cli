@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from bmaya_cli import cli, sessions
-from bmaya_cli.contents import Contents, Joint, Mesh, Take, Texture
-from bmaya_cli.modelfile import issues_of, report
+from bmaya_cli.contents import Contents, Joint, Mesh, Take, Texture, shared_gap
+from bmaya_cli.modelfile import at_scene_rate, compare, issues_of, report
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 AXES = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
@@ -65,6 +65,26 @@ def test_keys_baked_at_another_rate_are_shown() -> None:
         "take 'walk': keys are baked at 24 fps, the file says 30; Maya's FBX plugin can keep "
         "the rate of an earlier export, export it again"
     ]
+
+
+def test_thinned_keys_still_give_the_frame_step() -> None:
+    frame = 1 / 30
+    assert shared_gap({round(2 * frame, 6): 3, round(3 * frame, 6): 1}) == pytest.approx(
+        frame, abs=1e-5
+    )
+    assert shared_gap({round(10 * frame, 6): 1}) == pytest.approx(10 * frame, abs=1e-5)
+    assert shared_gap({}) is None
+
+
+def test_a_gltf_with_few_keys_is_read_at_the_scene_rate() -> None:
+    take = Take("walk", (0.0, 1.0), 3, 1, (0.0, 1.0), 10 / 30)
+    sparse = contents(format="glb", fps=3.0, fps_from="keys", takes=[take])
+    expected = {"fps": 30.0, "takes": [{"name": "walk", "frames": [0, 30]}]}
+    assert compare(sparse, expected) == ["the file says 3 fps, the scene runs at 30"]
+    assert compare(at_scene_rate(sparse, 30.0), expected) == []
+    off_grid = sparse._replace(takes=[take._replace(key_step=1 / 24)], fps=24.0)
+    assert at_scene_rate(off_grid, 30.0).fps == 24.0
+    assert at_scene_rate(contents(), 24.0).fps == 30.0
 
 
 def test_issues() -> None:

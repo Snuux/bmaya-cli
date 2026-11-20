@@ -54,7 +54,7 @@ Maya's FBX plugin keeps baking at the frame rate of an earlier export in the sam
 
 ## Reading a file
 
-`bmaya inspect FILE` reads binary `.fbx` (7.1 and newer), `.glb` and `.gltf` without Maya: unit, up axis, fps, meshes with counts, UV sets, materials and skin, the skeleton with world positions at bind time (`--axes` adds each joint's axes), takes with frame ranges and curve counts, and textures with whether they are found by their path, relative to the file or next to it. `issues` lists empty meshes, unweighted vertices, joint names used twice, keys baked between the file's frames and missing textures.
+`bmaya inspect FILE` reads binary `.fbx` (7.1 and newer), `.glb` and `.gltf` without Maya: unit, up axis, fps, meshes with counts, UV sets, materials and skin, the skeleton with world positions at bind time (`--axes` adds each joint's axes), takes with frame ranges and curve counts, and textures with whether they are found by their path, relative to the file or next to it. `issues` lists empty meshes, unweighted vertices, joint names used twice, keys baked between the file's frames and missing textures. A glTF stores no frame rate: `fps` there is read from the spacing of the keys (`fps_from: keys`), so a file with only a few keys left after reduction can show a lower rate and fewer frames than the scene had; the seconds are right. The check after `bmaya export` uses the scene's rate.
 
 ## glTF
 

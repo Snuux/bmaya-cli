@@ -16,7 +16,7 @@ from bmaya_cli.contents import (
     ModelFileError,
     Take,
     Texture,
-    usual_gap,
+    shared_gap,
 )
 from bmaya_cli.matrix import (
     Matrix,
@@ -287,7 +287,7 @@ def read_takes(doc: dict[str, Any], buffers: Buffers) -> list[Take]:
                     gap = round(b[0] - a[0], 6)
                     if gap > 0:
                         gaps[gap] = gaps.get(gap, 0) + 1
-        step = usual_gap(gaps)
+        step = shared_gap(gaps)
         keys = (first, last) if first is not None and last is not None else None
         name = animation.get("name", f"animation{index}")
         seconds = keys or (0.0, 0.0)

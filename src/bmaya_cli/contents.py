@@ -7,11 +7,28 @@ from typing import NamedTuple
 Vec = tuple[float, float, float]
 
 
+MOST_PARTS = 8
+STEP_TOLERANCE = 0.02
+
+
 def usual_gap(gaps: dict[float, int]) -> float | None:
     """The spacing most keys have: baked curves end on a shorter gap at the clip's last frame."""
     if not gaps:
         return None
     return max(gaps, key=lambda gap: (gaps[gap], -gap))
+
+
+def shared_gap(gaps: dict[float, int]) -> float | None:
+    """The step every key sits on. Thinned keys are whole steps apart, a different number
+    each time, so the usual gap would be several frames."""
+    if not gaps:
+        return None
+    smallest = min(gaps)
+    for parts in range(1, MOST_PARTS + 1):
+        step = smallest / parts
+        if all(abs(gap / step - round(gap / step)) < STEP_TOLERANCE for gap in gaps):
+            return step
+    return usual_gap(gaps)
 
 
 class ModelFileError(Exception):
