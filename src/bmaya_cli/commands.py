@@ -299,6 +299,18 @@ def usage(message: str, hint: str) -> CommandFailed:
 def cmd_skin(args: argparse.Namespace) -> int:
     editing = bool(args.load or args.copy_from or args.mirror or args.prune or args.normalize)
     name = args.names[0] if args.names else "MESH"
+    if args.keep_shape and not args.rebind:
+        raise usage("--keep-shape goes with --rebind.", f"bmaya skin {name} --rebind --keep-shape")
+    if args.rebind:
+        if editing or args.save or args.verts or args.limit or args.max or args.rename:
+            raise usage(
+                "--rebind takes no other flag but --keep-shape.",
+                f"Rebind first, then edit in a second call: bmaya skin {name} --rebind",
+            )
+        if not args.names:
+            raise usage("--rebind needs the meshes to rebind.", "bmaya skin hand_r --rebind")
+        params = {"names": ",".join(args.names), "keep_shape": args.keep_shape}
+        return forward(args, "rebind_skin", params)
     if (editing or args.save) and len(args.names) != 1:
         raise usage(
             "--save and the edits work on one mesh.", f"Name it: bmaya skin {name} --save w.json"
@@ -342,6 +354,64 @@ def cmd_skin(args: argparse.Namespace) -> int:
         "limit": args.limit,
     }
     return forward(args, "get_skin_info", params)
+
+
+def file_skeleton(path: str) -> dict[str, Any]:
+    """The joints of a model file, read here because the readers live in the command line."""
+    from bmaya_cli.contents import ModelFileError
+    from bmaya_cli.modelfile import read
+
+    try:
+        contents = read(absolute(path))
+    except ModelFileError as error:
+        raise CommandFailed(error.message, error.hint) from error
+    if not contents.joints:
+        raise CommandFailed(
+            f"{Path(path).name} has no skeleton.",
+            hint=f"`bmaya inspect {path}` shows what the file holds.",
+        )
+    return {
+        "path": contents.path,
+        "unit_scale": contents.unit_scale,
+        "joints": [
+            {
+                "name": joint.name,
+                "parent": joint.parent,
+                "at": list(joint.at),
+                "axes": [list(axis) for axis in joint.axes],
+            }
+            for joint in contents.joints
+        ],
+    }
+
+
+def cmd_bones(args: argparse.Namespace) -> int:
+    if args.rename and not args.against:
+        raise usage(
+            "--rename maps the joint names of --against FILE.",
+            'bmaya bones hand_r --against hands.glb --rename "{}_r"',
+        )
+    params: dict[str, Any] = {
+        "names": ",".join(args.names),
+        "axes": args.axes,
+        "limit": args.limit,
+        "mirror": args.mirror,
+        "rename": args.rename,
+    }
+    if args.against:
+        params["against"] = file_skeleton(args.against)
+    return forward(args, "get_bones", params)
+
+
+def cmd_pose(args: argparse.Namespace) -> int:
+    if not args.bind:
+        raise usage("Say which pose.", "bmaya pose ROOT --bind puts it at the bind pose.")
+    return forward(args, "set_pose", {"names": ",".join(args.names), "bind": True})
+
+
+def cmd_mirror(args: argparse.Namespace) -> int:
+    params = {"name": args.name, "axis": args.axis, "new_name": args.new_name}
+    return forward(args, "mirror_node", params)
 
 
 def cmd_motion(args: argparse.Namespace) -> int:

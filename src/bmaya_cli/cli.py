@@ -540,7 +540,11 @@ def build_parser() -> argparse.ArgumentParser:
         "  --max N           with an edit: keep the N biggest weights per vertex\n"
         "A mesh with no skin is bound to the joints the weights name. Changed vertices are\n"
         "normalized. Each edit is one undo step; the result has `changed`, the counts that\n"
-        "were pruned, capped or normalized, and the issues left.",
+        "were pruned, capped or normalized, and the issues left.\n\n"
+        "--rebind makes the skeleton's current pose the bind pose of these meshes. The mesh\n"
+        "keeps the shape it shows now, so posing the joints and rebinding bakes that pose\n"
+        "in; with --keep-shape it keeps the shape it was bound with instead, for joints\n"
+        "moved to new places. One undo step; `mesh_moved` says how far the mesh moved.",
         examples(
             "bmaya skin",
             "bmaya skin hand_r --verts 0:10",
@@ -549,6 +553,8 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya skin hand_l --copy-from hand_r --mirror x",
             "bmaya skin body_new --copy-from body --prune --max 4",
             "bmaya skin body --mirror +x",
+            "bmaya skin hand_r --rebind               # this pose is the bind pose now",
+            "bmaya skin body shirt --rebind --keep-shape",
         ),
     )
     skin.add_argument("names", nargs="*", help="meshes; an edit takes one")
@@ -578,6 +584,97 @@ def build_parser() -> argparse.ArgumentParser:
         help="drop weights below MIN (default 0.01)",
     )
     skin.add_argument("--normalize", action="store_true", help="make weights add up to 1")
+    skin.add_argument("--rebind", action="store_true", help="make the current pose the bind pose")
+    skin.add_argument(
+        "--keep-shape",
+        action="store_true",
+        help="with --rebind: keep the mesh's bound shape, not the posed one",
+    )
+
+    bones = add(
+        "bones",
+        "cmd_bones",
+        "describe a skeleton: joints, axes, left/right twins; compare it with a file",
+        "Lists each joint with its parent, world position and bone length at the bind pose\n"
+        "(`from: bind`; a skeleton that skins nothing is read as it stands), jointOrient,\n"
+        "rotate when not 0, which of its own axes points at its child (`aim`, like +x or\n"
+        "-z), its left/right `twin` by name, and how many vertices it moves. Then the twins:\n"
+        "how many pair up, whether they mirror each other (behavior or orientation, like\n"
+        "mirrorJoint) and which stand off their mirror image; joint names used twice; bad\n"
+        "scales; joints with no weight; skins away from their bind pose. Name a joint for\n"
+        "its chain, a group, or a skinned mesh for its skeleton.\n\n"
+        "--against FILE compares the skeleton with an .fbx, .glb or .gltf, read without\n"
+        "Maya: names (map them with --rename), parents, positions in the scene's unit, axes\n"
+        "and bone proportions. A skeleton that is the same but scaled, turned or moved shows\n"
+        "as one `fit`; joints off after that are listed under `moved`.",
+        examples(
+            "bmaya bones",
+            "bmaya bones hand_r --axes",
+            "bmaya bones hand --against game/assets/models/zombie_hand/zombie_hand.fbx",
+            'bmaya bones hand_r --against hands.glb --rename "{}_r"',
+            "bmaya bones fp_zombie_arm_r          # the joints that skin this mesh",
+        ),
+    )
+    bones.add_argument("names", nargs="*", help="joints, groups or skinned meshes")
+    bones.add_argument("--axes", action="store_true", help="add the x, y, z axes of each joint")
+    bones.add_argument(
+        "--limit", type=int, default=0, metavar="N", help="joints listed (default 50)"
+    )
+    bones.add_argument(
+        "--mirror",
+        default="",
+        metavar="AXIS",
+        help="the plane twins should mirror across: x, y or z through 0, or x=12.5 (default x)",
+    )
+    bones.add_argument(
+        "--against", default="", metavar="FILE", help="compare with the skeleton of this file"
+    )
+    bones.add_argument(
+        "--rename", default="", metavar="MAP", help='map the file joint names: "{}_r", a=b'
+    )
+
+    pose = add(
+        "pose",
+        "cmd_pose",
+        "put a skeleton at its bind pose",
+        "--bind stands every joint that skins a mesh where it stood when the mesh was bound,\n"
+        "read from the skin itself; the other joints follow their parents. Joints an IK\n"
+        "handle, a constraint or a lock holds are skipped and listed. A joint with keys\n"
+        "keeps the pose only until the frame changes, and `bmaya shot`, `playblast` and\n"
+        "`motion` change it: key the pose, or do what needs it right away. One undo step.",
+        examples("bmaya pose fp_root --bind", "bmaya pose hand_r --bind"),
+    )
+    pose.add_argument("names", nargs="*", help="joints, groups or skinned meshes")
+    pose.add_argument("--bind", action="store_true", help="the pose the meshes were bound in")
+
+    mirror = add(
+        "mirror",
+        "cmd_mirror",
+        "mirror a mesh with its skeleton and skin weights, or a joint chain",
+        "Makes the other side of a mesh across a world plane (x through 0 by default): the\n"
+        "copy is named after its twin (hand_r gives hand_l) or --name, its faces point out\n"
+        "and the opposite flag is off, so a game gets it right side out. Vertex i of the\n"
+        "copy is the mirror image of vertex i of the source.\n"
+        "A skinned mesh brings its skeleton: twin joints that do not exist yet are made\n"
+        "like mirrorJoint's behavior mode and named by side (hand_r/hand_l, L_hand,\n"
+        "LeftHand), and the copy is bound to them with the source's weights, joints\n"
+        "swapped. The source is mirrored at its bind pose, whatever pose it stands in.\n"
+        "A joint name mirrors that chain only. One undo step; `issues` lists what the copy\n"
+        "has wrong that the source has not.",
+        examples(
+            "bmaya mirror hand_r",
+            "bmaya mirror fp_zombie_arm_r          # mesh, joints and weights",
+            "bmaya mirror crate_r --axis x=12.5 --name crate_far",
+            "bmaya mirror clavicle_r               # joints only",
+        ),
+    )
+    mirror.add_argument("name", help="mesh or joint")
+    mirror.add_argument(
+        "--axis", default="", metavar="AXIS", help="x, y or z through 0, or x=12.5 (default x)"
+    )
+    mirror.add_argument(
+        "--name", dest="new_name", default="", metavar="NAME", help="name of the mirrored mesh"
+    )
 
     motion = add(
         "motion",

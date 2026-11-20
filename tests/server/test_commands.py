@@ -394,6 +394,67 @@ def test_skin_refuses_flags_that_do_not_go_together(
     capsys.readouterr()
 
 
+def test_bones_sends_the_skeleton_of_a_file(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    one_maya(home, make_bridge, echo("get_bones"))
+    plain = run(capsys, "bones", "hand_r", "--axes", "--mirror", "x=2")[1]["got"]
+    assert plain == {"names": "hand_r", "axes": True, "limit": 0, "mirror": "x=2", "rename": ""}
+    fixture = Path(__file__).parents[1] / "fixtures" / "bones.fbx"
+    sent = run(capsys, "bones", "arm_r", "--against", str(fixture), "--rename", "{}_r")[1]["got"]
+    against = sent["against"]
+    assert against["unit_scale"] == 1.0 and sent["rename"] == "{}_r"
+    assert [joint["name"] for joint in against["joints"]] == ["arm", "elbow", "wrist"]
+    assert against["joints"][1]["parent"] == "arm" and len(against["joints"][1]["axes"]) == 3
+
+
+def test_bones_against_a_file_without_joints_fails_before_maya(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    bridge = one_maya(home, make_bridge, echo("get_bones"))
+    crate = Path(__file__).parents[1] / "fixtures" / "crate.fbx"
+    code, out, err = run(capsys, "bones", "--against", str(crate))
+    assert code == commands.EXIT_ERROR and out is None
+    assert "has no skeleton" in err and "bmaya inspect" in err
+    assert bridge.requests == []
+
+
+def test_pose_mirror_and_rebind_send_their_params(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    handlers = {**echo("set_pose"), **echo("mirror_node"), **echo("rebind_skin")}
+    one_maya(home, make_bridge, handlers)
+    assert run(capsys, "pose", "fp_root", "--bind")[1] == {
+        "got": {"names": "fp_root", "bind": True}
+    }
+    assert run(capsys, "mirror", "hand_r", "--axis", "x=2", "--name", "left")[1] == {
+        "got": {"name": "hand_r", "axis": "x=2", "new_name": "left"}
+    }
+    assert run(capsys, "skin", "body", "shirt", "--rebind", "--keep-shape")[1] == {
+        "got": {"names": "body,shirt", "keep_shape": True}
+    }
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["pose", "fp_root"],
+        ["bones", "--rename", "{}_r"],
+        ["skin", "hand", "--keep-shape"],
+        ["skin", "--rebind"],
+        ["skin", "hand", "--rebind", "--prune"],
+        ["skin", "hand", "--rebind", "--max", "4"],
+    ],
+)
+def test_skeleton_commands_refuse_flags_that_do_not_go_together(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, argv: list[str]
+) -> None:
+    bridge = one_maya(home, make_bridge, {**echo("set_pose"), **echo("rebind_skin")})
+    assert main(argv) == commands.EXIT_USAGE
+    assert bridge.requests == []
+    capsys.readouterr()
+
+
 def test_a_command_the_maya_module_lacks_asks_for_an_install(
     home: Path, make_bridge: BridgeFactory, capsys: Output
 ) -> None:
