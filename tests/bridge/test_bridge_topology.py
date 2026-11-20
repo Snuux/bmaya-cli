@@ -150,3 +150,39 @@ def test_a_bent_tube_keeps_its_order() -> None:
     ]
     assert angles == sorted(angles) or angles == sorted(angles, reverse=True)
     assert len(one.loops) == 48
+
+
+def test_a_finger_bent_at_its_knuckles_keeps_both_joints() -> None:
+    heights = [-0.6, 0.0, 0.25, 0.5, 1.1, 1.35, 1.6, 2.1, 2.7]
+    for bend in (45.0, 90.0):
+        half = math.radians(bend / 2.0)
+        turns = {2: half, 3: half, 5: half, 6: half}
+        heading = 0.0
+        previous = 0.0
+        x = y = 0.0
+        points: list[topology.Vec] = []
+        for index, height in enumerate(heights):
+            heading += turns.get(index, 0.0)
+            step = height - previous
+            previous = height
+            x += step * math.sin(heading)
+            y += step * math.cos(heading)
+            for side in range(SIDES):
+                angle = 2.0 * math.pi * side / SIDES
+                points.append(
+                    (
+                        x + math.cos(angle) * math.cos(heading),
+                        y - math.cos(angle) * math.sin(heading),
+                        math.sin(angle),
+                    )
+                )
+        faces = []
+        for ring in range(len(heights) - 1):
+            for side in range(SIDES):
+                a = ring * SIDES + side
+                b = ring * SIDES + (side + 1) % SIDES
+                faces.append([a, b, b + SIDES, a + SIDES])
+        found = topology.loops(points, faces)
+        tubes = topology.tubes(found)
+        assert len(tubes) == 1, bend
+        assert len(topology.joint_loops(tubes[0])) == 2, (bend, tubes[0].runs)
