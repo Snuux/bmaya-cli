@@ -2198,6 +2198,93 @@ def check_orient_joints() -> str:
     return f"world axes and -z down the bone, mesh kept within {gap:.1e}, keys refused, undo ok"
 
 
+def finger_mesh(name: str, heights: list[float], x: float) -> str:
+    """A capped quad tube along +y with an edge loop at each height, a little thinner up top."""
+    import math
+
+    sides = 8
+    points = []
+    for height in heights:
+        size = 1.0 - 0.05 * height
+        for side in range(sides):
+            angle = 2.0 * math.pi * side / sides
+            points.append(om.MPoint(x + size * math.cos(angle), height, size * math.sin(angle)))
+    counts = []
+    connects = []
+    for ring in range(len(heights) - 1):
+        for side in range(sides):
+            a = ring * sides + side
+            b = ring * sides + (side + 1) % sides
+            counts.append(4)
+            connects.extend([a, b, b + sides, a + sides])
+    bottom = len(points)
+    points.append(om.MPoint(x, heights[0] - 1.0, 0.0))
+    top = len(points)
+    points.append(om.MPoint(x, heights[-1] + 1.0, 0.0))
+    last = (len(heights) - 1) * sides
+    for side in range(sides):
+        following = (side + 1) % sides
+        counts.extend([3, 3])
+        connects.extend([following, side, bottom, last + side, last + following, top])
+    transform = cmds.createNode("transform", name=name)
+    parent = om.MSelectionList().add(transform).getDependNode(0)
+    om.MFnMesh().create(points, counts, connects, parent=parent)
+    cmds.sets(transform, edit=True, forceElement="initialShadingGroup")
+    return transform
+
+
+def color_count(path: str, color: tuple[int, int, int], spread: int = 25) -> int:
+    from PySide6 import QtGui
+
+    image = QtGui.QImage(path)
+    found = 0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            pixel = QtGui.QColor(image.pixel(x, y))
+            if close_to((pixel.red(), pixel.green(), pixel.blue()), color, spread):
+                found += 1
+    return found
+
+
+def check_get_topology() -> str:
+    heights = [0.0, 0.25, 0.5, 1.1, 1.35, 1.6, 2.1]
+    first = finger_mesh("topo_a", heights, 0.0)
+    try:
+        found = assert_read_only("get_topology", name=first)
+        assert found["loops"]["total"] == 7 and found["tubes"]["total"] == 1, found
+        assert found["valence"] == {"4": 56, "8": 2} and found["shells"] == 1, found
+        tube = found["tubes"]["items"][0]
+        assert [len(run) for run in tube["runs"]] == [3, 3, 1], tube
+        assert [joint["at"][1] for joint in tube["joints"]] == [0.25, 1.35], tube
+        assert tube["axis"][1] > 0.99 and found["joints"] == 2, tube
+        assert "ids" not in found["loops"]["items"][0]
+        ids = call("get_topology", name=first, ids=True)["loops"]["items"][0]["ids"]
+        assert len(ids) == 8, ids
+        loose = call("get_topology", name=first, gap=3.5)["tubes"]["items"][0]
+        assert [len(run) for run in loose["runs"]] == [7], loose
+        expect_error("get_topology", "below 1", name=first, gap=0.5)
+
+        picture = assert_read_only("get_topology", name=first, image=True, views="front")
+        assert picture["views"] == ["front"] and picture["width"] > 0, picture
+        image = Path(picture["path"])
+        assert image.is_file(), picture
+        orange = color_count(str(image), (255, 127, 14))
+        close = call("get_topology", name=first, image=True, views="front", tubes="0")
+        Path(close["path"]).unlink()
+        expect_error("get_topology", "no tube 4", name=first, image=True, tubes="4")
+        assert orange > 50, f"the tube's loops are not drawn: {orange} orange pixels"
+        image.unlink()
+
+        cube = cmds.polyCube(name="topo_tris", constructionHistory=False)[0]
+        cmds.polyTriangulate(cube, constructionHistory=False)
+        none = call("get_topology", name=cube)
+        assert none["loops"]["total"] == 0 and "four edges" in none["note"], none
+        cmds.delete(cube)
+    finally:
+        cmds.delete(first)
+    return "loops, tubes, runs, joint places, ids, --gap, picture, triangles noted"
+
+
 def check_mirror_node() -> str:
     made = side_rig("mr")
     try:
@@ -2363,6 +2450,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("set_pose", check_set_pose),
     ("orient_joints", check_orient_joints),
     ("mirror_node", check_mirror_node),
+    ("get_topology", check_get_topology),
     ("undo", check_undo),
     ("stop", check_stop),
 ]

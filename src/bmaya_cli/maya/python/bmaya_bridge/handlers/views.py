@@ -59,6 +59,7 @@ ON_LIGHT = (70, 70, 70)
 ON_DARK = (235, 235, 235)
 
 Box = tuple[Vec, Vec]
+Label = tuple[Vec, str, tuple[int, int, int]]
 
 
 class Tile(NamedTuple):
@@ -359,6 +360,21 @@ def draw_legend(painter: QPainter, parts: list[dict[str, Any]], tile: int) -> No
         painter.drawText(core.QPointF(left + 23, y + metrics.ascent()), part["name"])
 
 
+def draw_labels(painter: QPainter, view: View, labels: list[Label], tile: int) -> None:
+    gui = qt_gui()
+    core = qt_core()
+    metrics = painter.fontMetrics()
+    for point, text, color in labels:
+        pixel = project(point, view, tile, tile)
+        if pixel is None:
+            continue
+        width = metrics.horizontalAdvance(text) + 6
+        box = core.QRectF(pixel[0] + 6, pixel[1] - metrics.height() / 2.0, width, metrics.height())
+        painter.fillRect(box, gui.QColor(255, 255, 255, 190))
+        painter.setPen(gui.QColor(*color))
+        painter.drawText(core.QPointF(box.left() + 3, box.top() + metrics.ascent()), text)
+
+
 def annotate(
     image: QImage,
     view: View,
@@ -366,6 +382,7 @@ def annotate(
     unit: str,
     color: tuple[int, int, int],
     legend: list[dict[str, Any]],
+    labels: list[Label] | None = None,
 ) -> None:
     gui = qt_gui()
     painter = gui.QPainter(image)
@@ -376,6 +393,8 @@ def annotate(
         painter.setFont(font)
         if view.ortho:
             draw_measures(painter, view, box, image.width(), unit, color)
+        if labels:
+            draw_labels(painter, view, labels, image.width())
         if legend:
             draw_legend(painter, legend, image.width())
     finally:
@@ -419,7 +438,14 @@ def plan_tiles(views: list[str], section: Section | None) -> list[Tile]:
     return tiles
 
 
-def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
+def get_model_views(
+    params: dict[str, Any],
+    marks: list[softrender.Mark] | None = None,
+    labels: list[Label] | None = None,
+    frame: Box | None = None,
+) -> dict[str, Any]:
+    """The views sheet; `marks` and `labels` draw extra lines, dots and words over it, and
+    `frame` is the box the cameras frame instead of the whole meshes."""
     longest = int_param(params, "max_size", 1600, 400, 2000)
     style = parse_style(text_param(params, "style"))
     views = parse_views(text_param(params, "views"))
@@ -464,7 +490,7 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
     legend: list[dict[str, Any]] = []
     if style in softrender.COLORED:
         parts, legend, painted = colored_parts(meshes, parts, style, joint)
-    box = softrender.bounds(parts)
+    box = frame or softrender.bounds(parts)
     if box is None:
         raise BridgeError("The meshes have no points to draw.", hint="`bmaya audit` shows why.")
     section = parse_section(section_text, box)
@@ -507,6 +533,7 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
                     wire,
                     scale,
                     cut.outline if entry.section and cut else None,
+                    marks,
                 )
                 image = to_image(canvas, tile)
                 ink = ON_LIGHT
@@ -516,7 +543,7 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
                 image = shaded_tile(camera, light, tile, offscreen)
                 view = _sampling.camera_view(camera, tile, tile, overscan=not offscreen)
                 ink = ON_DARK
-            annotate(image, view, seen, unit, ink, legend if index == 0 else [])
+            annotate(image, view, seen, unit, ink, legend if index == 0 else [], labels)
             images.append((entry.label, image))
 
     path = viewport.new_image_path("views")
