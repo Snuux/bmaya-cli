@@ -12,6 +12,7 @@ from bmaya_bridge import skeleton, skinweights
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
+    cm_per_unit,
     display_name,
     int_param,
     listing,
@@ -26,6 +27,7 @@ from bmaya_bridge.handlers._skin import (
     bind_pose,
     clusters_of,
     influence_names,
+    new_bind_pose,
     parse_mirror,
     read_skin,
     skin_fn,
@@ -38,24 +40,15 @@ JOINTS_SHOWN = 50
 NAMES_SHOWN = 20
 ZERO = 1e-4
 AIM_COSINE = math.cos(math.radians(10.0))
-CM_PER_UNIT = {
-    "mm": 0.1,
-    "cm": 1.0,
-    "m": 100.0,
-    "km": 100000.0,
-    "in": 2.54,
-    "ft": 30.48,
-    "yd": 91.44,
-    "mi": 160934.4,
-}
 AXIS_NAMES = ("+x", "+y", "+z", "-x", "-y", "-z")
-POSE_ATTRS = ("translate", "rotate")
 KEPT_ATTRS = ("translate", "rotate", "scale", "shear")
+ORIENT_ATTRS = ("translate", "rotate", "rotateAxis", "jointOrient")
 JOINT_VALUES = (("orient", "jointOrient"), ("rotate", "rotate"), ("rotate_axis", "rotateAxis"))
 ORIENT_HINT = (
     "--orient world gives every joint the world's axes. Otherwise name the axis that points "
-    "at the child and the one that points toward --up: xy (+x at the child, +y up), -zy, "
-    "yz. --up takes x, y, z or -x, -y, -z (default y)."
+    "at the child and the one that points toward --up: xy (+x at the child, +y up), yz, "
+    "or with a minus written after an = sign: --orient=-zy. --up takes x, y or z, or "
+    "--up=-y (default y)."
 )
 BONES_MIRROR_HINT = (
     "--mirror names the plane twins should mirror across: x, y or z through 0, or x=12.5."
@@ -106,14 +99,18 @@ def pick_joints(names: str) -> tuple[list[str], str]:
         return sorted(joints), "scene"
     found: dict[str, None] = {}
     for node in nodes:
-        here = joints_below(node) if cmds.nodeType(node) == "joint" else skinned_joints(node)
-        if not here:
+        if cmds.nodeType(node) == "joint":
             here = joints_below(node)
+        elif cmds.listRelatives(node, shapes=True, type="mesh", noIntermediate=True):
+            here = skinned_joints(node) or joints_below(node)
+        else:
+            here = joints_below(node) + skinned_joints(node)
         found.update(dict.fromkeys(here))
     if not found:
         raise BridgeError(
             f"No joints under the given {source}.",
-            hint="Name a joint (its whole chain is taken), a group, or a skinned mesh. "
+            hint="Name a joint (its whole chain is taken), a group (every joint under it and "
+            "the joints that skin its meshes), or a skinned mesh. "
             "`bmaya scene --type joint` lists the joints.",
         )
     return sorted(found), source
@@ -188,6 +185,12 @@ def point_of(matrix: om.MMatrix) -> skeleton.Vec:
     return (matrix.getElement(3, 0), matrix.getElement(3, 1), matrix.getElement(3, 2))
 
 
+def in_scene_unit(point: skeleton.Vec) -> skeleton.Vec:
+    """A point from a matrix (centimeters) in the scene unit, the unit xform and users take."""
+    factor = 1.0 / cm_per_unit()
+    return (point[0] * factor, point[1] * factor, point[2] * factor)
+
+
 def axes_of(matrix: om.MMatrix) -> skeleton.Axes:
     rows = []
     for row in range(3):
@@ -241,10 +244,6 @@ def scale_issue(joint: str) -> str:
     return ""
 
 
-def cm_per_unit() -> float:
-    return CM_PER_UNIT.get(cmds.currentUnit(query=True, linear=True), 1.0)
-
-
 def reference_bones(against: dict[str, Any]) -> list[Bone]:
     """The joints of a model file, sent by the command line, in this scene's unit."""
     factor = float(against.get("unit_scale") or 1.0) / cm_per_unit()
@@ -271,7 +270,7 @@ def joint_entry(
     joint: str, found: Skeleton, names: dict[str, str], with_axes: bool
 ) -> dict[str, Any]:
     matrix = found.bind[joint]
-    at = point_of(matrix)
+    at = in_scene_unit(point_of(matrix))
     axes = axes_of(matrix)
     parent = joint_parent(joint)
     if not parent:
@@ -281,14 +280,16 @@ def joint_entry(
         entry["parent"] = display_name(parent)
     entry["at"] = rnd_list(at)
     if parent in found.bind:
-        entry["length"] = rnd(skeleton.length(skeleton.sub(at, point_of(found.bind[parent]))))
+        above = in_scene_unit(point_of(found.bind[parent]))
+        entry["length"] = rnd(skeleton.length(skeleton.sub(at, above)))
     for key, attr in JOINT_VALUES:
         values = cmds.getAttr(f"{joint}.{attr}")[0]
         if nonzero(values):
             entry[key] = rnd_list(values, 3)
     children = [child for child in joint_children_of(joint) if child in found.bind]
     if len(children) == 1:
-        entry["aim"] = aim_of(axes, skeleton.sub(point_of(found.bind[children[0]]), at)) or "none"
+        child = in_scene_unit(point_of(found.bind[children[0]]))
+        entry["aim"] = aim_of(axes, skeleton.sub(child, at)) or "none"
     if with_axes:
         entry["axes"] = [rnd_list(axis) for axis in axes]
     if scale_issue(joint):
@@ -301,7 +302,8 @@ def scene_bones(joints: list[str], found: Skeleton, names: dict[str, str]) -> li
     for joint in joints:
         parent = joint_parent(joint)
         matrix = found.bind[joint]
-        bones.append(Bone(names[joint], names.get(parent, ""), point_of(matrix), axes_of(matrix)))
+        at = in_scene_unit(point_of(matrix))
+        bones.append(Bone(names[joint], names.get(parent, ""), at, axes_of(matrix)))
     return bones
 
 
@@ -328,7 +330,9 @@ def get_bones(params: dict[str, Any]) -> dict[str, Any]:
         "unit": cmds.currentUnit(query=True, linear=True),
         "up": cmds.upAxis(query=True, axis=True),
         "from": "bind" if found.from_bind else "scene",
-        "roots": [names[joint] for joint in joints if not parent_in(joint, found.bind)],
+        "roots": listing(
+            [names[joint] for joint in joints if not parent_in(joint, found.bind)], NAMES_SHOWN
+        ),
         "joints": listing(entries, limit),
     }
     issues = []
@@ -362,7 +366,7 @@ def get_bones(params: dict[str, Any]) -> dict[str, Any]:
     if mirror_issue:
         issues.append(mirror_issue)
     if found.clusters:
-        result["skins"] = skin_states(found.clusters)
+        result["skins"] = listing(skin_states(found.clusters), NAMES_SHOWN)
         unweighted = [entry["name"] for entry in entries if entry.get("verts") == 0]
         result["unweighted"] = listing(unweighted, NAMES_SHOWN)
     against = params.get("against")
@@ -392,7 +396,7 @@ def against_file(
             f"{len(clashing)} joint names appear twice in what you named ("
             + skeleton.some(clashing)
             + "), so they cannot be matched with the file by name.",
-            hint="Name the top joint of one skeleton: bmaya bones |rig|hand --against FILE.",
+            hint='Name the top joint of one skeleton: bmaya bones "|rig|hand" --against FILE.',
         )
     rename = skinweights.renamer(text_param(params, "rename"))
     by_leaf = [
@@ -451,8 +455,19 @@ def held_by(joint: str, chains: dict[str, str]) -> str:
     """Why the joint cannot be posed by setting its values, or '' when it can."""
     if joint in chains:
         return f"IK handle {chains[joint]} turns it"
-    for attr in POSE_ATTRS:
-        for plug in (attr, attr + "X", attr + "Y", attr + "Z"):
+    return blocked(joint, KEPT_ATTRS)
+
+
+def plugs_of(attr: str) -> list[str]:
+    if attr == "shear":
+        return ["shear", "shearXY", "shearXZ", "shearYZ"]
+    return [attr, attr + "X", attr + "Y", attr + "Z"]
+
+
+def blocked(joint: str, attrs: tuple[str, ...]) -> str:
+    """Why these attributes cannot be set: a lock or an input other than keys; '' for none."""
+    for attr in attrs:
+        for plug in plugs_of(attr):
             if cmds.getAttr(f"{joint}.{plug}", lock=True):
                 return f"{plug} is locked"
             if is_driven(joint, plug):
@@ -462,9 +477,9 @@ def held_by(joint: str, chains: dict[str, str]) -> str:
 
 
 def keyed(joint: str) -> bool:
-    for attr in POSE_ATTRS:
-        for axis in ("", "X", "Y", "Z"):
-            if cmds.listConnections(f"{joint}.{attr}{axis}", type="animCurve", destination=False):
+    for attr in ("translate", "rotate"):
+        for plug in plugs_of(attr):
+            if cmds.listConnections(f"{joint}.{plug}", type="animCurve", destination=False):
                 return True
     return False
 
@@ -481,13 +496,11 @@ def set_pose(params: dict[str, Any]) -> dict[str, Any]:
     skipped = []
     with_keys = []
     for joint in joints:
-        if joint not in targets:
+        if joint not in targets or world_matrix(joint).isEquivalent(targets[joint], ZERO):
             continue
         why = held_by(joint, chains)
         if why:
             skipped.append({"name": display_name(joint), "why": why})
-            continue
-        if world_matrix(joint).isEquivalent(targets[joint], ZERO):
             continue
         cmds.xform(joint, worldSpace=True, matrix=list(targets[joint]))
         posed.append(display_name(joint))
@@ -552,7 +565,7 @@ class Orient(NamedTuple):
 def signed_axis(text: str) -> tuple[int, float, str]:
     sign = -1.0 if text.startswith("-") else 1.0
     letter = text.lstrip("+-")[:1]
-    if letter not in AXES:
+    if not letter or letter not in AXES:
         return -1, sign, text
     return AXES.index(letter), sign, text[len(text) - len(text.lstrip("+-")) + 1 :]
 
@@ -575,7 +588,7 @@ def parse_orient(raw: str, up_raw: str) -> Orient:
 
 
 def normalized(vector: skeleton.Vec) -> skeleton.Vec:
-    size = skeleton.length(vector)
+    size = skeleton.length(vector) or 1.0
     return (vector[0] / size, vector[1] / size, vector[2] / size)
 
 
@@ -607,10 +620,10 @@ def aimed_axes(direction: skeleton.Vec, orient: Orient) -> skeleton.Axes:
     return (axes[0], axes[1], axes[2])
 
 
-def aim_child(joint: str, at: skeleton.Vec) -> str:
-    """The first child joint that stands away from the joint, as Maya's orientJoint takes it."""
+def aim_child(joint: str, at: skeleton.Vec, old: dict[str, om.MMatrix]) -> str:
+    """The first child joint that stood away from the joint, as Maya's orientJoint takes it."""
     for child in joint_children_of(joint):
-        if skeleton.length(skeleton.sub(point_of(world_matrix(child)), at)) > ZERO:
+        if child in old and skeleton.length(skeleton.sub(point_of(old[child]), at)) > ZERO:
             return child
     return ""
 
@@ -657,7 +670,8 @@ def skinned_points(clusters: list[str]) -> dict[str, list[om.MPoint]]:
 
 def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
     orient = parse_orient(text_param(params, "orient"), text_param(params, "up"))
-    joints, source = pick_joints(text_param(params, "names"))
+    picked, source = pick_joints(text_param(params, "names"))
+    joints = sorted({below for joint in picked for below in joints_below(joint)})
     held = keyed_turns(joints)
     if held:
         raise BridgeError(
@@ -666,15 +680,23 @@ def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
             + ". New axes would change what those keys mean.",
             hint="Orient a skeleton before animating it, or cut its rotation keys first.",
         )
+    for joint in joints:
+        why = blocked(joint, ORIENT_ATTRS)
+        if why:
+            raise BridgeError(
+                f"'{display_name(joint)}' cannot take new axes: {why}.",
+                hint="Unlock it or remove what drives it, then orient again.",
+            )
     _, clusters = bind_matrices(joints)
+    at_bind_before = [cluster for cluster in clusters if not bind_pose(cluster)]
     before_points = skinned_points(clusters)
     old = {joint: world_matrix(joint) for joint in joints}
-    others = {}
+    others: dict[str, dict[str, om.MMatrix]] = {}
     for joint in joints:
         children = cmds.listRelatives(joint, children=True, type="transform", fullPath=True)
         for child in children or []:
             if cmds.nodeType(child) == "transform":
-                others[child] = world_matrix(child)
+                others.setdefault(joint, {})[child] = world_matrix(child)
     new_axes: dict[str, skeleton.Axes] = {}
     aimed = []
     for joint in sorted(joints):
@@ -683,7 +705,7 @@ def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
         if orient.world:
             axes: skeleton.Axes = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
         else:
-            child = aim_child(joint, at)
+            child = aim_child(joint, at, old)
             if child:
                 axes = aimed_axes(skeleton.sub(point_of(old[child]), at), orient)
                 if len(joint_children_of(joint)) > 1:
@@ -705,9 +727,9 @@ def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
             math.degrees(turn.y),
             math.degrees(turn.z),
         )
-        cmds.xform(joint, worldSpace=True, translation=at)
-    for child, matrix in others.items():
-        cmds.xform(child, worldSpace=True, matrix=list(matrix))
+        cmds.xform(joint, worldSpace=True, translation=in_scene_unit(at))
+        for child, matrix in others.get(joint, {}).items():
+            cmds.xform(child, worldSpace=True, matrix=list(matrix))
     for cluster in clusters:
         fn = skin_fn(cluster)
         for path in fn.influenceObjects():
@@ -718,6 +740,10 @@ def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
             pre = om.MMatrix(cmds.getAttr(f"{cluster}.bindPreMatrix[{index}]"))
             fixed = pre * old[full] * world_matrix(full).inverse()
             cmds.setAttr(f"{cluster}.bindPreMatrix[{index}]", list(fixed), type="matrix")
+    for cluster in at_bind_before:
+        new_bind_pose(
+            cluster, [path.fullPathName() for path in skin_fn(cluster).influenceObjects()]
+        )
     worst = 0.0
     for shape, points in skinned_points(clusters).items():
         for index, point in enumerate(points):
@@ -738,6 +764,13 @@ def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
         result["aimed"] = listing(aimed, NAMES_SHOWN)
     if clusters:
         result["skins"] = len(clusters)
-        result["mesh_moved"] = rnd(worst)
+        result["mesh_moved"] = rnd(worst / cm_per_unit())
+        posed = len(clusters) - len(at_bind_before)
+        if posed:
+            result["note"] = (
+                f"{posed} skins were away from their bind pose: their bind pose nodes keep the "
+                "old axes, so Maya's Go to Bind Pose is off for them; `bmaya pose ROOT --bind` "
+                "still works"
+            )
     result["next"] = "`bmaya bones ROOT --axes` shows the new axes, `bmaya undo` takes them back"
     return result

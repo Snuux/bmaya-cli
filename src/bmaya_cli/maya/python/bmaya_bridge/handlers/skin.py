@@ -11,6 +11,7 @@ from bmaya_bridge import skinweights, undoable
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
+    cm_per_unit,
     display_name,
     int_param,
     listing,
@@ -30,6 +31,7 @@ from bmaya_bridge.handlers._skin import (
     clusters_of,
     dag_path,
     influence_names,
+    new_bind_pose,
     parse_mirror,
     read_skin,
     run_undoable,
@@ -332,6 +334,9 @@ def edit_skin(params: dict[str, Any]) -> dict[str, Any]:
     load = text_param(params, "load")
     copy_from = text_param(params, "copy_from")
     mirror = parse_mirror(text_param(params, "mirror"))
+    plane_at = mirror.at if mirror is not None else 0.0
+    if mirror is not None:
+        mirror = mirror._replace(at=mirror.at * cm_per_unit())
     rename = skinweights.renamer(text_param(params, "rename"))
     prune = number_text(params, "prune")
     normalize = bool_param(params, "normalize")
@@ -430,7 +435,7 @@ def edit_skin(params: dict[str, Any]) -> dict[str, Any]:
         if not touched:
             raise BridgeError(
                 f"No vertices on the {'-' if mirror.sign > 0 else '+'}{AXES[mirror.axis]} side "
-                f"of the plane {AXES[mirror.axis]}={rnd(mirror.at)}.",
+                f"of the plane {AXES[mirror.axis]}={rnd(plane_at)}.",
                 hint="The plane goes through 0 by default; --mirror +x=12.5 moves it.",
             )
         sampler = Sampler(cluster, shape)
@@ -445,7 +450,7 @@ def edit_skin(params: dict[str, Any]) -> dict[str, Any]:
         unpaired = [joint for joint in used if skinweights.other_side(joint) == joint]
         result["mirror"] = {
             "axis": AXES[mirror.axis],
-            "at": rnd(mirror.at),
+            "at": rnd(plane_at),
             "paired": len(used) - len(unpaired),
             "unpaired": listing(unpaired, NAMES_SHOWN),
         }
@@ -536,27 +541,11 @@ def set_points(node: str, points: list[om.MPoint]) -> None:
     om.MFnMesh(dag_path(node)).setPoints(om.MPointArray(points))
 
 
-def new_bind_pose(cluster: str, joints: list[str]) -> str:
-    """A bind pose node of its own for the cluster, at the joints' current pose."""
-    old = cmds.listConnections(cluster + ".bindPose", source=True, destination=False) or []
-    name = f"{cluster}_bindPose"
-    pose = cmds.dagPose(joints, save=True, bindPose=True, name=name)
-    cmds.connectAttr(pose + ".message", cluster + ".bindPose", force=True)
-    for node in old:
-        if not cmds.listConnections(node + ".message", type="skinCluster"):
-            cmds.delete(node)
-    if pose != name and not cmds.objExists(name):
-        pose = cmds.rename(pose, name)
-    return pose
-
-
-def rebind_one(name: str, keep_shape: bool) -> dict[str, Any]:
-    shape, cluster = skinned_mesh(name)
+def rebind_one(shape: str, cluster: str, origin: str, keep_shape: bool) -> dict[str, Any]:
     fn = skin_fn(cluster)
     influences = list(fn.influenceObjects())
     moved = bind_pose(cluster)
     shown = mesh_points(dag_path(shape))
-    origin = bind_shape_node(cluster, shape)
     before = mesh_points(dag_path(origin))
     after = before
     if not keep_shape:
@@ -582,7 +571,7 @@ def rebind_one(name: str, keep_shape: bool) -> dict[str, Any]:
         "joints": len(influences),
         "moved": listing(moved, NAMES_SHOWN),
         "bind_pose": pose,
-        "mesh_moved": rnd(jump),
+        "mesh_moved": rnd(jump / cm_per_unit()),
     }
     return entry
 
@@ -592,7 +581,11 @@ def rebind_skin(params: dict[str, Any]) -> dict[str, Any]:
     if not names:
         raise BridgeError("Name the skinned meshes to rebind.", hint="bmaya skin hand_r --rebind")
     keep_shape = bool_param(params, "keep_shape")
-    meshes = [rebind_one(name, keep_shape) for name in names]
+    checked = []
+    for name in names:
+        shape, cluster = skinned_mesh(name)
+        checked.append((shape, cluster, bind_shape_node(cluster, shape)))
+    meshes = [rebind_one(*entry, keep_shape) for entry in checked]
     return {
         "meshes": meshes,
         "shape": "bind" if keep_shape else "shown",

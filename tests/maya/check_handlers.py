@@ -1949,7 +1949,7 @@ def check_get_bones() -> str:
     made = arm_rig()
     try:
         report = assert_read_only("get_bones", names="skin_root")
-        assert report["from"] == "bind" and report["roots"] == ["skin_root"], report
+        assert report["from"] == "bind" and report["roots"]["items"] == ["skin_root"], report
         joints = {entry["name"]: entry for entry in report["joints"]["items"]}
         assert sorted(joints) == sorted(
             ["skin_root", "up_r", "lo_r", "end_r", "up_l", "lo_l", "end_l"]
@@ -1967,7 +1967,7 @@ def check_get_bones() -> str:
         cmds.setAttr("lo_r.rotateZ", 30)
         posed = call("get_bones", names="arm_r")
         assert posed["from"] == "bind" and len(posed["joints"]["items"]) == 4, posed
-        assert posed["skins"][0]["at_bind"] is False, posed["skins"]
+        assert posed["skins"]["items"][0]["at_bind"] is False, posed["skins"]
         assert {e["name"]: e for e in posed["joints"]["items"]}["lo_r"]["rotate"] == [0, 0, 30]
         cmds.setAttr("lo_r.rotateZ", 0)
 
@@ -2001,6 +2001,23 @@ def check_get_bones() -> str:
         expect_error("get_bones", "twice", names="skin_root", against=against)
         cmds.delete(twin)
         expect_error("get_bones", "No joints", names="skin_plain")
+
+        group = cmds.group("skin_root", "arm_r", name="skin_group")
+        grouped = call("get_bones", names=group)
+        assert grouped["joints"]["total"] == 7, grouped["joints"]["total"]
+        cmds.ungroup(group)
+
+        cmds.currentUnit(linear="m")
+        try:
+            metres = call("get_bones", names="up_r")
+            lo = {e["name"]: e for e in metres["joints"]["items"]}["lo_r"]
+            assert metres["unit"] == "m" and lo["at"] == [0.06, 0, 0] and lo["length"] == 0.04, lo
+            in_metres = {**against, "unit_scale": 100.0}
+            matched = call("get_bones", names="up_r", against=in_metres, rename="{}_r")
+            assert matched["against"]["moved"]["items"][0]["name"] == "lo_r", matched["against"]
+            assert matched["against"]["moved"]["total"] == 1, matched["against"]
+        finally:
+            cmds.currentUnit(linear="cm")
     finally:
         cmds.delete([node for node in made if cmds.objExists(node)])
     return "bind positions, pairs, mirror kinds, unweighted, file compare with units, clashes ok"
@@ -2023,6 +2040,19 @@ def check_set_pose() -> str:
         assert abs(cmds.getAttr("lo_r.rotateZ") - 30) < 1e-6, "undo did not bring the pose back"
         cmds.redo()
 
+        cmds.currentUnit(linear="m")
+        try:
+            cmds.setAttr("lo_r.rotateZ", 20)
+            cmds.setAttr("skin_root.translateY", 0.03)
+            metric = call("set_pose", names="skin_root", bind=True)
+            assert metric["at_bind"] is True, metric
+        finally:
+            cmds.currentUnit(linear="cm")
+        cmds.setAttr("lo_r.rotateZ", 20)
+        cmds.setAttr("lo_r.scaleX", lock=True)
+        locked = call("set_pose", names="skin_root", bind=True)
+        assert locked["skipped"]["items"][0] == {"name": "lo_r", "why": "scaleX is locked"}
+        cmds.setAttr("lo_r.scaleX", lock=False)
         handle = cmds.ikHandle(startJoint="up_r", endEffector="end_r", name="pose_ik")[0]
         cmds.move(1, 3, 0, handle, relative=True)
         held = call("set_pose", names="skin_root", bind=True)
@@ -2065,6 +2095,10 @@ def check_rebind_skin() -> str:
         assert kept["shape"] == "bind" and kept["meshes"][0]["mesh_moved"] > 1.0, kept
         poses = cmds.listConnections(cluster + ".bindPose") or []
         assert poses == [kept["meshes"][0]["bind_pose"]] == [cluster + "_bindPose"], poses
+        cmds.setAttr("lo_r.rotateZ", 15)
+        before = cmds.getAttr(cluster + ".bindPreMatrix[2]")
+        expect_error("rebind_skin", "no skin", names="arm_r,skin_plain")
+        assert cmds.getAttr(cluster + ".bindPreMatrix[2]") == before, "arm_r was rebound anyway"
         expect_error("rebind_skin", "no skin", names="skin_plain")
         expect_error("rebind_skin", "Name", names="")
     finally:
@@ -2130,6 +2164,31 @@ def check_orient_joints() -> str:
         moved = max(p.distanceTo(q) for p, q in zip(shape_points("or_arm_r"), shown, strict=True))
         assert moved < 1e-4, moved
 
+        holder = cmds.group(empty=True, name="or_gap", parent="or_up_r")
+        cmds.parent("or_lo_r", holder)
+        cmds.select(clear=True)
+        twist = cmds.joint(name="or_twist_r", position=(6.0, 0.0, 0.5))
+        cmds.parent(twist, "or_lo_r")
+        cmds.reorder(twist, front=True)
+        places = {joint: world_at(joint) for joint in ("or_lo_r", "or_end_r", "or_twist_r")}
+        kept = call("orient_joints", names="or_arm_r", orient="xy")
+        for joint, at in places.items():
+            gap_off = max(abs(a - b) for a, b in zip(world_at(joint), at, strict=True))
+            assert gap_off < 1e-4, (joint, at, world_at(joint))
+        assert kept["mesh_moved"] < 1e-4, kept
+        assert {"name": "or_lo_r", "at": "or_end_r"} in kept["aimed"]["items"], kept
+
+        cmds.currentUnit(linear="m")
+        try:
+            metric = world_at("or_end_r")
+            call("orient_joints", names="or_root", orient="world")
+            assert max(abs(a - b) for a, b in zip(world_at("or_end_r"), metric, strict=True)) < 1e-6
+        finally:
+            cmds.currentUnit(linear="cm")
+
+        cmds.setAttr("or_end_r.rotateX", lock=True)
+        expect_error("orient_joints", "locked", names="or_root", orient="world")
+        cmds.setAttr("or_end_r.rotateX", lock=False)
         cmds.setKeyframe("or_lo_r", attribute="rotateX", time=1, value=5)
         expect_error("orient_joints", "keys", names="or_root", orient="world")
         expect_error("orient_joints", "Bad --orient", names="or_root", orient="xx")
@@ -2191,7 +2250,25 @@ def check_mirror_node() -> str:
         unsided = cmds.polyCube(name="mr_box", constructionHistory=False)[0]
         expect_error("mirror_node", "no side", name=unsided)
         cmds.delete(unsided)
+        cmds.select("mr_root", replace=True)
+        second = arm_mesh("mr_arm2_r", 6)
+        cmds.skinCluster(
+            ["mr_root", "mr_up_r", "mr_lo_r", "mr_end_r"], second, toSelectedBones=True
+        )
+        again = call("mirror_node", name=second)
+        assert again["joints"]["existed"] == 3 and again["joints"]["made"]["total"] == 0, again
+        assert cmds.ls(selection=True, long=True) == ["|mr_root"], "the selection was not put back"
+        cmds.delete(second, "mr_arm2_l")
+
         cmds.delete("mr_arm_l", "mr_up_l")
+        cmds.select(clear=True)
+        palm = cmds.joint(name="mr_palm", position=(8, 0, 0))
+        cmds.parent(palm, "mr_lo_r")
+        expect_error("mirror_node", "no side", name="mr_up_r")
+        cmds.delete(palm)
+        cmds.createNode("transform", name="mr_end_l")
+        expect_error("mirror_node", "taken", name="mr_up_r")
+        cmds.delete("mr_end_l")
         joint_only = call("mirror_node", name="mr_up_r")
         assert sorted(joint_only["joints"]["made"]["items"]) == ["mr_end_l", "mr_lo_l", "mr_up_l"]
         cmds.delete("mr_up_l")
@@ -2226,7 +2303,24 @@ def check_mirror_node() -> str:
         box = cmds.exactWorldBoundingBox("crate_l")
         assert abs(box[0] + 1.5) < 1e-4 and abs(box[3] + 0.5) < 1e-4, box
         assert "joints" not in cut, cut
+        cmds.delete("crate_l")
+        cmds.currentUnit(linear="m")
+        try:
+            call("mirror_node", name="crate_r", axis="x=0.01")
+            box = cmds.exactWorldBoundingBox("crate_l")
+            assert abs(box[0] + 0.015) < 1e-6 and abs(box[3] + 0.005) < 1e-6, box
+        finally:
+            cmds.currentUnit(linear="cm")
         cmds.delete("crate_r", "crate_l")
+        cmds.delete("mo_up_l", "mo_arm_l")
+        cmds.currentUnit(linear="m")
+        try:
+            call("mirror_node", name="mo_arm_r")
+            up_r = world_at("mo_up_r")
+            up_l = world_at("mo_up_l")
+            assert abs(up_l[0] + up_r[0]) < 1e-6, (up_r, up_l)
+        finally:
+            cmds.currentUnit(linear="cm")
     finally:
         cmds.delete([node for node in off + ["mo_arm_l"] if cmds.objExists(node)])
     return f"mesh, joints, weights within {gap:.1e}, posed source, plane off the parent, undo ok"

@@ -20,6 +20,24 @@ FPS_BY_UNIT = {
 }
 
 
+CM_PER_UNIT = {
+    "mm": 0.1,
+    "cm": 1.0,
+    "m": 100.0,
+    "km": 100000.0,
+    "in": 2.54,
+    "ft": 30.48,
+    "yd": 91.44,
+    "mi": 160934.4,
+}
+
+
+def cm_per_unit() -> float:
+    """Centimeters per scene unit. getAttr of matrices and the API work in centimeters;
+    xform and the user's numbers are in the scene unit."""
+    return CM_PER_UNIT.get(cmds.currentUnit(query=True, linear=True), 1.0)
+
+
 def text_param(params: dict[str, Any], key: str) -> str:
     value = params.get(key)
     if value is None:

@@ -173,3 +173,17 @@ def parse_mirror(raw: str, hint: str = MIRROR_HINT) -> Mirror | None:
         if not math.isfinite(at):
             raise BridgeError(f"Bad mirror plane '{position}'.", hint=hint)
     return Mirror(AXES.index(head), sign, at)
+
+
+def new_bind_pose(cluster: str, joints: list[str]) -> str:
+    """A bind pose node of its own for the cluster, at the joints' current pose."""
+    old = cmds.listConnections(cluster + ".bindPose", source=True, destination=False) or []
+    name = f"{cluster}_bindPose"
+    pose = cmds.dagPose(joints, save=True, bindPose=True, name=name)
+    cmds.connectAttr(pose + ".message", cluster + ".bindPose", force=True)
+    for node in old:
+        if not cmds.listConnections(node + ".message", type="skinCluster"):
+            cmds.delete(node)
+    if pose != name and not cmds.objExists(name):
+        pose = cmds.rename(pose, name)
+    return pose

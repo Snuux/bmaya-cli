@@ -12,6 +12,7 @@ from bmaya_bridge.handlers._common import (
     listing,
     resolve,
     rnd,
+    select_only,
     short_name,
     text_param,
 )
@@ -26,7 +27,13 @@ from bmaya_bridge.handlers._skin import (
     skin_fn,
     write_undoable,
 )
-from bmaya_bridge.handlers.bones import at_bind, joint_parent, point_of, world_matrix
+from bmaya_bridge.handlers.bones import (
+    at_bind,
+    in_scene_unit,
+    joint_parent,
+    point_of,
+    world_matrix,
+)
 from bmaya_bridge.handlers.mesh import audit_one, single_mesh, transform_of
 from bmaya_bridge.handlers.skin import skin_input_points
 
@@ -84,12 +91,31 @@ def chain_roots(joints: list[str]) -> list[str]:
         if top not in roots:
             roots.append(top)
     for root in roots:
-        built = [joint for joint in subtree(root) if twin_path(joint) not in ("", joint)]
+        below = subtree(root)
+        built = [joint for joint in below if twin_path(joint) not in ("", joint)]
         if built:
             raise BridgeError(
                 f"Some joints under '{display_name(root)}' already have twins: "
                 + skeleton.some([display_name(joint) for joint in built]),
                 hint="Delete the half-built side, or finish it, then mirror again.",
+            )
+        plain = [joint for joint in below if twin_path(joint) == joint]
+        if plain:
+            raise BridgeError(
+                f"{len(plain)} joints under '{display_name(root)}' have no side in their names, "
+                "so their copies could not be told apart: "
+                + skeleton.some([display_name(joint) for joint in plain]),
+                hint='Give them a side first, like palm_r: bmaya exec "cmds.rename(...)".',
+            )
+        taken = [
+            skinweights.other_side(short_name(joint))
+            for joint in below
+            if cmds.objExists(skinweights.other_side(short_name(joint)))
+        ]
+        if taken:
+            raise BridgeError(
+                f"{len(taken)} names the mirrored joints need are taken: " + skeleton.some(taken),
+                hint="Rename or delete those nodes, then mirror again.",
             )
     return roots
 
@@ -115,9 +141,9 @@ def mirror_chain(root: str, mirror: Mirror) -> list[str]:
     for source, copy in sorted(pairs, key=lambda pair: -pair[1].count("|")):
         cmds.rename(copy, skinweights.other_side(short_name(source)))
     copy_root = f"{parent}|{skinweights.other_side(short_name(root))}"
-    used = point_of(world_matrix(parent))[mirror.axis] if parent else 0.0
+    used = in_scene_unit(point_of(world_matrix(parent)))[mirror.axis] if parent else 0.0
     if abs(used - mirror.at) > PLANE_TOLERANCE:
-        at = point_of(world_matrix(root))
+        at = in_scene_unit(point_of(world_matrix(root)))
         cmds.xform(
             copy_root, worldSpace=True, translation=skeleton.reflect(at, mirror.axis, mirror.at)
         )
@@ -231,8 +257,10 @@ def twins_off(twins: dict[str, str], mirror: Mirror) -> list[str]:
     for joint, twin in twins.items():
         if twin == joint:
             continue
-        want = skeleton.reflect(point_of(world_matrix(joint)), mirror.axis, mirror.at)
-        have = point_of(world_matrix(twin))
+        want = skeleton.reflect(
+            in_scene_unit(point_of(world_matrix(joint))), mirror.axis, mirror.at
+        )
+        have = in_scene_unit(point_of(world_matrix(twin)))
         size = max(1.0, skeleton.length(want))
         if skeleton.length(skeleton.sub(want, have)) > skeleton.PLACE_SHARE * size:
             off.append(display_name(twin))
@@ -249,6 +277,7 @@ def mirror_node(params: dict[str, Any]) -> dict[str, Any]:
         "axis": AXES[mirror.axis],
         "at": rnd(mirror.at),
     }
+    selection = cmds.ls(selection=True, long=True) or []
     if cmds.nodeType(node) == "joint":
         if target:
             raise BridgeError(
@@ -258,6 +287,7 @@ def mirror_node(params: dict[str, Any]) -> dict[str, Any]:
         with at_bind(subtree(node)) as stuck:
             refuse_stuck(stuck)
             made, _ = mirror_joints(subtree(node), mirror)
+        select_only([item for item in selection if cmds.objExists(item)])
         result["joints"] = {"made": listing([display_name(j) for j in made], NAMES_SHOWN)}
         result["next"] = "`bmaya bones ROOT` shows both sides and whether they mirror"
         return result
@@ -283,26 +313,25 @@ def mirror_node(params: dict[str, Any]) -> dict[str, Any]:
             f"'{target}' already exists.",
             hint=f"Delete it first, or name the copy: bmaya mirror {name} --name OTHER.",
         )
-    twins: dict[str, str] = {}
-    made: list[str] = []
-    off: list[str] = []
-    if cluster:
-        joints = [path.fullPathName() for path in skin_fn(cluster).influenceObjects()]
-        with at_bind(joints) as stuck:
-            refuse_stuck(stuck)
-            made, twins = mirror_joints(joints, mirror)
-            off = twins_off(twins, mirror)
     copy = mirrored_mesh(source, shape, cluster, mirror, target)
     result["made"] = display_name(copy)
     copy_shape = cmds.listRelatives(copy, shapes=True, fullPath=True)[0]
     result["verts"] = om.MFnMesh(dag_path(copy_shape)).numVertices
     issues = []
     if cluster:
+        joints = [path.fullPathName() for path in skin_fn(cluster).influenceObjects()]
+        existed = [joint for joint in joints if twin_path(joint) not in ("", joint)]
+        with at_bind(joints) as stuck:
+            refuse_stuck(stuck)
+            made, twins = mirror_joints(joints, mirror)
+            off = twins_off(twins, mirror)
+            with at_bind([twin for twin in twins.values() if twin not in joints]) as held:
+                refuse_stuck(held)
+                bound, paired, unpaired = skin_copy(shape, cluster, copy, twins)
         result["joints"] = {
             "made": listing([display_name(joint) for joint in made], NAMES_SHOWN),
-            "existed": len({twin for joint, twin in twins.items() if twin != joint}) - len(made),
+            "existed": len(existed),
         }
-        bound, paired, unpaired = skin_copy(shape, cluster, copy, twins)
         result["skin"] = bound
         result["weights"] = {
             "influences": len(influence_names(bound)),
@@ -316,6 +345,7 @@ def mirror_node(params: dict[str, Any]) -> dict[str, Any]:
             )
     had = audit_one(shape)["issues"]
     issues.extend(issue for issue in audit_one(copy_shape)["issues"] if issue not in had)
+    select_only([item for item in selection if cmds.objExists(item)])
     result["issues"] = issues
     result["next"] = (
         f"`bmaya views {display_name(source)} {result['made']} --views front,top` shows both; "
