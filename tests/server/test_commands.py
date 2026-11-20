@@ -394,6 +394,15 @@ def test_skin_refuses_flags_that_do_not_go_together(
     capsys.readouterr()
 
 
+def test_a_command_the_maya_module_lacks_asks_for_an_install(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    one_maya(home, make_bridge, {})
+    code, _, err = run(capsys, "skin")
+    assert code == commands.EXIT_ERROR
+    assert "run `bmaya install` and restart that Maya" in err
+
+
 def test_expected_failure_goes_to_stderr_with_its_hint(
     home: Path, make_bridge: BridgeFactory, capsys: Output
 ) -> None:

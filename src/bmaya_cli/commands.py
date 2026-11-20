@@ -70,9 +70,14 @@ def report_command_error(error: BridgeCommandError) -> int:
     message = error.message
     if error.type not in BRIDGE_ERROR_TYPES:
         message = f"{error.type}: {message}"
+    hint = error.hint
+    if error.type == "UnknownCommand":
+        hint = (
+            "The Maya module is older than this bmaya: run `bmaya install` and restart that Maya."
+        )
     # A timed-out command keeps running in Maya, so the caller must wait, not resend.
     code = EXIT_RETRY if error.type == "Timeout" else EXIT_ERROR
-    report(message, error.hint, code)
+    report(message, hint, code)
     if error.stdout:
         print("printed before the error:", file=sys.stderr)
         print(error.stdout.rstrip("\n"), file=sys.stderr)
@@ -308,7 +313,7 @@ def cmd_skin(args: argparse.Namespace) -> int:
     if args.rename and not (args.load or args.copy_from):
         raise usage(
             "--rename maps the joint names of --load or --copy-from.",
-            f"bmaya skin {name} --load weights.json --rename {{}}_r",
+            f'bmaya skin {name} --load weights.json --rename "{{}}_r"',
         )
     if args.mirror and args.load:
         raise usage(
