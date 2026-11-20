@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import runpy
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -50,3 +50,27 @@ def test_user_setup_never_raises_outside_maya(
     log = (home / "logs" / "bootstrap-error.log").read_text(encoding="utf-8")
     assert "maya" in log
     assert "did not start" in capsys.readouterr().err
+
+
+def test_start_waits_for_the_main_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    shown = iter([False, False, True])
+    waits: list[int] = []
+    started: list[bool] = []
+
+    class Timer:
+        @staticmethod
+        def singleShot(ms: int, callback: Callable[[], None]) -> None:  # noqa: N802
+            waits.append(ms)
+            callback()
+
+    monkeypatch.setattr(bootstrap, "window_timer", lambda: Timer)
+    monkeypatch.setattr(bootstrap, "window_shown", lambda: next(shown))
+    monkeypatch.setattr(server, "is_running", lambda: True)
+    monkeypatch.setattr(server, "start", lambda: started.append(True) or 1)
+    bootstrap.start_in_maya()
+    assert waits == [bootstrap.WINDOW_POLL_MS] * 2 and started == [True]
+
+    monkeypatch.setattr(bootstrap, "window_shown", lambda: False)
+    started.clear()
+    assert bootstrap.start_in_maya(deadline=1.0) == 1
+    assert started == [True]

@@ -123,6 +123,17 @@ def model_panel() -> str:
 
 
 def camera_transform(name: str) -> str:
+    numbered = name + "1"
+    if (
+        not cmds.objExists(name)
+        and cmds.objExists(numbered)
+        and cmds.listRelatives(numbered, shapes=True, type="camera")
+    ):
+        raise BridgeError(
+            f"No camera named '{name}', but there is '{numbered}'.",
+            hint=f"cmds.camera(name='{name}') names the new camera {numbered}: pass --camera "
+            f"{numbered}, or rename it with cmds.rename('{numbered}', '{name}').",
+        )
     path = resolve(name)
     if cmds.nodeType(path) == "camera":
         return cmds.listRelatives(path, parent=True, fullPath=True)[0]
