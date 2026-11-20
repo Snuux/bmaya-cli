@@ -999,6 +999,20 @@ def check_edit_clip() -> str:
         assert given["range"] == [2, 12], given
         cmds.undo()
 
+        call("edit_clip", name="first", add="400:430")
+        call("edit_clip", name="second", add="430:460")
+        for at in (415, 430, 445):
+            cmds.setKeyframe("root", attribute="rotateY", time=at, value=at)
+        shared = call("edit_clip", name="first", remove=True, keys=True)
+        assert shared["keys_removed"] == 1, shared
+        assert cmds.keyframe("root", attribute="rotateY", query=True, time=(430, 430)), (
+            "removing the first clip took the second clip's first key"
+        )
+        cmds.lockNode("bookmark_second", lock=True)
+        expect_error("edit_clip", "locked", name="second", set="430:470")
+        expect_error("edit_clip", "locked", name="second", remove=True)
+        cmds.lockNode("bookmark_second", lock=False)
+
         expect_error("edit_clip", "--set", name="jump", add="0:10")
         expect_error("edit_clip", "Clips: ", name="nope", remove=True)
         expect_error("edit_clip", "one of", name="jump", add="0:10", remove=True)
@@ -1020,10 +1034,12 @@ def check_edit_clip() -> str:
         expect_error("edit_clip", "Game Exporter, Animation Clips", name="skip", add="10")
     finally:
         cmds.setAttr(exporter + ".exportTypeIndex", 1)
-        for node in ("bookmark_jump", "bookmark_hop", "bookmark_hop2", "bookmark_skip", *made):
+        names = ("jump", "hop", "hop2", "skip", "first", "second")
+        for node in [f"bookmark_{name}" for name in names] + made:
             if cmds.objExists(node):
+                cmds.lockNode(node, lock=False)
                 cmds.delete(node)
-        for index in (4, 5, 6):
+        for index in (4, 5, 6, 7, 8):
             cmds.removeMultiInstance(f"{exporter}.animClips[{index}]", b=True)
         cmds.setAttr("mark_wave.timeRangeStop", 20)
         cmds.setAttr(f"{exporter}.animClips[2].animClipEnd", 18)
