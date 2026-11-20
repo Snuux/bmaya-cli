@@ -237,6 +237,8 @@ def similarity(source: Sequence[Vec], target: Sequence[Vec]) -> Fit | None:
         return None
     turned = [apply(rotation, point) for point in xs]
     scale = sum(dot(turned[k], ys[k]) for k in range(len(ys))) / size
+    if scale < 1e-9:
+        return None
     middle = apply(rotation, from_middle)
     move = (
         to_middle[0] - scale * middle[0],
@@ -319,6 +321,30 @@ def over(offsets: list[float], tolerance: float) -> int:
     return sum(1 for offset in offsets if offset > tolerance)
 
 
+def median(values: list[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
+def refined_fit(source: list[Vec], target: list[Vec], tolerance: float) -> Fit | None:
+    """The best fit, fitted again on the joints that agree with it, so that a few joints in
+    the wrong place do not tilt it for all the others."""
+    fit = similarity(source, target)
+    if fit is None:
+        return None
+    misses = [length(sub(target[k], placed(fit, source[k]))) for k in range(len(source))]
+    limit = max(tolerance, 2.0 * median(misses))
+    keep = [k for k in range(len(source)) if misses[k] <= limit]
+    if 3 <= len(keep) < len(source):
+        better = similarity([source[k] for k in keep], [target[k] for k in keep])
+        if better is not None:
+            return better
+    return fit
+
+
 def compare(
     scene: Sequence[Bone],
     reference: Sequence[Bone],
@@ -364,16 +390,17 @@ def compare(
             + some([entry["name"] for entry in parents])
         )
     if not matched:
+        result["same"] = False
         return result, issues
 
     ref_points = [theirs[name].at for name in matched]
     our_points = [ours[name].at for name in matched]
-    tolerance = max(1e-6, PLACE_SHARE * box_size(our_points + ref_points))
+    tolerance = max(1e-6, PLACE_SHARE * box_size(our_points))
     as_is = [length(sub(ours[name].at, theirs[name].at)) for name in matched]
     fit = None
     offsets = as_is
     if max(as_is) > tolerance:
-        fit = similarity(ref_points, our_points)
+        fit = refined_fit(ref_points, our_points, tolerance)
         if fit is not None:
             fitted = [length(sub(ours[name].at, placed(fit, theirs[name].at))) for name in matched]
             if over(fitted, tolerance) < over(as_is, tolerance):

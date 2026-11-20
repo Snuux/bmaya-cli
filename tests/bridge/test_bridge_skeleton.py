@@ -169,3 +169,42 @@ def test_mirror_kind_tells_behavior_from_orientation() -> None:
     )
     tilted = skeleton.turned_axes(skeleton.Fit(1.0, turn_y(30.0), (0.0, 0.0, 0.0)), axes)
     assert skeleton.mirror_kind(right, Bone("arm_l", "", (0.0, 0.0, 0.0), tilted), 0) == "other"
+
+
+def test_tolerance_does_not_grow_with_a_far_file() -> None:
+    far = [Bone(b.name, b.parent, (b.at[0] + 500.0, b.at[1], b.at[2]), b.axes) for b in hand()]
+    moved = [
+        Bone(b.name, b.parent, (b.at[0], b.at[1] + 0.3, b.at[2]), b.axes) if b.name == "m2" else b
+        for b in hand()
+    ]
+    result, _ = skeleton.compare(moved, far, lambda name: name)
+    assert result["place"]["tolerance"] < 0.1
+    assert [entry["name"] for entry in result["moved"]["items"]] == ["m2"]
+
+
+def test_one_bad_joint_does_not_tilt_the_fit_for_the_rest() -> None:
+    rotation = turn_y(40.0)
+    scene = []
+    for bone in hand():
+        turned = skeleton.apply(rotation, bone.at)
+        at = (2.0 * turned[0] + 5.0, 2.0 * turned[1], 2.0 * turned[2])
+        if bone.name == "t1":
+            at = (at[0] + 3.0, at[1] + 2.0, at[2])
+        axes = skeleton.turned_axes(skeleton.Fit(1.0, rotation, (0.0, 0.0, 0.0)), bone.axes)
+        scene.append(Bone(bone.name, bone.parent, at, axes))
+    result, _ = skeleton.compare(scene, hand(), lambda name: name)
+    assert result["place"]["fit"]["scale"] == 2 and result["place"]["fit"]["turned"] == 40
+    assert [entry["name"] for entry in result["moved"]["items"]] == ["t1"]
+    assert result["turned"]["total"] == 0
+
+
+def test_a_skeleton_on_one_spot_is_not_the_same() -> None:
+    stacked = [Bone(b.name, b.parent, (1.0, 1.0, 1.0), b.axes) for b in hand()]
+    assert skeleton.similarity([b.at for b in hand()], [b.at for b in stacked]) is None
+    result, _ = skeleton.compare(stacked, hand(), lambda name: name)
+    assert result["same"] is False and "fit" not in result["place"]
+
+
+def test_no_matching_names_still_says_not_the_same() -> None:
+    result, issues = skeleton.compare(hand(), hand(prefix="x_"), lambda name: name)
+    assert result["matched"] == 0 and result["same"] is False and issues
