@@ -95,6 +95,7 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya audit [NAME ...] [--symmetry x\|y\|z]` | Game-readiness check: counts, faces by kind, size, n-gons, non-manifold geometry, flipped or inward normals, UVs and their overlaps, materials, history, transforms, stray and instanced shapes, the opposite flag, skin weights, mirror symmetry. |
 | `bmaya diff NAME [--mark] [--against OTHER]` | What an edit changed in a mesh: counts, size, area, volume, moved vertices and where they are. |
 | `bmaya topo NAME [--ids] [--gap G] [-o FILE [--tubes A,B]]` | Edge flow: shells, valence, closed edge loops around tubes, the tubes, and joint places in the middle of each run of close loops. `-o` draws them over the mesh. |
+| `bmaya uv NAME [--texture PNG] [--against MESH\|FILE] [-o FILE] \| --bake position,normal -o DIR` | UV layout: shells, texel density, coverage, overlaps, stretch, padding, a layout hash, textures, whether each texture fits the layout; a picture of the layout over the textures; position and normal maps baked into UV space. |
 | `bmaya remesh NAME [--to tris --edge L \| --to quads --faces N]` | Rebuilds the topology: even triangles, or quads with Maya's Retopologize. |
 | `bmaya reduce NAME --tris N \| --percent P [--keep-uvs] [--keep-borders] [--keep-hard-edges] [--keep-quads]` | Lowers the triangle count and keeps the shape. |
 | `bmaya cleanup NAME [--merge DIST] [--ngons]` | Merges vertices on the same spot, removes bad faces and edges, conforms the normals and turns them outward. |
@@ -135,6 +136,7 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 - [FBX export](docs/export.md): what each preset writes.
 - [Modeling](docs/modeling.md): view sheets and their styles, sections, audit numbers, diff, remesh, reduce, cleanup.
 - [Skin weights](docs/skin.md): the skin report, weights files, copy, mirror, prune, weight pictures.
+- [UVs and textures](docs/uv.md): the layout report, texture fit, the layout picture, comparing layouts, baking position and normal maps.
 - [Topology](docs/topology.md): edge loops around tubes, runs of loops, joint places, the loops picture.
 - [Skeletons and mirroring](docs/skeleton.md): the bones report, comparing with a game file, new axes, bind pose, rebinding, mirroring a skinned mesh.
 - [Animation](docs/animation.md): frame specs and clips, motion checks, rig inventory, trails, curve plots, previews.

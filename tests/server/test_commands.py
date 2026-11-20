@@ -488,6 +488,46 @@ def test_topo_report_and_picture(
     capsys.readouterr()
 
 
+def test_uv_report_compare_and_bake(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    one_maya(home, make_bridge, {**echo("get_uv"), **echo("bake_uv")})
+    paint = tmp_path / "paint.png"
+    report = run(capsys, "uv", "crate", "--texture", str(paint), "--size", "512")[1]["got"]
+    assert report == {
+        "name": "crate",
+        "uv_set": "",
+        "size": 512,
+        "textures": [paint.resolve().as_posix()],
+        "image": False,
+    }
+    fixture = Path(__file__).parents[1] / "fixtures" / "crate.fbx"
+    filed = run(capsys, "uv", "crate", "--against", str(fixture))[1]["got"]
+    assert filed["against"]["name"] == "crate" and len(filed["against"]["faces"]) == 6
+    meshed = run(capsys, "uv", "crate", "--against", "crate_old")[1]["got"]
+    assert meshed["against_mesh"] == "crate_old" and "against" not in meshed
+    baked = run(capsys, "uv", "crate", "--bake", "position", "-o", str(tmp_path / "maps"))[1]
+    assert baked["got"]["maps"] == "position"
+    assert baked["got"]["folder"] == (tmp_path / "maps").resolve().as_posix()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["uv", "crate", "--bake", "position"],
+        ["uv", "crate", "--pose", "bind"],
+        ["uv", "crate", "--bake", "position", "-o", "maps", "--texture", "a.png"],
+    ],
+)
+def test_uv_refuses_flags_that_do_not_go_together(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, argv: list[str]
+) -> None:
+    bridge = one_maya(home, make_bridge, {**echo("get_uv"), **echo("bake_uv")})
+    assert main(argv) == commands.EXIT_USAGE
+    assert bridge.requests == []
+    capsys.readouterr()
+
+
 def test_a_command_the_maya_module_lacks_asks_for_an_install(
     home: Path, make_bridge: BridgeFactory, capsys: Output
 ) -> None:
@@ -662,7 +702,7 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
         assert f"bmaya {name}" in guide
     for name in ("undo", "motion", "rig", "playblast", "skin", "bones", "pose", "mirror"):
         assert f"bmaya {name}" in guide
-    for name in ("views", "diff", "remesh", "reduce", "cleanup", "topo"):
+    for name in ("views", "diff", "remesh", "reduce", "cleanup", "topo", "uv"):
         assert f"bmaya {name}" in guide
     for name in ("sessions", "use", "start", "stop"):
         assert f"bmaya {name}" in guide

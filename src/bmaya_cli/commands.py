@@ -254,6 +254,61 @@ def cmd_topo(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+MODEL_SUFFIXES = (".fbx", ".glb", ".gltf")
+
+
+def file_layout(path: str, mesh: str) -> dict[str, Any]:
+    """The UV layout of a mesh in a model file, read here where the readers live."""
+    from bmaya_cli.contents import ModelFileError
+    from bmaya_cli.modelfile import read_layout
+
+    try:
+        return read_layout(absolute(path), mesh)
+    except ModelFileError as error:
+        raise CommandFailed(error.message, error.hint) from error
+
+
+def cmd_uv(args: argparse.Namespace) -> int:
+    if args.pose and not args.bake:
+        raise usage("--pose goes with --bake.", f"bmaya uv {args.name} --bake position -o maps")
+    if args.bake:
+        if not args.output:
+            raise usage(
+                "--bake writes into a folder: name it with -o.",
+                f"bmaya uv {args.name} --bake position,normal -o maps",
+            )
+        if args.texture or args.against:
+            raise usage(
+                "--bake takes no --texture or --against.",
+                f"bmaya uv {args.name} --bake position -o maps",
+            )
+        params = {
+            "name": args.name,
+            "maps": args.bake,
+            "size": args.size,
+            "uv_set": args.uv_set,
+            "pose": args.pose,
+            "folder": absolute(args.output),
+        }
+        return forward(args, "bake_uv", params)
+    params: dict[str, Any] = {
+        "name": args.name,
+        "uv_set": args.uv_set,
+        "size": args.size,
+        "textures": [absolute(path) for path in args.texture],
+        "image": bool(args.output),
+    }
+    if args.against:
+        if args.against.lower().endswith(MODEL_SUFFIXES):
+            params["against"] = file_layout(args.against, args.name)
+        else:
+            params["against_mesh"] = args.against
+    if not args.output:
+        return forward(args, "get_uv", params)
+    deliver_png(call(args, "get_uv", params), args.output)
+    return EXIT_OK
+
+
 def cmd_remesh(args: argparse.Namespace) -> int:
     params = {
         "name": args.name,

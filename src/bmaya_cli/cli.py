@@ -431,6 +431,74 @@ def build_parser() -> argparse.ArgumentParser:
         help="with -o: draw only these tubes and frame the views on them",
     )
 
+    uv = add(
+        "uv",
+        "cmd_uv",
+        "check a UV layout: shells, overlaps, stretch, padding, texture fit; bake maps",
+        "Reports one mesh's UV layout (the current set, or --set): the shells with their UV\n"
+        "and surface areas and texel density (texels per scene unit at --size, by default\n"
+        "the size of the mesh's textures), how much of the texture is covered and how much\n"
+        "is used twice (`overlap`), faces mirrored in UV (`flipped`), how unevenly faces get\n"
+        "texture (`stretch`, 1 is the mesh's average), the narrowest gap between shells and\n"
+        "to the texture's edge in texels (`padding`), and a `hash` of the layout that\n"
+        "changes when any UV moves. `textures` lists the file textures of the mesh's\n"
+        "materials with their slot, size and color space.\n\n"
+        "`fit` says whether a texture was painted for this layout: painted textures change\n"
+        "sharply along the outlines of the UV shells, so the strongest texture edges crowd\n"
+        "near them (`lift`, 2.5 and up fits, 1.5 and below does not). It checks the color\n"
+        "textures of the materials and any --texture you name. A texture painted for an\n"
+        "older layout shows as `does not fit`. It is a heuristic: a texture with few sharp\n"
+        "edges reads `unclear`.\n\n"
+        "-o draws the layout over each texture: shells tinted, overlapping faces red,\n"
+        "mirrored faces purple. --against compares with another mesh or a model file.\n"
+        "--bake position,normal writes the object-space position and normal of every texel\n"
+        "into float32 .npy files (row 0 is the top of the texture) and a mask PNG, at the\n"
+        "bind pose of a skinned mesh unless --pose current.",
+        examples(
+            "bmaya uv hand_r",
+            "bmaya uv hand_r -o layout.png",
+            "bmaya uv hand_r --texture paint/hand_v2.png -o fit.png",
+            "bmaya uv hand_r --against game/hand.fbx",
+            "bmaya uv hand_r --bake position,normal --size 2048 -o maps",
+        ),
+    )
+    uv.add_argument("name", help="the mesh")
+    uv.add_argument(
+        "-o",
+        "--output",
+        default="",
+        metavar="PATH",
+        help="PNG of the layout, or the folder for --bake",
+    )
+    uv.add_argument(
+        "--set", dest="uv_set", default="", metavar="NAME", help="UV set (default current)"
+    )
+    uv.add_argument(
+        "--texture", action="append", default=[], metavar="PNG", help="check this texture's fit too"
+    )
+    uv.add_argument(
+        "--size",
+        type=int,
+        default=0,
+        metavar="N",
+        help="texture size in texels for density and padding",
+    )
+    uv.add_argument(
+        "--against",
+        default="",
+        metavar="MESH|FILE",
+        help="compare with another mesh or a model file",
+    )
+    uv.add_argument(
+        "--bake", default="", metavar="MAPS", help="write position and/or normal maps to -o FOLDER"
+    )
+    uv.add_argument(
+        "--pose",
+        default="",
+        choices=("bind", "current"),
+        help="with --bake: which pose (default bind)",
+    )
+
     remesh = add(
         "remesh",
         "cmd_remesh",
