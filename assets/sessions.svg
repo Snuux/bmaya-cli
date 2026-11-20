@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 52 1200 400" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 52 1200 400" font-family="Segoe UI, system-ui, -apple-system, Helvetica Neue, Helvetica, Arial, Noto Sans, Liberation Sans, sans-serif">
   <defs>
     <style>
       .box { fill: #1b1f29; stroke: #343b4b; stroke-width: 1.5; }
       .title { font-size: 18px; font-weight: 700; fill: #eef1f6; }
       .sub { font-size: 14px; fill: #8f99ac; }
-      .mono { font-family: Cascadia Code, Consolas, Menlo, monospace; }
+      .mono { font-family: Cascadia Code, Consolas, ui-monospace, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, monospace; }
       .tag { font-size: 12px; font-weight: 600; }
       .flow { fill: none; stroke-width: 2.5; stroke-dasharray: 8 8; animation: dash 1.2s linear infinite; }
       @keyframes dash { to { stroke-dashoffset: -16; } }

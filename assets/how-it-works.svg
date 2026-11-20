@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 50 1200 340" font-family="Segoe UI, -apple-system, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 50 1200 340" font-family="Segoe UI, system-ui, -apple-system, Helvetica Neue, Helvetica, Arial, Noto Sans, Liberation Sans, sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#5d6678"/>
@@ -7,16 +7,15 @@
       .box { fill: #1b1f29; stroke: #343b4b; stroke-width: 1.5; }
       .title { font-size: 20px; font-weight: 700; fill: #eef1f6; }
       .sub { font-size: 14px; fill: #8f99ac; }
-      .mono { font-family: Cascadia Code, Consolas, Menlo, monospace; }
+      .mono { font-family: Cascadia Code, Consolas, ui-monospace, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, monospace; }
       .label { font-size: 13px; fill: #aab3c5; }
       .chip { fill: #232836; stroke: #343b4b; }
       .chiptext { font-size: 13px; fill: #c9d0dc; }
       .wire { stroke: #5d6678; stroke-width: 2; fill: none; }
-      .p1 { animation: go1 2.4s linear infinite; }
-      .p3 { animation: go2 2.4s linear infinite; animation-delay: .4s; }
-      .p4 { animation: go2 2.4s linear infinite; animation-delay: 1.2s; }
-      @keyframes go1 { 0% { transform: translateX(0); opacity: 0; } 10%, 90% { opacity: 1; } 100% { transform: translateX(110px); opacity: 0; } }
-      @keyframes go2 { 0% { transform: translateX(0); opacity: 0; } 10%, 90% { opacity: 1; } 100% { transform: translateX(110px); opacity: 0; } }
+      .p1 { animation: go 2.4s linear infinite; }
+      .p3 { animation: go 2.4s linear infinite; animation-delay: .4s; }
+      .p4 { animation: go 2.4s linear infinite; animation-delay: 1.2s; }
+      @keyframes go { 0% { transform: translateX(0); opacity: 0; } 10%, 90% { opacity: 1; } 100% { transform: translateX(110px); opacity: 0; } }
       @media (prefers-reduced-motion: reduce) { .p1, .p3, .p4 { animation: none; opacity: 0; } }
     </style>
   </defs>
@@ -38,7 +37,7 @@
   <text class="title mono" x="428" y="130" font-size="19">bmaya</text>
   <text class="sub" x="428" y="158">one short process per command</text>
   <text class="sub" x="428" y="179">one line of JSON on stdout</text>
-  <text class="sub" x="428" y="200">finds a running Maya or starts one</text>
+  <text class="sub" x="428" y="200">finds a Maya, or starts one</text>
   <text class="sub" x="428" y="221">keeps your choice of Maya on disk</text>
 
   <line class="wire" x1="676" y1="165" x2="784" y2="165" marker-end="url(#arrow)"/>

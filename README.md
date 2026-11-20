@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="bmaya-cli: drive Autodesk Maya from the command line" width="100%">
+  <img src="assets/banner.svg" alt="bmaya-cli: Autodesk Maya for AI agents, one command at a time. A terminal runs bmaya exec, shot and export; a barrel appears in the Maya viewport, then a picture and an FBX file" width="100%">
 </p>
 
 <p align="center">
