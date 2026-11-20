@@ -15,12 +15,11 @@ from bmaya_cli.commands import (
     EXIT_USAGE,
     CommandFailed,
     absolute,
-    call,
     emit,
     manager_for,
     note_autostart,
 )
-from bmaya_cli.modelfile import read_back
+from bmaya_cli.modelfile import ReadBack, read_back
 from bmaya_cli.sessions import SessionManager
 
 ISSUES_SHOWN = 40
@@ -34,14 +33,29 @@ def listing(items: list[Any], limit: int) -> dict[str, Any]:
     return {"items": items[:limit], "shown": min(len(items), limit), "total": len(items)}
 
 
-def checked(reply: dict[str, Any]) -> dict[str, Any]:
+def checked(reply: dict[str, Any], back: ReadBack) -> dict[str, Any]:
     """The reply with `written` and every issue: Maya's checks before writing, the file's after."""
-    expected = reply.pop("expected", None)
+    reply.pop("expected", None)
     issues = list(reply.pop("issues", []))
-    written, found = read_back(reply["path"], expected)
-    reply["written"] = listing([written], WRITTEN_SHOWN)
-    reply["issues"] = listing(issues + found, ISSUES_SHOWN)
+    reply["written"] = listing([back.written], WRITTEN_SHOWN)
+    reply["issues"] = listing(issues + back.issues, ISSUES_SHOWN)
     return reply
+
+
+def export_file(args: argparse.Namespace, params: dict[str, Any]) -> dict[str, Any]:
+    """Exports, reads the file back and, when the keys came out at another frame rate, exports
+    once more with Maya's FBX plugin reloaded."""
+    manager = manager_for(args)
+    try:
+        session, reply = manager.call_session("export_fbx", params)
+        back = read_back(reply["path"], reply.get("expected"))
+        if back.stale_rate:
+            manager.override = session.id
+            reply = manager.call("export_fbx", {**params, "reload_fbx": True})
+            back = read_back(reply["path"], reply.get("expected"))
+    finally:
+        note_autostart(manager)
+    return checked(reply, back)
 
 
 def refuse(message: str, hint: str) -> CommandFailed:
@@ -145,6 +159,23 @@ def stopped(
     return CommandFailed(f"Game Exporter export stopped at {job['path']}: {error}", hint=hint)
 
 
+def export_one(
+    manager: SessionManager,
+    job: dict[str, Any],
+    params: dict[str, Any],
+    written: list[dict[str, Any]],
+) -> tuple[dict[str, Any], ReadBack]:
+    try:
+        reply = manager.call("export_game_file", params)
+    except BridgeCommandError as error:
+        code = EXIT_RETRY if error.type == "Timeout" else 1
+        raise stopped(job, written, f"{error.type}: {error.message}", code) from error
+    except BridgeConnectionError as error:
+        code = EXIT_RETRY if error.timed_out else 1
+        raise stopped(job, written, str(error), code) from error
+    return reply, read_back(reply["path"], job["expected"])
+
+
 def export_jobs(manager: SessionManager, plan: dict[str, Any], copy: bool) -> dict[str, Any]:
     written: list[dict[str, Any]] = []
     issues = list(plan["issues"])
@@ -159,20 +190,16 @@ def export_jobs(manager: SessionManager, plan: dict[str, Any], copy: bool) -> di
             "path": job["path"],
             "textures": moves,
         }
-        try:
-            reply = manager.call("export_game_file", params)
-        except BridgeCommandError as error:
-            code = EXIT_RETRY if error.type == "Timeout" else 1
-            raise stopped(job, written, f"{error.type}: {error.message}", code) from error
-        except BridgeConnectionError as error:
-            code = EXIT_RETRY if error.timed_out else 1
-            raise stopped(job, written, str(error), code) from error
-        entry, found = read_back(reply["path"], job["expected"])
-        if reply.get("retried"):
-            entry["retried"] = True
+        reply, back = export_one(manager, job, params, written)
+        if back.stale_rate:
+            reply, back = export_one(manager, job, {**params, "reload_fbx": True}, written)
+        entry = back.written
+        for flag in ("retried", "reloaded"):
+            if reply.get(flag):
+                entry[flag] = True
         written.append(entry)
         name = Path(job["path"]).name
-        issues += [f"{name}: {issue}" for issue in found]
+        issues += [f"{name}: {issue}" for issue in back.issues]
     result: dict[str, Any] = {
         "written": listing(written, WRITTEN_SHOWN),
         "skipped": plan["skipped"],
@@ -220,5 +247,5 @@ def cmd_export(args: argparse.Namespace) -> int:
         "clip": args.clip,
         "ignore_checks": args.ignore_checks,
     }
-    emit(checked(call(args, "export_fbx", params)))
+    emit(export_file(args, params))
     return EXIT_OK

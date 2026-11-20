@@ -39,7 +39,7 @@ The command line reads the written file back (the same reader as `bmaya inspect`
 
 A file that was not rewritten (read-only, or open in another program) fails the export instead of passing as an old file. Without a window the first FBX export after a texture change can fail in a UI callback; bmaya tries once more and adds `retried: true`.
 
-Maya's FBX plugin keeps baking at the frame rate of an earlier export in the same Maya: after a 24 fps scene, a 30 fps scene came out with keys 1/24 s apart. bmaya reloads the plugin before every export with animation, which fixes it. `bmaya inspect` flags a file written some other way with this fault: its take gets `keys_fps`, and `issues` says the keys are baked at another rate than the file's.
+Maya's FBX plugin keeps baking at the frame rate of an earlier export in the same Maya: after a 24 fps scene, a 30 fps scene came out with keys 1/24 s apart. Only reloading the plugin clears it, and a reload also puts the exporter's own settings back to their defaults. So bmaya reloads only when the file it read back has keys between the file's frames: it reloads `fbxmaya`, exports that file once more and adds `reloaded: true`. `bmaya inspect` flags a file written some other way with this fault: its take gets `keys_fps`, and `issues` says the keys are baked at another rate than the file's.
 
 ## Game Exporter nodes
 

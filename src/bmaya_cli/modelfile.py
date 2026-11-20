@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from bmaya_cli.contents import Contents, Joint, ModelFileError, Take
 from bmaya_cli.fbxcontents import read_fbx
@@ -236,16 +236,25 @@ def compare(contents: Contents, expected: dict[str, Any]) -> list[str]:
     return out
 
 
-def read_back(path: str, expected: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
-    """The written file as `written` reports it, and the issues found by comparing it."""
+class ReadBack(NamedTuple):
+    written: dict[str, Any]
+    issues: list[str]
+    stale_rate: bool
+
+
+def read_back(path: str, expected: dict[str, Any] | None) -> ReadBack:
+    """The written file as `written` reports it, the issues found by comparing it, and whether
+    its keys were baked at another rate than the file's (Maya's FBX plugin needs a reload)."""
     try:
         contents = read(path)
     except ModelFileError as error:
-        return {"path": path}, [f"{Path(path).name}: could not read it back: {error.message}"]
+        issue = f"{Path(path).name}: could not read it back: {error.message}"
+        return ReadBack({"path": path}, [issue], False)
     issues = issues_of(contents)
     if expected is not None:
         issues += compare(contents, expected)
-    return written_entry(contents), issues
+    stale = any(off_rate(take, contents.fps) for take in contents.takes)
+    return ReadBack(written_entry(contents), issues, stale)
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:

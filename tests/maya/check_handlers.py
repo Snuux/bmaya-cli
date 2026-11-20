@@ -1028,7 +1028,7 @@ def check_export_game_file() -> str:
 
 
 def check_fbx_frame_rate() -> str:
-    from bmaya_cli.modelfile import compare, read
+    from bmaya_cli.modelfile import read, read_back
 
     found = []
     for unit, rate in (("film", 24.0), ("ntsc", 30.0)):
@@ -1038,13 +1038,19 @@ def check_fbx_frame_rate() -> str:
         cmds.setKeyframe(cube, attribute="translateY", time=0, value=0)
         cmds.setKeyframe(cube, attribute="translateY", time=16, value=5)
         path = WORK_DIR / f"paced_{unit}.fbx"
-        reply = call("export_fbx", path=str(path), animation=True, start="0", end="16")
-        contents = read(path)
-        (take,) = contents.takes
+        params = {"path": str(path), "animation": True, "start": "0", "end": "16"}
+        reply = call("export_fbx", **params)
+        back = read_back(str(path), reply["expected"])
+        if unit == "ntsc":
+            assert back.stale_rate, "the plugin did not keep the earlier rate; the check is moot"
+            reply = call("export_fbx", reload_fbx=True, **params)
+            assert reply["reloaded"] is True, reply
+            back = read_back(str(path), reply["expected"])
+        assert not back.stale_rate and back.issues == [], back
+        (take,) = read(path).takes
         assert abs(1.0 / take.key_step - rate) < 0.01, (unit, 1.0 / take.key_step)
-        assert compare(contents, reply["expected"]) == [], compare(contents, reply["expected"])
         found.append(f"{unit} {rate:g}")
-    return "keys baked at the scene rate after another rate: " + ", ".join(found)
+    return "stale bake rate found in the file and fixed by a reload: " + ", ".join(found)
 
 
 def build_walker() -> None:

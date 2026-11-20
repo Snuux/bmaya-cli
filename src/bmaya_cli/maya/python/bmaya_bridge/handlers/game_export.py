@@ -326,9 +326,10 @@ def export_game_file(params: dict[str, Any]) -> dict[str, Any]:
     flag = number(node, "exportSetIndex") != EXPORT_ALL
     kept: dict[str, list[Any]] = {}
     current = mel.eval("bmaya_gameExporterNode()")
+    reloaded = False
     with scene_kept():
-        if kind != "model":
-            reload_fbx_plugin()
+        if bool_param(params, "reload_fbx"):
+            reloaded = reload_fbx_plugin()
         mel.eval("FBXPushSettings")
         try:
             apply_node_settings(node)
@@ -354,4 +355,6 @@ def export_game_file(params: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"path": path, "size": os.path.getsize(path)}
     if retried:
         result["retried"] = True
+    if reloaded:
+        result["reloaded"] = True
     return result

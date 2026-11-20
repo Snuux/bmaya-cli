@@ -68,7 +68,10 @@ def mel_bool(value: bool) -> str:
 
 
 def reload_fbx_plugin() -> bool:
-    """The plugin keeps baking at the frame rate of an earlier export until it is reloaded."""
+    """The plugin can keep baking at the frame rate of an earlier export until it is reloaded.
+
+    Reloading puts the exporter's settings back to its defaults, so it is done only when the
+    command line found keys baked at the wrong rate in the written file."""
     if not cmds.pluginInfo("fbxmaya", query=True, loaded=True):
         return False
     try:
@@ -311,8 +314,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     issues = check_shapes(nodes, bool_param(params, "ignore_checks"))
     expected = expectation(nodes, options)
     ensure_fbx_plugin()
-    if animation:
-        reload_fbx_plugin()
+    reloaded = bool_param(params, "reload_fbx") and reload_fbx_plugin()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         apply_options(options)
@@ -333,4 +335,6 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     }
     if retried:
         result["retried"] = True
+    if reloaded:
+        result["reloaded"] = True
     return result

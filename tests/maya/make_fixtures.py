@@ -47,7 +47,11 @@ def new_scene(unit: str = "cm", time: str = "ntsc") -> None:
 
 
 def export(
-    path: Path, animation: bool = False, bake: tuple[float, float] = (0, 0), **extra: object
+    path: Path,
+    animation: bool = False,
+    bake: tuple[float, float] = (0, 0),
+    reload: bool = True,
+    **extra: object,
 ) -> None:
     from bmaya_bridge.handlers import export as exporting
 
@@ -55,9 +59,10 @@ def export(
     options.update(exporting.COMMON_OPTIONS)
     options["animation"] = animation
     options["bake"] = list(bake)
+    options["take"] = path.stem
     options.update(extra)
     exporting.ensure_fbx_plugin()
-    if animation:
+    if animation and reload:
         # The plugin keeps baking at the frame rate of an earlier export until it is reloaded.
         cmds.unloadPlugin("fbxmaya")
         cmds.loadPlugin("fbxmaya")
@@ -204,6 +209,17 @@ def make_spin(folder: Path) -> dict[str, Any]:
     }
 
 
+def make_stale(folder: Path) -> None:
+    """A 30 fps file whose keys came out 1/24 s apart: what the plugin writes after a 24 fps
+    export in the same Maya."""
+    for unit, name in (("film", "stale_before.fbx"), ("ntsc", "stale_rate.fbx")):
+        new_scene(time=unit)
+        cube = cmds.polyCube(name="paced")[0]
+        cmds.setKeyframe(cube, attribute="translateY", time=0, value=0)
+        cmds.setKeyframe(cube, attribute="translateY", time=16, value=5)
+        export(folder / name, animation=True, bake=(0, 16), reload=unit == "film")
+
+
 def main() -> int:
     global cmds, mel, om
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "C:/bmaya_fixtures")
@@ -233,9 +249,10 @@ def main() -> int:
             "clip_spin.fbx": make_spin(out),
         }
         truth["walker_7400.fbx"] = truth["walker.fbx"]
+        make_stale(out)
         (out / "fixtures.json").write_text(json.dumps(truth, indent=1, sort_keys=True) + "\n")
         FIXTURES.mkdir(exist_ok=True)
-        for name in [*truth, "crate_ascii.fbx", "crate.png", "fixtures.json"]:
+        for name in [*truth, "crate_ascii.fbx", "stale_rate.fbx", "crate.png", "fixtures.json"]:
             shutil.copy2(out / name, FIXTURES / name)
     finally:
         maya.standalone.uninitialize()

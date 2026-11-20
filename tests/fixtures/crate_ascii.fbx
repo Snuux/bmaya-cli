@@ -9,10 +9,10 @@ FBXHeaderExtension:  {
 		Year: 2026
 		Month: 11
 		Day: 20
-		Hour: 14
-		Minute: 31
-		Second: 25
-		Millisecond: 4
+		Hour: 15
+		Minute: 18
+		Second: 20
+		Millisecond: 84
 	}
 	Creator: "FBX SDK/FBX Plugins version 2020.3.9"
 	OtherFlags:  {
@@ -37,13 +37,13 @@ FBXHeaderExtension:  {
 			P: "Original|ApplicationVendor", "KString", "", "", "Autodesk"
 			P: "Original|ApplicationName", "KString", "", "", "Maya"
 			P: "Original|ApplicationVersion", "KString", "", "", "2027"
-			P: "Original|DateTime_GMT", "DateTime", "", "", "20/11/2026 10:31:25.004"
+			P: "Original|DateTime_GMT", "DateTime", "", "", "20/11/2026 11:18:20.084"
 			P: "Original|FileName", "KString", "", "", "C:\bmaya_fixtures\crate_ascii.fbx"
 			P: "LastSaved", "Compound", "", ""
 			P: "LastSaved|ApplicationVendor", "KString", "", "", "Autodesk"
 			P: "LastSaved|ApplicationName", "KString", "", "", "Maya"
 			P: "LastSaved|ApplicationVersion", "KString", "", "", "2027"
-			P: "LastSaved|DateTime_GMT", "DateTime", "", "", "20/11/2026 10:31:25.004"
+			P: "LastSaved|DateTime_GMT", "DateTime", "", "", "20/11/2026 11:18:20.084"
 			P: "Original|ApplicationActiveProject", "KString", "", "", "C:\bmaya_fixtures"
 		}
 	}
@@ -79,7 +79,7 @@ GlobalSettings:  {
 
 Documents:  {
 	Count: 1
-	Document: 2113419513776, "", "Scene" {
+	Document: 2165591169648, "", "Scene" {
 		Properties70:  {
 			P: "SourceObject", "object", "", ""
 			P: "ActiveAnimStackName", "KString", "", "", "Take 001"
@@ -274,7 +274,7 @@ Definitions:  {
 ;------------------------------------------------------------------
 
 Objects:  {
-	Geometry: 2113409392176, "Geometry::", "Mesh" {
+	Geometry: 2165591255728, "Geometry::", "Mesh" {
 		Vertices: *24 {
 			a: -50,-50,50,50,-50,50,-50,50,50,50,50,50,-50,50,-50,50,50,-50,-50,-50,-50,50,-50,-50
 		} 
@@ -367,7 +367,7 @@ Objects:  {
 			}
 		}
 	}
-	Model: 2113419628800, "Model::crate", "Mesh" {
+	Model: 2165591444448, "Model::crate", "Mesh" {
 		Version: 232
 		Properties70:  {
 			P: "RotationActive", "bool", "", "",1
@@ -379,7 +379,7 @@ Objects:  {
 		Shading: T
 		Culling: "CullingOff"
 	}
-	Material: 2113413217744, "Material::crate_mat", "" {
+	Material: 2165585200208, "Material::crate_mat", "" {
 		Version: 102
 		ShadingModel: "lambert"
 		MultiLayer: 0
@@ -394,7 +394,7 @@ Objects:  {
 			P: "Opacity", "double", "Number", "",1
 		}
 	}
-	Video: 2113394759600, "Video::crate_file", "Clip" {
+	Video: 2165581855376, "Video::crate_file", "Clip" {
 		Type: "Clip"
 		Properties70:  {
 			P: "Path", "KString", "XRefUrl", "", "C:/bmaya_fixtures/crate.png"
@@ -404,7 +404,7 @@ Objects:  {
 		Filename: "C:/bmaya_fixtures/crate.png"
 		RelativeFilename: "crate.png"
 	}
-	Texture: 2113394759120, "Texture::crate_file", "" {
+	Texture: 2165581857296, "Texture::crate_file", "" {
 		Type: "TextureVideoClip"
 		Version: 202
 		TextureName: "Texture::crate_file"
@@ -429,17 +429,17 @@ Objects:  {
 Connections:  {
 	
 	;Model::crate, Model::RootNode
-	C: "OO",2113419628800,0
+	C: "OO",2165591444448,0
 	
 	;Texture::crate_file, Material::crate_mat
-	C: "OP",2113394759120,2113413217744, "DiffuseColor"
+	C: "OP",2165581857296,2165585200208, "DiffuseColor"
 	
 	;Video::crate_file, Texture::crate_file
-	C: "OO",2113394759600,2113394759120
+	C: "OO",2165581855376,2165581857296
 	
 	;Geometry::, Model::crate
-	C: "OO",2113409392176,2113419628800
+	C: "OO",2165591255728,2165591444448
 	
 	;Material::crate_mat, Model::crate
-	C: "OO",2113413217744,2113419628800
+	C: "OO",2165585200208,2165591444448
 }

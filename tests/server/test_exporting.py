@@ -95,6 +95,28 @@ def test_what_the_file_lacks_is_listed(
     ]
 
 
+def test_keys_at_a_stale_rate_are_exported_again_with_the_plugin_reloaded(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    calls = []
+    wanted = {"meshes": ["paced"], "joints": [], "takes": [], "fps": 30.0, "up": "y"}
+
+    def handler(params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(params)
+        fixture = "walker.fbx" if params.get("reload_fbx") else "stale_rate.fbx"
+        shutil.copy(FIXTURES / fixture, params["path"])
+        reply = {"path": params["path"], "expected": wanted}
+        if params.get("reload_fbx"):
+            reply["reloaded"] = True
+        return reply
+
+    code, out, _ = export(home, make_bridge, capsys, handler, str(tmp_path / "p.fbx"))
+    assert code == 0
+    assert [c.get("reload_fbx", False) for c in calls] == [False, True]
+    assert out["reloaded"] is True
+    assert not any("baked" in issue for issue in out["issues"]["items"]), out["issues"]
+
+
 def test_an_older_bridge_and_an_unreadable_file_still_report(
     home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
 ) -> None:
