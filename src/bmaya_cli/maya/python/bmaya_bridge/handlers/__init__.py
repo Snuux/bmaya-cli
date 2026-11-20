@@ -8,6 +8,7 @@ from maya import cmds
 
 from bmaya_bridge.handlers import (
     animation,
+    bones,
     execute,
     export,
     game_export,
@@ -55,6 +56,7 @@ UNRECORDED: dict[str, Handler] = {
     "plot_animation": without_undo(plot.plot_animation),
     "get_motion": without_undo(motion.get_motion),
     "get_rig_info": without_undo(rig.get_rig_info),
+    "get_bones": without_undo(bones.get_bones),
     "get_skin_info": without_undo(skin.get_skin_info),
     "save_skin_weights": without_undo(skin.save_skin_weights),
     "export_fbx": without_undo(export.export_fbx),
@@ -69,6 +71,8 @@ COMMANDS: dict[str, Handler] = {
     "reduce_mesh": modeling.reduce_mesh,
     "cleanup_mesh": modeling.cleanup_mesh,
     "edit_skin": skin.edit_skin,
+    "rebind_skin": skin.rebind_skin,
+    "set_pose": bones.set_pose,
     "scene_file": scene.scene_file,
     "undo": scene.undo,
     "stop": scene.stop,

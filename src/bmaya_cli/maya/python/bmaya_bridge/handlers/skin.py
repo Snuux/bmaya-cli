@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-import math
 import os
-from typing import Any, NamedTuple
+from typing import Any
 
 import maya.api.OpenMaya as om
 from maya import cmds
 
-from bmaya_bridge import skinweights
+from bmaya_bridge import skinweights, undoable
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
@@ -23,13 +22,17 @@ from bmaya_bridge.handlers._common import (
     text_param,
 )
 from bmaya_bridge.handlers._skin import (
+    AXES,
     BUDGET,
     METHODS,
+    Mirror,
     bind_pose,
     clusters_of,
     dag_path,
     influence_names,
+    parse_mirror,
     read_skin,
+    run_undoable,
     skin_fn,
     skin_issues,
     vertex_count,
@@ -46,17 +49,6 @@ MESHES_SHOWN = 50
 PLANE_SHARE = 1e-4
 SEARCH_SHARE = 0.05
 NORMALIZE = {0: "none", 1: "interactive", 2: "post"}
-AXES = "xyz"
-MIRROR_HINT = (
-    "Pass a world axis with the side the weights come from: --mirror +x copies the +x half "
-    "onto the -x half. The plane goes through 0; --mirror +x=12.5 moves it."
-)
-
-
-class Mirror(NamedTuple):
-    axis: int
-    sign: int
-    at: float
 
 
 def mesh_report(shape: str, budget: int, limit: int, verts_spec: str) -> dict[str, Any]:
@@ -203,28 +195,6 @@ def save_skin_weights(params: dict[str, Any]) -> dict[str, Any]:
         "joints": len(skin.names),
         "most_per_vertex": found.most,
     }
-
-
-def parse_mirror(raw: str) -> Mirror | None:
-    if not raw:
-        return None
-    text = raw.lower().replace(" ", "")
-    head, _, position = text.partition("=")
-    sign = 0
-    if head[:1] in "+-" and head:
-        sign = 1 if head[0] == "+" else -1
-        head = head[1:]
-    if head not in ("x", "y", "z"):
-        raise BridgeError(f"Bad mirror '{raw}'.", hint=MIRROR_HINT)
-    at = 0.0
-    if position:
-        try:
-            at = float(position)
-        except ValueError:
-            raise BridgeError(f"Bad mirror plane '{position}'.", hint=MIRROR_HINT) from None
-        if not math.isfinite(at):
-            raise BridgeError(f"Bad mirror plane '{position}'.", hint=MIRROR_HINT)
-    return Mirror(AXES.index(head), sign, at)
 
 
 def reflected(point: om.MPoint, mirror: Mirror | None) -> om.MPoint:
@@ -527,3 +497,105 @@ def edit_skin(params: dict[str, Any]) -> dict[str, Any]:
         "`bmaya undo` takes this edit back"
     )
     return result
+
+
+def mesh_points(node: om.MObject | om.MDagPath) -> list[om.MPoint]:
+    # Copies: the points of a dropped MPointArray dangle.
+    return [om.MPoint(point) for point in om.MFnMesh(node).getPoints()]
+
+
+def skin_input_points(cluster: str, shape: str) -> list[om.MPoint]:
+    """The points the skin cluster receives, after any deformer in front of it."""
+    fn = skin_fn(cluster)
+    index = fn.indexForOutputShape(dag_path(shape).node())
+    plug = om.MFnDependencyNode(fn.object()).findPlug("input", False)
+    data = plug.elementByLogicalIndex(index).child(0).asMObject()
+    return mesh_points(data)
+
+
+def bind_shape_node(cluster: str, shape: str) -> str:
+    fn = skin_fn(cluster)
+    geometry = fn.inputShapeAtIndex(fn.indexForOutputShape(dag_path(shape).node()))
+    if not geometry.hasFn(om.MFn.kMesh) or not geometry.hasFn(om.MFn.kDagNode):
+        raise BridgeError(
+            f"The skin '{cluster}' does not start from a mesh shape.",
+            hint="Rebind it in Maya, or bind a fresh copy with bmaya skin COPY --copy-from MESH.",
+        )
+    node = om.MFnDagNode(geometry).fullPathName()
+    if cmds.listConnections(node + ".inMesh", source=True, destination=False):
+        raise BridgeError(
+            f"'{display_name(node)}', the shape the skin starts from, has construction history.",
+            hint="Delete the history under the skin first: bmaya exec "
+            f"\"cmds.bakePartialHistory('{display_name(transform_of(shape))}', "
+            'prePostDeformers=True)".',
+        )
+    return node
+
+
+def set_points(node: str, points: list[om.MPoint]) -> None:
+    om.MFnMesh(dag_path(node)).setPoints(om.MPointArray(points))
+
+
+def new_bind_pose(cluster: str, joints: list[str]) -> str:
+    """A bind pose node of its own for the cluster, at the joints' current pose."""
+    old = cmds.listConnections(cluster + ".bindPose", source=True, destination=False) or []
+    name = f"{cluster}_bindPose"
+    pose = cmds.dagPose(joints, save=True, bindPose=True, name=name)
+    cmds.connectAttr(pose + ".message", cluster + ".bindPose", force=True)
+    for node in old:
+        if not cmds.listConnections(node + ".message", type="skinCluster"):
+            cmds.delete(node)
+    if pose != name and not cmds.objExists(name):
+        pose = cmds.rename(pose, name)
+    return pose
+
+
+def rebind_one(name: str, keep_shape: bool) -> dict[str, Any]:
+    shape, cluster = skinned_mesh(name)
+    fn = skin_fn(cluster)
+    influences = list(fn.influenceObjects())
+    moved = bind_pose(cluster)
+    shown = mesh_points(dag_path(shape))
+    origin = bind_shape_node(cluster, shape)
+    before = mesh_points(dag_path(origin))
+    after = before
+    if not keep_shape:
+        entering = skin_input_points(cluster, shape)
+        after = [before[index] + (shown[index] - entering[index]) for index in range(len(before))]
+    for path in influences:
+        index = fn.indexForInfluenceObject(path)
+        inverse = path.inclusiveMatrix().inverse()
+        cmds.setAttr(f"{cluster}.bindPreMatrix[{index}]", list(inverse), type="matrix")
+    cmds.setAttr(cluster + ".geomMatrix", list(dag_path(shape).inclusiveMatrix()), type="matrix")
+    if not keep_shape:
+        run_undoable(
+            undoable.Step(
+                do=lambda: set_points(origin, after), undo=lambda: set_points(origin, before)
+            )
+        )
+    pose = new_bind_pose(cluster, [path.fullPathName() for path in influences])
+    now = mesh_points(dag_path(shape))
+    jump = max([(now[index] - shown[index]).length() for index in range(len(now))] + [0.0])
+    entry: dict[str, Any] = {
+        "name": display_name(transform_of(shape)),
+        "skin": cluster,
+        "joints": len(influences),
+        "moved": listing(moved, NAMES_SHOWN),
+        "bind_pose": pose,
+        "mesh_moved": rnd(jump),
+    }
+    return entry
+
+
+def rebind_skin(params: dict[str, Any]) -> dict[str, Any]:
+    names = [name.strip() for name in text_param(params, "names").split(",") if name.strip()]
+    if not names:
+        raise BridgeError("Name the skinned meshes to rebind.", hint="bmaya skin hand_r --rebind")
+    keep_shape = bool_param(params, "keep_shape")
+    meshes = [rebind_one(name, keep_shape) for name in names]
+    return {
+        "meshes": meshes,
+        "shape": "bind" if keep_shape else "shown",
+        "next": "the skeleton's current pose is its bind pose now; `bmaya bones ROOT` shows it, "
+        "`bmaya undo` takes the rebind back",
+    }

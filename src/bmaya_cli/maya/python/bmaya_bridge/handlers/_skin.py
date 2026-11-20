@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, NamedTuple
 
 import maya.api.OpenMaya as om
@@ -7,17 +8,29 @@ import maya.api.OpenMayaAnim as oma
 from maya import cmds
 
 from bmaya_bridge import skinweights, undoable
+from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.skinweights import Row
 
 BUDGET = 4
 BIND_TOLERANCE = 1e-3
 METHODS = {0: "linear", 1: "dual quaternion", 2: "blended"}
+AXES = "xyz"
+MIRROR_HINT = (
+    "Pass a world axis with the side the weights come from: --mirror +x copies the +x half "
+    "onto the -x half. The plane goes through 0; --mirror +x=12.5 moves it."
+)
 
 
 def dag_path(node: str) -> om.MDagPath:
     selection = om.MSelectionList()
     selection.add(node)
     return selection.getDagPath(0)
+
+
+class Mirror(NamedTuple):
+    axis: int
+    sign: int
+    at: float
 
 
 class Skin(NamedTuple):
@@ -79,17 +92,22 @@ def write_rows(cluster: str, shape: str, rows: list[Row]) -> None:
     )
 
 
-def write_undoable(cluster: str, shape: str, before: list[Row], after: list[Row]) -> None:
+def run_undoable(step: undoable.Step) -> None:
+    """Runs an API edit as one entry in Maya's undo queue, through plug-ins/bmaya_undo.py."""
     path = str(undoable.plugin_path())
     if not cmds.pluginInfo(path, query=True, loaded=True):
         cmds.loadPlugin(path, quiet=True)
-    undoable.put(
+    undoable.put(step)
+    getattr(cmds, undoable.COMMAND)()
+
+
+def write_undoable(cluster: str, shape: str, before: list[Row], after: list[Row]) -> None:
+    run_undoable(
         undoable.Step(
             do=lambda: write_rows(cluster, shape, after),
             undo=lambda: write_rows(cluster, shape, before),
         )
     )
-    getattr(cmds, undoable.COMMAND)()
 
 
 def bind_pose(cluster: str) -> list[str]:
@@ -133,3 +151,25 @@ def audit_skin(shape: str) -> tuple[dict[str, Any] | None, list[str]]:
     found = skinweights.survey(skin.rows, skin.names, BUDGET)
     summary = {"name": skin.cluster, "influences": len(skin.names), "most_per_vertex": found.most}
     return summary, skin_issues(skin.cluster, shape, found, BUDGET)
+
+
+def parse_mirror(raw: str, hint: str = MIRROR_HINT) -> Mirror | None:
+    if not raw:
+        return None
+    text = raw.lower().replace(" ", "")
+    head, _, position = text.partition("=")
+    sign = 0
+    if head[:1] in "+-" and head:
+        sign = 1 if head[0] == "+" else -1
+        head = head[1:]
+    if head not in ("x", "y", "z"):
+        raise BridgeError(f"Bad mirror '{raw}'.", hint=hint)
+    at = 0.0
+    if position:
+        try:
+            at = float(position)
+        except ValueError:
+            raise BridgeError(f"Bad mirror plane '{position}'.", hint=hint) from None
+        if not math.isfinite(at):
+            raise BridgeError(f"Bad mirror plane '{position}'.", hint=hint)
+    return Mirror(AXES.index(head), sign, at)

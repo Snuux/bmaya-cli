@@ -1919,6 +1919,181 @@ def check_edit_refusals(saved: Path) -> str:
     return "refusals ok"
 
 
+def side_rig(prefix: str, parent_at: tuple[float, float, float] = (0.0, 0.0, 0.0)) -> list[str]:
+    """A right arm skinned to {prefix}_root and {prefix}_up_r, _lo_r, _end_r, no left side."""
+    cmds.select(clear=True)
+    root = cmds.joint(name=f"{prefix}_root", position=parent_at)
+    cmds.joint(name=f"{prefix}_up_r", position=(parent_at[0] + 2, 0, 0))
+    cmds.joint(name=f"{prefix}_lo_r", position=(parent_at[0] + 6, 0, 0.5))
+    cmds.joint(name=f"{prefix}_end_r", position=(parent_at[0] + 10, 0, 0))
+    cmds.joint(
+        f"{prefix}_up_r", edit=True, orientJoint="xyz", secondaryAxisOrient="yup", children=True
+    )
+    arm = arm_mesh(f"{prefix}_arm_r", parent_at[0] + 6)
+    joints = [root, f"{prefix}_up_r", f"{prefix}_lo_r", f"{prefix}_end_r"]
+    cmds.skinCluster(joints, arm, toSelectedBones=True, maximumInfluences=3)
+    return [root, arm]
+
+
+def world_at(node: str) -> list[float]:
+    return cmds.xform(node, query=True, worldSpace=True, translation=True)
+
+
+def shape_points(mesh: str) -> list[Any]:
+    shape = cmds.listRelatives(mesh, shapes=True, noIntermediate=True, fullPath=True)[0]
+    path = om.MSelectionList().add(shape).getDagPath(0)
+    return [om.MPoint(point) for point in om.MFnMesh(path).getPoints(om.MSpace.kWorld)]
+
+
+def check_get_bones() -> str:
+    made = arm_rig()
+    try:
+        report = assert_read_only("get_bones", names="skin_root")
+        assert report["from"] == "bind" and report["roots"] == ["skin_root"], report
+        joints = {entry["name"]: entry for entry in report["joints"]["items"]}
+        assert sorted(joints) == sorted(
+            ["skin_root", "up_r", "lo_r", "end_r", "up_l", "lo_l", "end_l"]
+        ), sorted(joints)
+        assert joints["up_r"]["twin"] == "up_l" and joints["lo_r"]["length"] == 4, joints
+        assert joints["up_r"]["aim"] == "+x", joints["up_r"]
+        assert joints["lo_r"]["verts"] > 0 and joints["lo_l"]["verts"] == 0, joints
+        pairs = report["pairs"]
+        assert pairs["paired"] == 3 and pairs["mirror"]["kinds"] == {"behavior": 3}, pairs
+        assert pairs["mirror"]["off"]["total"] == 0 and report["issues"] == [], report
+        assert report["unweighted"]["items"] == ["up_l", "lo_l", "end_l"], report["unweighted"]
+
+        axes = call("get_bones", names="up_r", axes=True)["joints"]["items"][0]
+        assert len(axes["axes"]) == 3, axes
+        cmds.setAttr("lo_r.rotateZ", 30)
+        posed = call("get_bones", names="arm_r")
+        assert posed["from"] == "bind" and len(posed["joints"]["items"]) == 4, posed
+        assert posed["skins"][0]["at_bind"] is False, posed["skins"]
+        assert {e["name"]: e for e in posed["joints"]["items"]}["lo_r"]["rotate"] == [0, 0, 30]
+        cmds.setAttr("lo_r.rotateZ", 0)
+
+        cmds.move(0, 0.5, 0, "lo_l", relative=True)
+        shifted = call("get_bones", names="skin_root")
+        assert any("twins stand off" in issue for issue in shifted["issues"]), shifted["issues"]
+        cmds.move(0, -0.5, 0, "lo_l", relative=True)
+
+        names = {"skin_root": "skin_root", "up_r": "up", "lo_r": "lo", "end_r": "end"}
+        reference = []
+        for name, short in names.items():
+            parent = (cmds.listRelatives(name, parent=True) or [""])[0]
+            at = [value / 100.0 for value in world_at(name)]
+            reference.append({"name": short, "parent": names.get(parent, ""), "at": at})
+        against = {"path": "ref.glb", "unit_scale": 100.0, "joints": reference}
+        same = call(
+            "get_bones", names="skin_root", against=against, rename="{}_r,skin_root=skin_root"
+        )
+        assert same["against"]["matched"] == 4 and same["against"]["extra"]["total"] == 3, same
+        assert same["against"]["moved"]["total"] == 0, same["against"]
+        reference[2]["at"] = [value + 0.01 for value in reference[2]["at"]]
+        off = call("get_bones", names="up_r", against=against, rename="{}_r")
+        assert off["against"]["moved"]["items"][0]["name"] == "lo_r", off["against"]
+
+        cmds.select(clear=True)
+        twin = cmds.joint(name="clash_top")
+        cmds.joint(name="lo_r", position=(0, 9, 0))
+        cmds.parent(twin, "skin_root")
+        clashing = call("get_bones", names="skin_root")
+        assert any("used twice" in issue for issue in clashing["issues"]), clashing["issues"]
+        expect_error("get_bones", "twice", names="skin_root", against=against)
+        cmds.delete(twin)
+        expect_error("get_bones", "No joints", names="skin_plain")
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+    return "bind positions, pairs, mirror kinds, unweighted, file compare with units, clashes ok"
+
+
+def check_set_pose() -> str:
+    made = arm_rig()
+    try:
+        cmds.setAttr("lo_r.rotateZ", 30)
+        cmds.setAttr("skin_root.translateY", 2)
+        cmds.setKeyframe("lo_r", attribute="rotateY", time=1, value=15)
+        cmds.currentTime(1)
+        cmds.flushUndo()
+        posed = call("set_pose", names="skin_root", bind=True)
+        assert posed["at_bind"] is True, posed
+        assert sorted(posed["posed"]["items"]) == ["lo_r", "skin_root"], posed
+        assert posed["keyed"]["items"] == ["lo_r"], posed
+        assert abs(cmds.getAttr("lo_r.rotateZ")) < 1e-6, cmds.getAttr("lo_r.rotateZ")
+        cmds.undo()
+        assert abs(cmds.getAttr("lo_r.rotateZ") - 30) < 1e-6, "undo did not bring the pose back"
+        cmds.redo()
+
+        handle = cmds.ikHandle(startJoint="up_r", endEffector="end_r", name="pose_ik")[0]
+        cmds.move(1, 3, 0, handle, relative=True)
+        held = call("set_pose", names="skin_root", bind=True)
+        why = {entry["name"]: entry["why"] for entry in held["skipped"]["items"]}
+        assert "IK handle" in why.get("up_r", ""), held
+        assert held["at_bind"] is False, held
+        cmds.delete(handle)
+        expect_error("set_pose", "pose", names="skin_root")
+        expect_error("set_pose", "bind pose", names="up_l", bind=True)
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+    return "bind pose back, keyed joints named, IK chains skipped, undo ok"
+
+
+def check_rebind_skin() -> str:
+    made = arm_rig()
+    try:
+        cmds.setAttr("lo_r.rotateZ", 40)
+        shown = shape_points("arm_r")
+        cmds.flushUndo()
+        rebound = call("rebind_skin", names="arm_r")
+        entry = rebound["meshes"][0]
+        assert entry["mesh_moved"] < 1e-4 and entry["moved"]["items"] == ["lo_r", "end_r"], entry
+        gap = max(p.distanceTo(q) for p, q in zip(shape_points("arm_r"), shown, strict=True))
+        assert gap < 1e-4, gap
+        cluster = entry["skin"]
+        assert call("get_skin_info", names="arm_r")["meshes"][0]["bind_pose"]["at"] is True
+        cmds.setAttr("lo_r.rotateZ", 0)
+        unposed = max(p.distanceTo(q) for p, q in zip(shape_points("arm_r"), shown, strict=True))
+        assert unposed > 1.0, "the mesh did not follow the joints after the rebind"
+        cmds.setAttr("lo_r.rotateZ", 40)
+        cmds.flushUndo()
+        call("rebind_skin", names="arm_r")
+        cmds.undo()
+        assert call("get_skin_info", names="arm_r")["meshes"][0]["bind_pose"]["at"] is True
+        cmds.setAttr("lo_r.rotateZ", 0)
+
+        cmds.setAttr("lo_r.rotateZ", 25)
+        kept = call("rebind_skin", names="arm_r", keep_shape=True)
+        assert kept["shape"] == "bind" and kept["meshes"][0]["mesh_moved"] > 1.0, kept
+        poses = cmds.listConnections(cluster + ".bindPose") or []
+        assert poses == [kept["meshes"][0]["bind_pose"]] == [cluster + "_bindPose"], poses
+        expect_error("rebind_skin", "no skin", names="skin_plain")
+        expect_error("rebind_skin", "Name", names="")
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+
+    cmds.select(clear=True)
+    root = cmds.joint(name="rb_root", position=(0, 0, 0))
+    cmds.joint(name="rb_mid", position=(0, 2, 0))
+    body = cmds.polyCylinder(name="rb_body", height=4, subdivisionsHeight=4)[0]
+    cmds.move(0, 2, 0, body)
+    cmds.makeIdentity(body, apply=True, translate=True)
+    cmds.delete(body, constructionHistory=True)
+    cmds.skinCluster([root, "rb_mid"], body, toSelectedBones=True)
+    smile = cmds.duplicate(body, name="rb_smile")[0]
+    cmds.move(0, 0.5, 0, smile + ".vtx[0:5]", relative=True)
+    shapes = cmds.blendShape(smile, body, name="rb_shapes", frontOfChain=True)[0]
+    cmds.delete(smile)
+    try:
+        cmds.setAttr(shapes + ".w[0]", 1.0)
+        cmds.setAttr("rb_mid.rotateZ", 20)
+        shown = shape_points(body)
+        call("rebind_skin", names=body)
+        chained = max(p.distanceTo(q) for p, q in zip(shape_points(body), shown, strict=True))
+        assert chained < 1e-4, f"rebind behind a blendShape moved the mesh by {chained}"
+    finally:
+        cmds.delete(body, root)
+    return f"posed rebind kept the mesh within {gap:.1e}, keep-shape, blendShape chain ok"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("projection", check_projection),
     ("sampling", check_sampling),
@@ -1951,6 +2126,9 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("get_skin_info", check_get_skin_info),
     ("save_skin_weights", check_save_skin_weights),
     ("edit_skin", check_edit_skin),
+    ("rebind_skin", check_rebind_skin),
+    ("get_bones", check_get_bones),
+    ("set_pose", check_set_pose),
     ("undo", check_undo),
     ("stop", check_stop),
 ]
