@@ -99,6 +99,7 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya remesh NAME [--to tris --edge L \| --to quads --faces N]` | Rebuilds the topology: even triangles, or quads with Maya's Retopologize. |
 | `bmaya reduce NAME --tris N \| --percent P [--keep-uvs] [--keep-borders] [--keep-hard-edges] [--keep-quads]` | Lowers the triangle count and keeps the shape. |
 | `bmaya cleanup NAME [--merge DIST] [--ngons]` | Merges vertices on the same spot, removes bad faces and edges, conforms the normals and turns them outward. |
+| `bmaya clip [NAME] [--add A:B\|N] [--set A:B\|N] [--remove [--keys]] [--node N] [--gap G]` | Clips: Game Exporter rows and bookmarks together, with what is off (ranges that differ, overlaps, rows not exported, clips without keys, keys of removed clips); adds, moves and removes a clip's row and bookmark in one undo step. |
 | `bmaya anim [NAME] [--plot -o FILE]` | Clips (Game Exporter, time slider bookmarks), curves, key ranges, fps, skeletons, skin clusters. `--plot` draws the node's curves as a PNG, like the Graph Editor. |
 | `bmaya skin [NAME ...] [--max N] [--verts SPEC]` | Skin report: influences and their vertex counts, the most per vertex, unused influences, bind pose, issues (over the influence limit, unnormalized, unweighted, dual quaternion). |
 | `bmaya skin NAME --save FILE \| --load FILE [--rename MAP] \| --copy-from SRC [--mirror AXIS] [--prune [MIN]] [--max N] [--normalize]` | Weights to and from a JSON file of `{joint: weight}` per vertex, copied from another mesh by closest point, mirrored with left/right joint pairs, pruned, capped, normalized. One undo step; binds a mesh that has no skin. |
@@ -141,7 +142,7 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 - [UVs and textures](docs/uv.md): the layout report, texture fit, the layout picture, comparing layouts, baking position and normal maps.
 - [Topology](docs/topology.md): edge loops around tubes, runs of loops, joint places, the loops picture.
 - [Skeletons and mirroring](docs/skeleton.md): the bones report, comparing with a game file, new axes, bind pose, rebinding, mirroring a skinned mesh.
-- [Animation](docs/animation.md): frame specs and clips, motion checks, rig inventory, trails, curve plots, previews.
+- [Animation](docs/animation.md): frame specs, listing and editing clips, motion checks, rig inventory, trails, curve plots, previews.
 - [Troubleshooting](docs/troubleshooting.md): common messages, the crash journal, where state is kept.
 
 ## Security

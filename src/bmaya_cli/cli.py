@@ -632,6 +632,55 @@ def build_parser() -> argparse.ArgumentParser:
     add_frames(anim, "frames to plot (default: the keys' range)")
     anim.add_argument("--size", type=int, default=0, help="width in pixels (default 1000)")
 
+    clip = add(
+        "clip",
+        "cmd_clip",
+        "list, add, move or remove clips: Game Exporter rows and bookmarks",
+        "Lists the scene's clips: the Game Exporter's animation rows and the time slider\n"
+        "bookmarks, one entry per name with its range (both ends are frames of the clip),\n"
+        "length, exporter row, bookmark and the keys inside. `issues` names what is off: a\n"
+        "bookmark and a row of one name with different ranges, clips that overlap, rows with\n"
+        "export off, bookmarks with no row (not exported), clips with no keys, keys far from\n"
+        "every clip (left by a clip that was removed), bookmarks the scene opened without\n"
+        "their plug-in. `outside` lists the spans of keys in no clip; spans next to a clip\n"
+        "are the extra keys a loop keeps past its ends.\n\n"
+        "--add makes a clip: a row in the scene's animation Game Exporter node (--node when\n"
+        "there are several; with none, only a bookmark) and a bookmark. --add 0:90 puts it on\n"
+        "frames 0 to 90 (--add=-30:0 for frames below 0); --add 90 makes it 90 frames long,\n"
+        "--gap frames (20) after the last clip and past the keys its loop keeps, on a\n"
+        "multiple of 10. --add on a clip that is only a bookmark gives it a row. --set moves\n"
+        "the range of the rows and bookmarks of that name together (--set 120 keeps the\n"
+        "start). --remove takes out the rows, moving the later rows down as the Game Exporter\n"
+        "does, and the bookmarks; with --keys also the keys inside the range and those a loop\n"
+        "keeps past its ends, but not frames another clip shares. The animation range grows\n"
+        "to hold a clip. Each edit is one undo step.",
+        examples(
+            "bmaya clip                              # every clip and what is off",
+            "bmaya clip fp_walk",
+            "bmaya clip fp_kick --add 40             # 40 frames after the last clip",
+            "bmaya clip zombie_bite --add 3200:3260 --node gameExporter_clips",
+            "bmaya clip fp_walk --set 290:350",
+            "bmaya clip fp_old --remove --keys",
+        ),
+    )
+    clip.add_argument("name", nargs="?", default="", help="the clip")
+    clip.add_argument(
+        "--add", default="", metavar="A:B|N", help="make the clip on frames A to B, or N long"
+    )
+    clip.add_argument(
+        "--set",
+        default="",
+        metavar="A:B|N",
+        help="move the clip to frames A to B, or make it N long",
+    )
+    clip.add_argument("--remove", action="store_true", help="take the row and the bookmark out")
+    clip.add_argument("--keys", action="store_true", help="with --remove: the keys inside too")
+    clip.add_argument("--node", default="", help="the Game Exporter node for --add")
+    clip.add_argument(
+        "--gap", default="", metavar="G", help="frames between clips for --add N (default 20)"
+    )
+    clip.add_argument("--limit", type=int, default=0, help="clips to list (default 100)")
+
     rig = add(
         "rig",
         "cmd_rig",

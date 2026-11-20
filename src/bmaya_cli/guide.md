@@ -125,7 +125,7 @@ Writing keys is plain `bmaya exec`. What you cannot do is watch the motion, so c
    - `bmaya motion root --clip walk --loop --contacts foot_l,foot_r`: fix each issue or know why it stays. Stepped keys pop by design, so run this after splining.
    - `bmaya shot --clip walk --camera side --fit hero --trail hand_r,foot_l`: arcs and spacing.
    - `bmaya anim hips --plot -o hips.png`: eases, overshoot, holds, cycle ends.
-4. Register the clip as a Game Exporter clip or a time slider bookmark (recipe below), so `--clip NAME` and `bmaya export --clip NAME` find it.
+4. Register the clip with `bmaya clip walk --add 0:32`: a bookmark, so `--clip NAME` and `bmaya export --clip NAME` find it, and a Game Exporter row when the scene has an animation Game Exporter node, so `bmaya export --game-exporter` exports it too (one is made in File > Game Exporter, Animation Clips tab).
 5. `bmaya playblast walk.gif --clip walk --camera side --fit hero` when the user wants to watch it.
 
 Pass `bmaya motion` the nodes of the clip you check (a group name means everything under it, a skeleton's top joint the whole skeleton): without names it takes the selection, or every animated node in the scene, so other characters' cycles show up as issues and widen the limits. Put every node that touches the ground in `--contacts`, toes included. Shots draw geometry only: a bare skeleton shows nothing, so give it proxy meshes or look at it through `--trail`.
@@ -134,7 +134,8 @@ For game clips: the last frame of a cycle repeats the first pose (`bmaya motion 
 
 The commands:
 
-- `bmaya anim` lists the clips: Game Exporter clips and time slider bookmarks, with their frame ranges. Commands that take `--frames` also take `--clip NAME`.
+- `bmaya clip` lists the clips (Game Exporter rows and time slider bookmarks, one entry per name) with their ranges, lengths and keys, and `issues`: a row and a bookmark of one name with different ranges, overlaps, export off, bookmarks with no row (not exported), clips with no keys, keys left far from every clip. Commands that take `--frames` also take `--clip NAME`.
+- `bmaya clip NAME --add 0:90` makes a clip on frames 0 to 90 (`--add 90`: 90 frames after the last clip, `--gap` apart); `--set 0:120` moves both its row and its bookmark; `--remove` takes it out (`--keys`: the keys inside too). Each is one undo step. Use it instead of setting `animClips` attributes and bookmark nodes by hand; without a window the bookmark API fails, and a bookmark made before its plug-in loads becomes an unknown node.
 - `bmaya rig [ROOT]` before animating someone else's rig: which controls to key, which attributes are `driven` (keys on them do nothing), limits, rotate orders, IK handles with their pole and driver, and switches like `ik` that blend IK and FK.
 - `bmaya motion root --clip walk --loop --contacts foot_l,foot_r` checks motion frame by frame, in numbers: pops, flips, foot slide, sinking, a loop seam that does not close, Euler jumps, keys between frames, outside clips or missing on a clip's edge. Each issue names the node, the frames and how big it is. Run it after every change to an animation; a picture shows a pose, not a one-frame pop. `--values` adds world positions per frame, `--attrs rx,ik` lists attributes per frame.
 - `bmaya shot --clip walk --trail hand_r,foot_l --camera side` draws the world path of up to 4 nodes over the frames: a dot per frame shows spacing (dots close together are slow, far apart fast), a bigger numbered dot marks each key, a ring shows where the node is on each tile. Use it to judge arcs and eases.
@@ -303,17 +304,6 @@ cmds.filterCurve(cmds.listConnections(controls, type="animCurveTA"))
 cmds.snapKey(controls, timeMultiple=1)
 joints = cmds.ls("|root", dagObjects=True, type="joint", long=True)
 cmds.bakeResults(joints, time=(0, 32), simulation=True, sampleBy=1, preserveOutsideKeys=True)
-```
-
-```python
-# register a clip for `--clip walk` and for the Game Exporter
-cmds.loadPlugin("gameFbxExporter", quiet=True)
-exporter = (cmds.ls(type="gameFbxExporter") or [cmds.createNode("gameFbxExporter")])[0]
-used = cmds.getAttr(exporter + ".animClips", multiIndices=True) or []
-clip = f"{exporter}.animClips[{max(used) + 1 if used else 0}]"
-cmds.setAttr(clip + ".animClipName", "walk", type="string")
-cmds.setAttr(clip + ".animClipStart", 0)
-cmds.setAttr(clip + ".animClipEnd", 32)
 ```
 
 ```python

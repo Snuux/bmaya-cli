@@ -491,6 +491,34 @@ def test_diff_draws_the_moves_or_says_why_not(
     capsys.readouterr()
 
 
+def test_clip_lists_or_edits(home: Path, make_bridge: BridgeFactory, capsys: Output) -> None:
+    bridge = one_maya(home, make_bridge, {**echo("get_clips"), **echo("edit_clip")})
+    assert run(capsys, "clip")[1] == {"got": {"name": "", "limit": 0}}
+    assert run(capsys, "clip", "walk", "--add", "30", "--gap", "40")[1] == {
+        "got": {
+            "name": "walk",
+            "add": "30",
+            "set": "",
+            "remove": False,
+            "keys": False,
+            "node": "",
+            "gap": "40",
+        }
+    }
+    assert run(capsys, "clip", "walk", "--add", "30", "--gap", "0")[1]["got"]["gap"] == "0"
+    assert run(capsys, "clip", "walk", "--remove", "--keys")[1]["got"]["keys"] is True
+    requests = len(bridge.requests)
+    for argv in (
+        ["clip", "walk", "--add", "30", "--remove"],
+        ["clip", "walk", "--keys"],
+        ["clip", "walk", "--set", "0:9", "--node", "x"],
+        ["clip", "--add", "30"],
+    ):
+        assert main(argv) == commands.EXIT_USAGE, argv
+    assert len(bridge.requests) == requests
+    capsys.readouterr()
+
+
 def test_topo_report_and_picture(
     home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
 ) -> None:
@@ -739,7 +767,7 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
             assert f"bmaya {name}" in command.epilog
     for name in ("scene", "object", "exec", "shot", "audit", "anim", "export", "inspect", "file"):
         assert f"bmaya {name}" in guide
-    for name in ("undo", "motion", "rig", "playblast", "skin", "bones", "pose", "mirror"):
+    for name in ("undo", "motion", "rig", "playblast", "skin", "bones", "pose", "mirror", "clip"):
         assert f"bmaya {name}" in guide
     for name in ("views", "diff", "remesh", "reduce", "cleanup", "topo", "uv"):
         assert f"bmaya {name}" in guide

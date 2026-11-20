@@ -6,7 +6,35 @@ An agent writes keys with `bmaya exec` and `maya.cmds` like any other change. Wh
 
 Every command that takes frames reads the same spec: `1,12,24`, a range `0:30` (both ends included) or `0:30:2`. Frame 0 is a frame. Negative frames go as `--frames=-10:20`.
 
-`--clip NAME` takes a clip's range instead. Clips are read from the Game Exporter (`gameFbxExporter` `animClips`) and from time slider bookmarks; `bmaya anim` lists them. `bmaya export --clip NAME` bakes one clip.
+`--clip NAME` takes a clip's range instead. Clips are read from the Game Exporter (`gameFbxExporter` `animClips`) and from time slider bookmarks; `bmaya clip` lists them. `bmaya export --clip NAME` bakes one clip.
+
+## Clips
+
+`bmaya clip` lists the clips, one entry per name: a Game Exporter row and a bookmark of the same name are one clip. Each has its `range` (both ends are frames of the clip, as the Game Exporter keeps them: a clip of length 90 from frame 0 ends on frame 90), `length`, `exporter` and `index` of its row, `bookmark`, `export: false` when the row is switched off, and how many `keys` lie inside. `exporters` names the animation Game Exporter nodes. `bmaya clip NAME` shows one.
+
+`issues` says what is off:
+
+- a row and a bookmark of one name with different ranges;
+- clips that overlap;
+- rows with export off, and bookmarks with no row when the scene has rows: neither is exported by `bmaya export --game-exporter`;
+- clips with no keys;
+- keys far from every clip, left by a clip that was removed;
+- bookmarks that are `unknown` nodes because the scene was opened without the `timeSliderBookmark` plug-in.
+
+`outside` lists the spans of keys in no clip, with the nearest clip and how far it is. Spans right next to a clip are the extra keys a loop keeps one period past its ends so its curves run smoothly through the seam.
+
+Edits, each one undo step:
+
+| Command | Does |
+|---|---|
+| `bmaya clip NAME --add 0:90` | A row in the scene's animation Game Exporter node (`--node` when there are several; with none, only a bookmark) and a bookmark, on frames 0 to 90. |
+| `bmaya clip NAME --add 90` | The same, 90 frames long, starting `--gap` frames (20) after the last clip, and past the keys its loop keeps after its end, on a multiple of 10. `--add=-30:0` for frames below 0. On a clip that is only a bookmark, `--add` gives it a row. |
+| `bmaya clip NAME --set 0:120` | Moves the range of every row and bookmark of that name. `--set 120` keeps the start. |
+| `bmaya clip NAME --remove` | Takes out the rows and bookmarks. Rows after it move down one place, as the Game Exporter's own delete does: its window and export read rows 0 to size-1 only. `--keys` also clears the keys inside the range and those its loop keeps past its ends, but not frames another clip shares. |
+
+Rows in a model exporter or a referenced exporter, a referenced or locked bookmark, and an exporter whose rows skip an index or have no name are reported and not edited. The animation range grows to hold a new or moved clip. Bookmarks are made with `createNode` after loading their plug-in: the bookmark API needs a window (`$gPlayBackSlider`), and a bookmark node made while the plug-in is not loaded comes back as an unknown node.
+
+Keys stay where they are when a clip moves: `--set` changes the range, not the animation.
 
 ## Checking motion
 

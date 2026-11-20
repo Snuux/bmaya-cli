@@ -511,6 +511,34 @@ def cmd_bones(args: argparse.Namespace) -> int:
     return forward(args, "get_bones", params)
 
 
+def cmd_clip(args: argparse.Namespace) -> int:
+    edits = [
+        flag
+        for flag, on in (("--add", args.add), ("--set", args.set), ("--remove", args.remove))
+        if on
+    ]
+    if len(edits) > 1:
+        raise usage(f"{' and '.join(edits)} do not go together.", "bmaya clip NAME --add 0:30")
+    if args.keys and not args.remove:
+        raise usage("--keys goes with --remove.", "bmaya clip NAME --remove --keys")
+    if (args.node or args.gap) and not args.add:
+        raise usage("--node and --gap go with --add.", "bmaya clip NAME --add 30 --gap 20")
+    if edits and not args.name:
+        raise usage("Name the clip.", f"bmaya clip walk {edits[0]} ...")
+    if not edits:
+        return forward(args, "get_clips", {"name": args.name, "limit": args.limit})
+    params = {
+        "name": args.name,
+        "add": args.add,
+        "set": args.set,
+        "remove": args.remove,
+        "keys": args.keys,
+        "node": args.node,
+        "gap": args.gap,
+    }
+    return forward(args, "edit_clip", params)
+
+
 def cmd_pose(args: argparse.Namespace) -> int:
     if not args.bind:
         raise usage("Say which pose.", "bmaya pose ROOT --bind puts it at the bind pose.")
