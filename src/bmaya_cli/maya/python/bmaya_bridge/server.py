@@ -502,7 +502,7 @@ def _on_scene_new(*_: object) -> None:
 
 def _on_scene_saved(*_: object) -> None:
     _on_scene_renamed()
-    _take_baseline("saved")
+    _take_baseline("saved", only_if_clean=True)
 
 
 def _take_baseline(why: str, only_if_clean: bool = False) -> None:

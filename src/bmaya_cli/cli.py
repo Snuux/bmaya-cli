@@ -987,8 +987,9 @@ def build_parser() -> argparse.ArgumentParser:
         "Maya or by the user in its window: nodes `added`, `deleted` and `renamed`, and\n"
         "`changed` nodes with what changed (points, uvs, materials, translate, keys, path,\n"
         "weights...), changed scene `settings`, and the bmaya `commands` other than reads that\n"
-        "ran since, with their client. `same` is true when nothing differs; then a set\n"
-        "`modified` flag comes from a value set back, a selection or an export.",
+        "ran since, with their client. `same` is true when nothing it compares differs; then\n"
+        "a set `modified` flag comes from a value set back, a selection, an export, or an\n"
+        "edit of a kind it does not compare (docs/scene.md lists them).",
         examples(
             "bmaya file status                 # what changed since the last save",
             "bmaya file save",

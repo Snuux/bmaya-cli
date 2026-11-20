@@ -17,9 +17,16 @@ Signature = dict[str, Any]
 
 
 class Node(NamedTuple):
+    """`name` is the node's own name, so a rename is a rename; `label` is what the answer
+    shows (a DAG node's shortest unique path)."""
+
     name: str
     type: str
     sig: Signature
+    label: str = ""
+
+    def shown(self) -> str:
+        return self.label or self.name
 
 
 class Changes(NamedTuple):
@@ -37,28 +44,28 @@ def compare(
     after_settings: Signature,
 ) -> Changes:
     added = [
-        {"name": after[uuid].name, "type": after[uuid].type} for uuid in after if uuid not in before
+        {"name": after[key].shown(), "type": after[key].type} for key in after if key not in before
     ]
     deleted = [
-        {"name": before[uuid].name, "type": before[uuid].type}
-        for uuid in before
-        if uuid not in after
+        {"name": before[key].shown(), "type": before[key].type}
+        for key in before
+        if key not in after
     ]
     renamed = []
     changed = []
-    for uuid, now in after.items():
-        old = before.get(uuid)
+    for key, now in after.items():
+        old = before.get(key)
         if old is None:
             continue
         if old.name != now.name:
-            renamed.append({"from": old.name, "to": now.name})
+            renamed.append({"from": old.shown(), "to": now.shown()})
         what = [
             key
             for key in sorted(set(old.sig) | set(now.sig))
             if old.sig.get(key) != now.sig.get(key)
         ]
         if what:
-            changed.append({"name": now.name, "type": now.type, "what": what})
+            changed.append({"name": now.shown(), "type": now.type, "what": what})
     settings = [
         key
         for key in sorted(set(before_settings) | set(after_settings))

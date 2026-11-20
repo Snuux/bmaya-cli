@@ -12,22 +12,25 @@ import operator
 import os
 import time
 from datetime import datetime
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import maya.api.OpenMaya as om
 import maya.api.OpenMayaAnim as oma
 from maya import cmds
 
 from bmaya_bridge import scenediff
-from bmaya_bridge.handlers._common import listing, rnd
+from bmaya_bridge.handlers._common import listing, rnd, scene_kept
 from bmaya_bridge.scenediff import Node, Signature
+
+if TYPE_CHECKING:
+    from bmaya_bridge.dispatch import Job
 
 CHANGES_SHOWN = 30
 COMMANDS_SHOWN = 20
+SAMPLED_OVER = 200_000
+SAMPLES = 20_000
 STARTUP_CAMERAS = frozenset({"persp", "top", "front", "side"})
-KEPT_TYPES = frozenset(
-    {"gameFbxExporter", "timeSliderBookmark", "standardSurface", "surfaceShader", "dagPose"}
-)
+KEPT_TYPES = frozenset({"gameFbxExporter", "timeSliderBookmark", "dagPose"})
 KEPT_KINDS = (
     om.MFn.kDagNode,
     om.MFn.kAnimCurve,
@@ -39,13 +42,16 @@ KEPT_KINDS = (
     om.MFn.kBump,
     om.MFn.kSet,
 )
-CHANNELS = ("translate", "rotate", "scale")
+CHANNELS = ("translate", "rotate", "scale", "shear", "rotateAxis")
+JOINT_PLUGS = ("jointOrient", "preferredAngle")
+SHADERS: list[frozenset[str]] = []
 
 
 class Baseline(NamedTuple):
     taken: str
     exact: str
     why: str
+    frame: float
     scene: str
     file_time: float | None
     nodes: dict[str, Node]
@@ -55,10 +61,16 @@ class Baseline(NamedTuple):
 BASELINE: list[Baseline] = []
 
 
+def shader_types() -> frozenset[str]:
+    if not SHADERS:
+        SHADERS.append(frozenset(cmds.listNodeTypes("shader") or []))
+    return SHADERS[0]
+
+
 def kept(obj: om.MObject, fn: om.MFnDependencyNode) -> bool:
     if fn.isDefaultNode or fn.isShared:
         return False
-    if fn.typeName in KEPT_TYPES:
+    if fn.typeName in KEPT_TYPES or fn.typeName in shader_types():
         return True
     return any(obj.hasFn(kind) for kind in KEPT_KINDS)
 
@@ -77,14 +89,27 @@ def plug_values(fn: om.MFnDependencyNode, name: str) -> tuple[float, ...]:
     return (scenediff.rounded(plug.asDouble()),)
 
 
+def uuid_of(obj: om.MObject) -> str:
+    return om.MFnDependencyNode(obj).uuid().asString()
+
+
 def transform_sig(obj: om.MObject, fn: om.MFnDependencyNode) -> Signature:
     sig: Signature = {channel: plug_values(fn, channel) for channel in CHANNELS}
+    sig["rotateOrder"] = fn.findPlug("rotateOrder", False).asInt()
+    sig["inheritsTransform"] = fn.findPlug("inheritsTransform", False).asBool()
     if obj.hasFn(om.MFn.kJoint):
-        sig["jointOrient"] = plug_values(fn, "jointOrient")
+        for name in JOINT_PLUGS:
+            sig[name] = plug_values(fn, name)
+        sig["segmentScaleCompensate"] = fn.findPlug("segmentScaleCompensate", False).asBool()
     sig["visibility"] = fn.findPlug("visibility", False).asBool()
     dag = om.MFnDagNode(obj)
-    sig["parent"] = om.MFnDagNode(dag.parent(0)).fullPathName() if dag.parentCount() else ""
+    sig["parent"] = uuid_of(dag.parent(0)) if dag.parentCount() else ""
     return sig
+
+
+def spread(count: int) -> range:
+    """Every point of a mesh, or an even sample of a big one."""
+    return range(0, count, max(1, count // SAMPLES) if count > SAMPLED_OVER else 1)
 
 
 def mesh_sig(obj: om.MObject) -> Signature:
@@ -92,22 +117,48 @@ def mesh_sig(obj: om.MObject) -> Signature:
     sig: Signature = {"intermediate": dag.isIntermediateObject}
     try:
         mesh = om.MFnMesh(obj)
-        points = mesh.getPoints()
+        count = mesh.numVertices
     except (RuntimeError, ValueError):
         return {**sig, "geometry": "none"}
-    flat = list(itertools.chain.from_iterable(map(tuple, points)))
-    sig["topology"] = (mesh.numVertices, mesh.numPolygons, mesh.numEdges)
+    sig["topology"] = (count, mesh.numPolygons, mesh.numEdges)
+    if count > SAMPLED_OVER:
+        flat = []
+        for index in spread(count):
+            point = mesh.getPoint(index)
+            flat.extend((point.x, point.y, point.z))
+        sig["sampled"] = True
+    else:
+        points = mesh.getPoints()
+        flat = list(itertools.chain.from_iterable(map(tuple, points)))
     sig["points"] = scenediff.checksum(flat)
-    if mesh.numUVs():
-        us, vs = mesh.getUVs()
-        _, ids = mesh.getAssignedUVs()
-        ids = list(ids)
-        if ids:
-            pick = operator.itemgetter(*ids)
-            sig["uvs"] = scenediff.checksum(both(pick(us), pick(vs), len(ids)), 5)
-    engines = cmds.listConnections(dag.fullPathName(), type="shadingEngine") or []
-    sig["materials"] = tuple(sorted(set(engines)))
+    if mesh.numUVs() and count <= SAMPLED_OVER:
+        names = mesh.getUVSetNames()
+        sig["uv_sets"] = tuple(names)
+        for name in names:
+            sig["uvs " + name] = uv_checksum(mesh, name)
+    if not dag.isIntermediateObject:
+        sig["materials"] = materials(obj, mesh)
     return sig
+
+
+def uv_checksum(mesh: om.MFnMesh, uv_set: str) -> float:
+    us, vs = mesh.getUVs(uv_set)
+    _, ids = mesh.getAssignedUVs(uv_set)
+    ids = list(ids)
+    if not ids or not len(us):
+        return 0.0
+    pick = operator.itemgetter(*ids)
+    return scenediff.checksum(both(pick(us), pick(vs), len(ids)), 5)
+
+
+def materials(obj: om.MObject, mesh: om.MFnMesh) -> tuple[Any, ...]:
+    """The shading engines of the mesh's first instance and which face each one gets."""
+    paths = om.MDagPath.getAllPathsTo(obj)
+    if not len(paths):
+        return ()
+    sets, faces = mesh.getConnectedShaders(paths[0].instanceNumber())
+    engines = tuple(uuid_of(sets[index]) for index in range(len(sets)))
+    return engines + (scenediff.checksum([float(face) for face in faces]),)
 
 
 def both(us: float | tuple[float, ...], vs: float | tuple[float, ...], count: int) -> list[float]:
@@ -120,11 +171,41 @@ def both(us: float | tuple[float, ...], vs: float | tuple[float, ...], count: in
     return out
 
 
+def curve_cvs_sig(obj: om.MObject) -> Signature:
+    if obj.hasFn(om.MFn.kNurbsCurve):
+        shape = om.MFnNurbsCurve(obj)
+        form = (shape.degree, shape.numCVs, shape.form)
+    else:
+        shape = om.MFnNurbsSurface(obj)
+        form = (shape.degreeInU, shape.degreeInV, shape.numCVsInU, shape.numCVsInV)
+    points = shape.cvPositions()
+    flat = list(itertools.chain.from_iterable(map(tuple, points)))
+    return {"form": form, "points": scenediff.checksum(flat)}
+
+
 def curve_sig(obj: om.MObject) -> Signature:
+    """Keys, tangents and infinity. A driven key's input is a number, not a time."""
     curve = oma.MFnAnimCurve(obj)
-    times = [curve.input(k).asUnits(om.MTime.kSeconds) for k in range(curve.numKeys)]
-    values = [curve.value(k) for k in range(curve.numKeys)]
-    return {"keys": (curve.numKeys, scenediff.checksum(times), scenediff.checksum(values))}
+    inputs = []
+    values = []
+    tangents = []
+    for index in range(curve.numKeys):
+        moment = curve.input(index)
+        inputs.append(
+            moment.asUnits(om.MTime.kSeconds) if isinstance(moment, om.MTime) else float(moment)
+        )
+        values.append(curve.value(index))
+        tangents.append(float(curve.inTangentType(index)))
+        tangents.append(float(curve.outTangentType(index)))
+        for side in (True, False):
+            x, y = curve.getTangentXY(index, side)
+            tangents.append(x)
+            tangents.append(y)
+    return {
+        "keys": (curve.numKeys, scenediff.checksum(inputs), scenediff.checksum(values)),
+        "tangents": (curve.isWeighted, scenediff.checksum(tangents)),
+        "infinity": (curve.preInfinityType, curve.postInfinityType),
+    }
 
 
 def skin_sig(obj: om.MObject) -> Signature:
@@ -132,15 +213,35 @@ def skin_sig(obj: om.MObject) -> Signature:
     flat: list[float] = []
     for index in range(skin.numOutputConnections()):
         path = skin.getPathAtIndex(skin.indexForOutputConnection(index))
-        component = om.MFnSingleIndexedComponent()
-        every = component.create(om.MFn.kMeshVertComponent)
-        component.setCompleteData(om.MFnMesh(path).numVertices)
+        every = om.MObject()
+        if path.hasFn(om.MFn.kMesh):
+            component = om.MFnSingleIndexedComponent()
+            every = component.create(om.MFn.kMeshVertComponent)
+            component.addElements(list(spread(om.MFnMesh(path).numVertices)))
         weights, _ = skin.getWeights(path, every)
         flat.extend(weights)
     return {"weights": scenediff.checksum(flat, 5), "influences": len(skin.influenceObjects())}
 
 
-def other_sig(fn: om.MFnDependencyNode) -> Signature:
+def shader_sig(fn: om.MFnDependencyNode) -> Signature:
+    """The material's own numbers (colors, weights, roughness...), not those that come from
+    a connected texture."""
+    values = []
+    for index in range(fn.attributeCount()):
+        attribute = fn.attribute(index)
+        if not attribute.hasFn(om.MFn.kNumericAttribute):
+            continue
+        plug = fn.findPlug(attribute, False)
+        if plug.isArray or plug.isDestination or not om.MFnAttribute(attribute).writable:
+            continue
+        try:
+            values.append(plug.asDouble())
+        except RuntimeError:
+            continue
+    return {"settings": scenediff.checksum(values, 4)}
+
+
+def other_sig(obj: om.MObject, fn: om.MFnDependencyNode) -> Signature:
     name = fn.name()
     kind = fn.typeName
     if kind == "file":
@@ -163,11 +264,14 @@ def other_sig(fn: om.MFnDependencyNode) -> Signature:
             rows.append(
                 (
                     cmds.getAttr(plug + ".animClipName") or "",
-                    cmds.getAttr(plug + ".animClipStart"),
-                    cmds.getAttr(plug + ".animClipEnd"),
+                    seconds(cmds.getAttr(plug + ".animClipStart")),
+                    seconds(cmds.getAttr(plug + ".animClipEnd")),
+                    bool(cmds.getAttr(plug + ".exportAnimClip")),
                 )
             )
         return {"clips": tuple(rows), "path": cmds.getAttr(name + ".exportPath") or ""}
+    if obj.hasFn(om.MFn.kLambert) or kind in shader_types():
+        return shader_sig(fn)
     return {}
 
 
@@ -181,27 +285,43 @@ def signature(obj: om.MObject, fn: om.MFnDependencyNode) -> Signature:
         return transform_sig(obj, fn)
     if obj.hasFn(om.MFn.kMesh):
         return mesh_sig(obj)
+    if obj.hasFn(om.MFn.kNurbsCurve) or obj.hasFn(om.MFn.kNurbsSurface):
+        return curve_cvs_sig(obj)
     if obj.hasFn(om.MFn.kAnimCurve):
         return curve_sig(obj)
     if obj.hasFn(om.MFn.kSkinClusterFilter):
         return skin_sig(obj)
-    return other_sig(fn)
+    return other_sig(obj, fn)
 
 
-def node_name(obj: om.MObject, fn: om.MFnDependencyNode) -> str:
+def safe_signature(obj: om.MObject, fn: om.MFnDependencyNode) -> Signature:
+    """A node that cannot be read is kept by name with its error, so one odd node does not
+    lose the whole snapshot."""
+    try:
+        return signature(obj, fn)
+    except Exception as error:
+        return {"unreadable": type(error).__name__}
+
+
+def label_of(obj: om.MObject, fn: om.MFnDependencyNode) -> str:
     if obj.hasFn(om.MFn.kDagNode):
         return om.MFnDagNode(obj).partialPathName()
     return fn.name()
 
 
 def snapshot() -> dict[str, Node]:
+    """Kept nodes by UUID. A file referenced twice gives its nodes the same UUID in both
+    namespaces, so a UUID seen again is keyed with the namespace too."""
     nodes: dict[str, Node] = {}
     found = om.MItDependencyNodes()
     while not found.isDone():
         obj = found.thisNode()
         fn = om.MFnDependencyNode(obj)
         if kept(obj, fn) and not startup_camera(obj):
-            nodes[fn.uuid().asString()] = Node(node_name(obj, fn), fn.typeName, signature(obj, fn))
+            key = fn.uuid().asString()
+            if key in nodes:
+                key = f"{key}@{fn.namespace}"
+            nodes[key] = Node(fn.name(), fn.typeName, safe_signature(obj, fn), label_of(obj, fn))
         found.next()
     return nodes
 
@@ -223,21 +343,34 @@ def file_time(path: str) -> float | None:
 
 
 def take_baseline(why: str) -> None:
-    """Remembers the scene as it is now; the bridge calls this after open, new and save."""
+    """Remembers the scene as it is now, at the current frame; the bridge calls this after
+    open, new and save. Commands count from the moment it is taken, or from the start of
+    the bmaya command that made it, unless that was `bmaya file` itself."""
     scene = cmds.file(query=True, sceneName=True) or ""
     now = datetime.now()
-    BASELINE.clear()
-    BASELINE.append(
-        Baseline(
-            now.isoformat(timespec="seconds"),
-            now.isoformat(timespec="milliseconds"),
-            why,
-            scene,
-            file_time(scene),
-            snapshot(),
-            settings(),
-        )
+    exact = now.isoformat(timespec="milliseconds")
+    job = running_job()
+    if job is not None and job.command != "scene_file" and job.started:
+        exact = job.started
+    taken = Baseline(
+        now.isoformat(timespec="seconds"),
+        exact,
+        why,
+        cmds.currentTime(query=True),
+        scene,
+        file_time(scene),
+        snapshot(),
+        settings(),
     )
+    BASELINE.clear()
+    BASELINE.append(taken)
+
+
+def running_job() -> Job | None:
+    from bmaya_bridge import server
+
+    bridge = server.current()
+    return bridge.dispatcher.running if bridge is not None else None
 
 
 def take_baseline_if_clean(why: str) -> None:
@@ -247,10 +380,12 @@ def take_baseline_if_clean(why: str) -> None:
 
 def journal_commands(since: str) -> list[dict[str, str]]:
     from bmaya_bridge import server
+    from bmaya_bridge.handlers import UNRECORDED
 
     bridge = server.current()
     if bridge is None:
         return []
+    reads = set(UNRECORDED) | {"ping"}
     out = []
     try:
         with open(bridge.journal.path, encoding="utf-8") as handle:
@@ -261,7 +396,7 @@ def journal_commands(since: str) -> list[dict[str, str]]:
                     continue
                 if record.get("event") != "start" or record.get("t", "") < since:
                     continue
-                if record.get("command") in READ_ONLY:
+                if record.get("command") in reads:
                     continue
                 out.append(
                     {
@@ -273,34 +408,6 @@ def journal_commands(since: str) -> list[dict[str, str]]:
     except OSError:
         return []
     return out
-
-
-READ_ONLY = frozenset(
-    {
-        "ping",
-        "scene_status",
-        "get_scene_info",
-        "get_object_info",
-        "get_viewport_screenshot",
-        "render_frames",
-        "get_model_views",
-        "audit_mesh",
-        "diff_mesh",
-        "get_animation_info",
-        "plot_animation",
-        "get_motion",
-        "get_rig_info",
-        "get_skin_info",
-        "save_skin_weights",
-        "get_bones",
-        "get_topology",
-        "get_uv",
-        "bake_uv",
-        "export_fbx",
-        "plan_game_export",
-        "export_game_file",
-    }
-)
 
 
 def scene_status(params: dict[str, Any]) -> dict[str, Any]:
@@ -325,7 +432,10 @@ def scene_status(params: dict[str, Any]) -> dict[str, Any]:
     if base.file_time is not None and now is not None and abs(now - base.file_time) > 1e-3:
         result["file"]["changed_on_disk"] = True
     started = time.perf_counter()
-    found = scenediff.compare(base.nodes, snapshot(), base.settings, settings())
+    with scene_kept():
+        cmds.currentTime(base.frame, update=True)
+        nodes = snapshot()
+    found = scenediff.compare(base.nodes, nodes, base.settings, settings())
     result["added"] = listing(found.added, CHANGES_SHOWN)
     result["deleted"] = listing(found.deleted, CHANGES_SHOWN)
     result["renamed"] = listing(found.renamed, CHANGES_SHOWN)
@@ -336,6 +446,11 @@ def scene_status(params: dict[str, Any]) -> dict[str, Any]:
     result["commands"] = listing(commands, COMMANDS_SHOWN)
     same = not (found.added or found.deleted or found.renamed or found.changed or found.settings)
     result["same"] = same
+    if any(node.sig.get("sampled") for node in nodes.values()):
+        result["sampled"] = (
+            f"meshes over {SAMPLED_OVER} vertices are compared on {SAMPLES} of their points, "
+            "and without their UVs"
+        )
     if same and modified:
         result["note"] = (
             "the modified flag is set but nothing bmaya compares differs: a value set back, "

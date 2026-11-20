@@ -44,3 +44,12 @@ def test_checksum_sees_a_moved_value_and_ignores_noise() -> None:
     swapped = list(values)
     swapped[10], swapped[11] = swapped[11], swapped[10]
     assert scenediff.checksum(swapped) != base
+
+
+def test_a_new_path_is_not_a_rename_and_labels_are_shown() -> None:
+    before = {"a": Node("kid", "transform", {"tx": 0.0}, "grp|kid")}
+    after = {"a": Node("kid", "transform", {"tx": 0.0}, "grp2|kid")}
+    found = scenediff.compare(before, after, {}, {})
+    assert found.renamed == [] and found.changed == []
+    gone = scenediff.compare(before, {}, {}, {})
+    assert gone.deleted == [{"name": "grp|kid", "type": "transform"}]

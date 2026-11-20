@@ -8,6 +8,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
+from datetime import datetime
 from typing import Any
 
 from bmaya_bridge import clients
@@ -55,6 +56,7 @@ class Job:
         self.handler = handler
         self.params = params
         self.undo_chunk = undo_chunk
+        self.started = ""
         self.done = threading.Event()
         self.ok = False
         self.result: dict[str, Any] | None = None
@@ -83,6 +85,11 @@ class Dispatcher:
     @property
     def busy(self) -> bool:
         return self._running is not None or bool(self._queue)
+
+    @property
+    def running(self) -> Job | None:
+        """The job on the main thread now; handlers and Maya callbacks run inside it."""
+        return self._running
 
     def submit(
         self,
@@ -126,6 +133,7 @@ class Dispatcher:
 
     def _run(self, job: Job) -> None:
         self._running = job
+        job.started = datetime.now().isoformat(timespec="milliseconds")
         started = time.perf_counter()
         details = ""
         try:
