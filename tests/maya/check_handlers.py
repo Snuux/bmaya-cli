@@ -884,6 +884,139 @@ def check_export_refusals(target: Path) -> str:
     return "empty and inside-out meshes refused, retry once, unchanged file caught"
 
 
+def game_exporter_scene() -> tuple[str, str, str]:
+    from bmaya_bridge.handlers.game_export import load_game_exporter
+
+    load_game_exporter()
+    texture = make_texture(8, "skin.png")
+    material = cmds.shadingNode("lambert", asShader=True, name="game_mat")
+    engine = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name="game_matSG")
+    cmds.connectAttr(material + ".outColor", engine + ".surfaceShader")
+    file_node = cmds.shadingNode("file", asTexture=True, name="game_file")
+    cmds.setAttr(file_node + ".fileTextureName", texture, type="string")
+    cmds.setAttr(file_node + ".colorSpace", "Raw", type="string")
+    cmds.connectAttr(file_node + ".outColor", material + ".color")
+    cmds.sets("body", edit=True, forceElement=engine)
+    cmds.sets("root", "body", name="game_model_set")
+    joints = cmds.ls("root", dagObjects=True, type="joint")
+    cmds.sets(joints, name="game_clip_set")
+    model = cmds.createNode("gameFbxExporter", name="game_model")
+    cmds.setAttr(model + ".exportTypeIndex", 1)
+    cmds.setAttr(model + ".exportSetIndex", 3)
+    cmds.setAttr(model + ".selectionSetName", "game_model_set", type="string")
+    cmds.setAttr(model + ".exportPath", (WORK_DIR / "game").as_posix(), type="string")
+    cmds.setAttr(model + ".exportFilename", "body", type="string")
+    cmds.setAttr(model + ".includeChildren", True)
+    clips = cmds.createNode("gameFbxExporter", name="game_clips")
+    cmds.setAttr(clips + ".exportTypeIndex", 2)
+    cmds.setAttr(clips + ".exportSetIndex", 3)
+    cmds.setAttr(clips + ".fileSplitType", 2)
+    cmds.setAttr(clips + ".selectionSetName", "game_clip_set", type="string")
+    cmds.setAttr(clips + ".exportPath", (WORK_DIR / "game" / "anim").as_posix(), type="string")
+    cmds.setAttr(clips + ".exportFilename", "hero_", type="string")
+    for index, name, start, end, on in (
+        (0, "spin", 1, 24, True),
+        (1, "nod", 2, 4, True),
+        (2, "off", 1, 5, False),
+    ):
+        plug = f"{clips}.animClips[{index}]"
+        cmds.setAttr(plug + ".animClipName", name, type="string")
+        cmds.setAttr(plug + ".animClipStart", start)
+        cmds.setAttr(plug + ".animClipEnd", end)
+        cmds.setAttr(plug + ".exportAnimClip", on)
+    return model, clips, file_node
+
+
+def check_plan_game_export() -> str:
+    made = game_exporter_scene()
+    try:
+        cmds.file(modified=False)
+        plan = assert_read_only("plan_game_export")
+        jobs = {job["path"].rsplit("/", 1)[-1]: job for job in plan["jobs"]}
+        assert set(jobs) == {"body.fbx", "hero_spin.fbx", "hero_nod.fbx"}, sorted(jobs)
+        assert {"node": "clips_exporter", "reason": "it has no export path"} in plan["skipped"], (
+            plan
+        )
+        model = jobs["body.fbx"]
+        assert model["kind"] == "model" and model["textures"][0]["node"] == "game_file", model
+        assert model["expected"]["meshes"] == ["body"], model["expected"]
+        assert jobs["hero_nod.fbx"]["frames"] == [2, 4], jobs["hero_nod.fbx"]
+        one = call("plan_game_export", node="game_clips", clip="nod")
+        assert [job["clip"] for job in one["jobs"]] == ["nod"], one
+        expect_error("plan_game_export", "game_clips", node="missing_node")
+        expect_error("plan_game_export", "no clip named 'walk'", node="game_clips", clip="walk")
+        assert not cmds.file(query=True, modified=True), "planning marked the scene modified"
+    finally:
+        cmds.delete(
+            [
+                node
+                for node in (*made[:2], "game_model_set", "game_clip_set")
+                if cmds.objExists(node)
+            ]
+        )
+    return "model and clip jobs, skipped nodes, clip filter, errors ok"
+
+
+def check_export_game_file() -> str:
+    from bmaya_cli.modelfile import compare, read
+
+    model, clips, file_node = game_exporter_scene()
+    try:
+        cmds.select("crate", replace=True)
+        cmds.file(modified=False)
+        plan = call("plan_game_export")
+        copied = (WORK_DIR / "game" / "skin_copy.png").as_posix()
+        for job in plan["jobs"]:
+            moves = {file_node: copied} if job["kind"] == "model" else {}
+            params = {k: job.get(k, "") for k in ("node", "kind", "clip", "path")}
+            reply = assert_read_only("export_game_file", textures=moves, **params)
+            contents = read(job["path"])
+            assert compare(contents, job["expected"]) == [], (
+                job["path"],
+                compare(contents, job["expected"]),
+            )
+            if job["kind"] == "clip":
+                assert [t.name for t in contents.takes] == [job["clip"]], contents.takes
+            else:
+                assert contents.meshes[0].influences == 3, contents.meshes
+                assert contents.textures[0].path.endswith("skin_copy.png"), contents.textures
+            assert reply["size"] == Path(job["path"]).stat().st_size, reply
+        assert cmds.getAttr(file_node + ".colorSpace") == "Raw", "color space not put back"
+        assert cmds.getAttr(file_node + ".fileTextureName").endswith("skin.png"), (
+            "path not put back"
+        )
+        assert cmds.ls(selection=True) == ["crate"], cmds.ls(selection=True)
+        assert not cmds.file(query=True, modified=True), "export marked the scene modified"
+        cmds.setAttr(model + ".includeChildren", False)
+        (job,) = call("plan_game_export", node=model)["jobs"]
+        assert set(job["expected"]["joints"]) == {"root", "spine", "head"}, job["expected"]
+        call("export_game_file", **{k: job[k] for k in ("node", "kind", "path")})
+        lost = compare(read(job["path"]), job["expected"])
+        assert lost == ["2 of 3 scene joints are not in the file: spine, head"], lost
+        cmds.setAttr(clips + ".exportFilename", "other_", type="string")
+        expect_error(
+            "export_game_file",
+            "changed since",
+            node=clips,
+            kind="clip",
+            clip="nod",
+            path=plan["jobs"][-1]["path"],
+        )
+    finally:
+        cmds.select(clear=True)
+        cmds.delete(
+            [
+                node
+                for node in (model, clips, "game_model_set", "game_clip_set")
+                if cmds.objExists(node)
+            ]
+        )
+    return (
+        f"{len(plan['jobs'])} files written as planned, one take each, texture copy and settings "
+        "put back, joints left out without children caught"
+    )
+
+
 def check_fbx_frame_rate() -> str:
     from bmaya_cli.modelfile import compare, read
 
@@ -1461,6 +1594,8 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("get_animation_info", check_get_animation_info),
     ("plot_animation", check_plot_animation),
     ("export_fbx", check_export_fbx),
+    ("plan_game_export", check_plan_game_export),
+    ("export_game_file", check_export_game_file),
     ("scene_file", check_scene_file),
     ("get_motion", check_get_motion),
     ("get_rig_info", check_get_rig_info),

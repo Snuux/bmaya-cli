@@ -214,18 +214,35 @@ def leaf(node: str) -> str:
     return node.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
 
 
-def expectation(nodes: list[str], options: dict[str, Any]) -> dict[str, Any]:
+def skin_joints(transforms: list[str]) -> list[str]:
+    """The joints the skins of these meshes need, wherever they are in the scene."""
+    out = []
+    for transform in transforms:
+        for skin in cmds.ls(cmds.listHistory(transform) or [], type="skinCluster"):
+            for joint in cmds.skinCluster(skin, query=True, influence=True) or []:
+                if joint not in out:
+                    out.append(joint)
+    return out
+
+
+def expectation(nodes: list[str], options: dict[str, Any], children: bool = True) -> dict[str, Any]:
     """What the written file should hold; the command line reads the file and compares."""
-    meshes = [leaf(transform) for transform in mesh_transforms(nodes)]
-    joints = []
+    transforms = mesh_transforms(nodes)
+    if not children:
+        transforms = [transform for transform in transforms if transform in nodes]
+    joints: list[str] = []
+    found = []
     for node in nodes:
-        found = cmds.listRelatives(node, allDescendents=True, type="joint", fullPath=True) or []
         if cmds.nodeType(node) == "joint":
             found.append(node)
-        for joint in reversed(found):
-            name = leaf(joint)
-            if name not in joints:
-                joints.append(name)
+        if children:
+            below = cmds.listRelatives(node, allDescendents=True, type="joint", fullPath=True)
+            found += reversed(below or [])
+    for joint in found + skin_joints(transforms):
+        name = leaf(joint)
+        if name not in joints:
+            joints.append(name)
+    meshes = [leaf(transform) for transform in transforms]
     takes = []
     if options["animation"]:
         takes.append({"name": options["take"], "frames": options["bake"]})

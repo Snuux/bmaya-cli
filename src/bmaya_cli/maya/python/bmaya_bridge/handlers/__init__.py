@@ -10,6 +10,7 @@ from bmaya_bridge.handlers import (
     animation,
     execute,
     export,
+    game_export,
     mesh,
     modeling,
     motion,
@@ -54,6 +55,8 @@ UNRECORDED: dict[str, Handler] = {
     "get_motion": without_undo(motion.get_motion),
     "get_rig_info": without_undo(rig.get_rig_info),
     "export_fbx": without_undo(export.export_fbx),
+    "plan_game_export": without_undo(game_export.plan_game_export),
+    "export_game_file": without_undo(game_export.export_game_file),
 }
 
 COMMANDS: dict[str, Handler] = {
