@@ -602,7 +602,8 @@ def build_parser() -> argparse.ArgumentParser:
         "how many pair up, whether they mirror each other (behavior or orientation, like\n"
         "mirrorJoint) and which stand off their mirror image; joint names used twice; bad\n"
         "scales; joints with no weight; skins away from their bind pose. Name a joint for\n"
-        "its chain, a group, or a skinned mesh for its skeleton.\n\n"
+        "its chain, a group for every joint under it and the joints that skin its meshes,\n"
+        "or a skinned mesh for its skeleton. Positions are in the scene's unit.\n\n"
         "--against FILE compares the skeleton with an .fbx, .glb or .gltf, read without\n"
         "Maya: names (map them with --rename), parents, positions in the scene's unit, axes\n"
         "and bone proportions. A skeleton that is the same but scaled, turned or moved shows\n"
@@ -679,8 +680,9 @@ def build_parser() -> argparse.ArgumentParser:
         "like mirrorJoint's behavior mode and named by side (hand_r/hand_l, L_hand,\n"
         "LeftHand), and the copy is bound to them with the source's weights, joints\n"
         "swapped. The source is mirrored at its bind pose, whatever pose it stands in.\n"
-        "A joint name mirrors that chain only. One undo step; `issues` lists what the copy\n"
-        "has wrong that the source has not.",
+        "A joint name mirrors only joints: the one-sided chain it is in, from the joint below\n"
+        "the middle of the body. One undo step; `issues` lists what the copy has wrong that\n"
+        "the source has not.",
         examples(
             "bmaya mirror hand_r",
             "bmaya mirror fp_zombie_arm_r          # mesh, joints and weights",

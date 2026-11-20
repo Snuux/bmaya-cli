@@ -4,7 +4,7 @@
 
 ## The report
 
-`bmaya bones [NAMES]` takes joints (a joint means its whole chain), groups, or skinned meshes (their skeleton). With no names it takes the selection, or every joint in the scene.
+`bmaya bones [NAMES]` takes joints (a joint means its whole chain), groups (every joint under them and the joints that skin their meshes), or skinned meshes (their skeleton). With no names it takes the selection, or every joint in the scene. Positions and lengths are in the scene's unit.
 
 Positions and axes are read at the bind pose, from each skin's `bindPreMatrix` (`from: bind`), so an animated scene reports the skeleton as it was bound. A skeleton that skins nothing is read as it stands (`from: scene`). Joints that skin nothing but hang under skinned ones are carried along by their own local matrices.
 
@@ -23,7 +23,7 @@ Each joint in `joints`:
 
 Then for the whole set:
 
-- `roots`, `skins` (each with `at_bind`, and the joints that `moved` from it);
+- `roots`, and `skins` (each with `at_bind`, and the joints that `moved` from it), as listings;
 - `pairs`: `paired`, `lonely` (sided names without a twin), and `mirror` with `kinds` and `off`. `kinds` counts twins whose axes are the negated mirror image (`behavior`, mirrorJoint's default: the same rotate values move both sides as mirror images), point the same way (`orientation`), or neither (`other`). `off` lists twins that stand away from the mirror image across `--mirror` (x through 0 by default; `--mirror x=12.5` moves the plane);
 - `clashes`, `scaled`, `zero_length`, `unweighted`, `between`.
 
@@ -43,13 +43,13 @@ Issues:
 |---|---|
 | `matched`, `missing`, `extra` | Joints found by name, joints of the file the scene lacks, scene joints the file lacks. |
 | `parents` | Joints under another parent than in the file. |
-| `place` | `off`: the farthest joint as they stand, in scene units (the file's unit is converted). `fit`: when the scene skeleton is the file's one scaled, turned and moved, the `scale`, the turn in degrees and the move, and `off` after it. The fit is used only when it leaves fewer joints off than comparing as they stand, so a few wrong joints are not smeared over all of them. |
-| `moved` | Joints farther than 0.2% of the skeleton's size from where the file has them. |
+| `place` | `off`: the farthest joint as they stand, in scene units (the file's unit is converted). `fit`: when the scene skeleton is the file's one scaled, turned and moved, the `scale`, the turn in degrees and the move, and `off` after it. The fit is made again on the joints that agree with it, so a few joints in the wrong place do not tilt it, and it is used only when it leaves fewer joints off than comparing as they stand. |
+| `moved` | Joints farther than 0.2% of the scene skeleton's size from where the file has them. |
 | `turned` | Joints whose axes differ by more than a degree (after the fit's turn). |
 | `lengths` | The bone length ratio most bones share, and the bones off it by more than 2%. |
 | `same` | True when nothing differs. |
 
-Duplicate names in what you compare are refused: name the top joint of one skeleton.
+Duplicate names in what you compare are refused: name the top joint of one skeleton (quote a path: `bmaya bones "|rig|hand"`). In the file, a joint under a node that is not a joint (a `Null`, a plain glTF node) counts as the child of the nearest joint above, as in the scene.
 
 The Zombie game hand against `zombie_hand.fbx`: 14 of 14 joints, `same: true`. Against `hands.glb` (metres): names, parents and axes equal, 12 joints elsewhere and 9 bones of other length, because the hand was refitted. A build that added parent positions twice is named exactly: i2, i3, m2, m3, r2, r3, t2, t3.
 
@@ -60,11 +60,11 @@ The Zombie game hand against `zombie_hand.fbx`: 14 of 14 joints, `same: true`. A
 - `world`: the world's axes, no turn at rest. Some engines and some game code (`Hands.POSES` in Zombie) set absolute bone rotations and want this;
 - `xy`, `-zy`, `yz`...: the first axis points at the child, the second toward `--up` (y by default). A minus needs `=`: `--orient=-zy`.
 
-Rotate and rotateAxis go to 0 and the turn goes into jointOrient. Every skin on these joints gets its `bindPreMatrix` compensated (`bindPreMatrix * oldWorld * newWorld⁻¹`), so the mesh does not move; `mesh_moved` says by how much. A joint with several children aims at the first one that stands away from it, and `aimed` names it; an end joint takes its parent's axes. Joints whose rotations have keys are refused: new axes would change what the keys mean.
+Every joint below the named ones is oriented too, so no child is left to swing. Rotate and rotateAxis go to 0 and the turn goes into jointOrient. Every skin on these joints gets its `bindPreMatrix` compensated (`bindPreMatrix * oldWorld * newWorld⁻¹`), so the mesh does not move; `mesh_moved` says by how much. A skin that stood at its bind pose gets a new bind pose node, so Maya's Go to Bind Pose still matches; `note` names skins that did not. A joint with several children aims at the first one that stands away from it, and `aimed` names it; an end joint takes its parent's axes. Joints whose rotations have keys, and joints with a locked or driven translate, rotate, rotateAxis or jointOrient, are refused before anything changes.
 
 ## Bind pose and rebinding
 
-`bmaya pose NAMES --bind` puts every joint that skins a mesh where it stood when the mesh was bound, read from the skin itself rather than from a `dagPose` node (there may be several, or none). Joints held by an IK handle, a constraint or a lock are skipped and listed. A joint with keys keeps the pose only until the frame changes: read commands keep it, `bmaya shot`, `playblast` and `motion` set the frame and bring the keys back.
+`bmaya pose NAMES --bind` puts every joint that skins a mesh where it stood when the mesh was bound, read from the skin itself rather than from a `dagPose` node (there may be several, or none). Joints held by an IK handle, or with a locked or driven translate, rotate, scale or shear, are skipped and listed. A joint with keys keeps the pose only until the frame changes: read commands keep it, `bmaya shot`, `playblast` and `motion` set the frame and bring the keys back.
 
 `bmaya skin MESH... --rebind` makes the current pose the bind pose:
 - `bindPreMatrix` becomes the inverse of each joint's world matrix, `geomMatrix` the mesh's world matrix;
@@ -81,9 +81,11 @@ So posing the joints and rebinding bakes the pose into the mesh. This is not an 
 
 - **A mesh.** The copy is named by side (`hand_r` gives `hand_l`, `L_arm` gives `R_arm`) or `--name`. It is mirrored by freezing a negative scale with the pivot on the plane, the opposite flag that freeze sets is cleared and the faces are turned, so a game gets it right side out. `polyNormal` runs with `userNormalMode=0`, which mirrors locked normals correctly. Vertex i of the copy is the mirror image of vertex i of the source, and materials stay.
 - **A skinned mesh** brings its skeleton. Twin joints that do not exist yet are made with `mirrorJoint` in behavior mode and named by side. `mirrorJoint` mirrors across the plane through the chain's parent, not through 0, so the chain is moved onto the plane afterwards. The copy is bound to the twins with the source's settings and every vertex gets the source vertex's weights with the joints swapped. The source is mirrored at its bind pose, whatever pose it stands in, and put back after.
-- **A joint** mirrors its chain only.
+- **A joint** mirrors only joints: the one-sided chain it is in, from the joint below the middle of the body.
 
-The reply has `made`, `joints` (`made`, `existed`), `skin`, `weights` (`paired`, `unpaired`) and `issues`: what the copy has wrong that the source does not. One undo step.
+Before anything is made, every joint of a chain to mirror must have a side in its name (a `palm` inside `hand_r` would get a copy of the same name) and its twin's name must be free; otherwise the command refuses and says which. Joints above the skeleton that skin nothing cannot be put at a bind pose, because none is known for them: if such a joint is posed, mirror with it at rest.
+
+The reply has `made`, `joints` (`made`, and how many twins `existed` already), `skin`, `weights` (`paired`, `unpaired`) and `issues`: what the copy has wrong that the source does not. The copy is bound while both sides stand at their bind pose. The selection is put back. One undo step.
 
 Custom attributes on joints are copied as they are, not mirrored: `fp_hands_rig` adds a `rest` matrix per hand after mirroring, and a mirrored `hand_l` carries `hand_r`'s.
 
