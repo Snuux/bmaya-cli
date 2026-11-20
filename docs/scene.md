@@ -47,5 +47,5 @@ A snapshot takes 0.03 s on the Zombie hand scene and 0.23 s on an 18.7 MB scene 
 
 ## Seeing a change
 
-- `bmaya diff NAME -o moved.png` after `bmaya diff NAME --mark` draws the mesh from several sides with each vertex colored by how far it moved, blue for not at all to red for the most. The legend gives half and all of the longest move in scene units.
+- `bmaya diff NAME -o moved.png` after `bmaya diff NAME --mark` draws the mesh from several sides with each vertex colored by how far it moved, blue for not at all to red for the most. Colors follow the square root of each move's share of the longest, so small moves still show; the legend gives 1/25, 1/4 and all of the longest move in scene units.
 - `bmaya views NAME --compare mark -o edit.png` draws the shape at the mark beside the shape now, and both silhouettes over each other. `--compare OTHER` does the same with another mesh. See [modeling](modeling.md#comparing-shapes).

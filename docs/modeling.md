@@ -64,7 +64,7 @@ A mesh with no geometry (a skinned mesh whose Orig shape was deleted) is left ou
 
 `bmaya diff NAME --mark` remembers a mesh. After an edit, `bmaya diff NAME` gives the counts, size, surface area and volume before and after. When the topology is the same it adds `moved`, `max_move`, `mean_move` and `moved_box`, the box around the vertices that moved. `--against OTHER` compares two meshes as they are. A mark belongs to one client and lives in that Maya until it stops.
 
-`-o moved.png` (with `--views` and `--size` as in `views`) draws the mesh with each vertex colored by how far it moved: blue for not at all, through green and yellow, to red for the longest move. The legend gives half and all of `max_move` in scene units. A topology change has no picture; the `note` points to `views --compare mark`.
+`-o moved.png` (with `--views` and `--size` as in `views`) draws the mesh with each vertex colored by how far it moved: blue for not at all, through green and yellow, to red for the longest move. The colors follow the square root of each move's share of `max_move`, so small moves still show beside a big one; the legend gives the moves at 1/25, 1/4 and all of `max_move`, in scene units. A topology change has no picture; the `note` points to `views --compare mark` (or `--compare OTHER` after `--against OTHER`). When the picture cannot be drawn in time, the numbers come back with a `note`.
 
 ## Whole-mesh edits
 
