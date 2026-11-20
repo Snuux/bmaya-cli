@@ -100,6 +100,11 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya anim [NAME] [--plot -o FILE]` | Clips (Game Exporter, time slider bookmarks), curves, key ranges, fps, skeletons, skin clusters. `--plot` draws the node's curves as a PNG, like the Graph Editor. |
 | `bmaya skin [NAME ...] [--max N] [--verts SPEC]` | Skin report: influences and their vertex counts, the most per vertex, unused influences, bind pose, issues (over the influence limit, unnormalized, unweighted, dual quaternion). |
 | `bmaya skin NAME --save FILE \| --load FILE [--rename MAP] \| --copy-from SRC [--mirror AXIS] [--prune [MIN]] [--max N] [--normalize]` | Weights to and from a JSON file of `{joint: weight}` per vertex, copied from another mesh by closest point, mirrored with left/right joint pairs, pruned, capped, normalized. One undo step; binds a mesh that has no skin. |
+| `bmaya skin NAME ... --rebind [--keep-shape]` | Makes the current pose the bind pose; the mesh keeps the shape it shows (or its bound shape with `--keep-shape`). |
+| `bmaya bones [ROOT ...] [--axes] [--against FILE [--rename MAP]]` | Skeleton report at the bind pose: positions, lengths, jointOrient, aim axis, left/right twins and whether they mirror, duplicate names, transforms between joints, unweighted joints. `--against` compares it with an FBX, GLB or glTF skeleton. |
+| `bmaya bones ROOT --orient world\|xy\|=-zy [--up AXIS]` | New joint axes, joints kept in place, skins compensated so meshes do not move. |
+| `bmaya pose ROOT --bind` | Puts the skeleton at the pose its meshes were bound in. |
+| `bmaya mirror NAME [--axis x\|x=POS] [--name NEW]` | The other side of a mesh across a world plane, right side out; a skinned mesh brings its twin joints and its weights. A joint mirrors its chain. |
 | `bmaya rig [ROOT]` | A rig's controls: keyable and driven attributes, values, limits, rotate order, keys, IK handles, constraints, ik/fk switches, character sets. |
 | `bmaya motion [NAME ...] [--frames 0:30\|--clip NAME] [--loop] [--contacts A,B] [--values] [--attrs A,B]` | Checks motion frame by frame: pops, flips, foot slide, sinking, loop seam, Euler jumps, keys off frames or outside clips. Reports measurements, and values per frame on request. |
 | `bmaya export FILE.fbx [--preset unity\|unreal\|godot] [--selection] [--animation] [--clip NAME]` | FBX export with an engine preset. `--clip` bakes one clip's frames into its own take. Meshes that would come out empty or inside out stop it; the written file is read back and what it lacks is listed in `issues`. |
@@ -129,6 +134,7 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 - [FBX export](docs/export.md): what each preset writes.
 - [Modeling](docs/modeling.md): view sheets and their styles, sections, audit numbers, diff, remesh, reduce, cleanup.
 - [Skin weights](docs/skin.md): the skin report, weights files, copy, mirror, prune, weight pictures.
+- [Skeletons and mirroring](docs/skeleton.md): the bones report, comparing with a game file, new axes, bind pose, rebinding, mirroring a skinned mesh.
 - [Animation](docs/animation.md): frame specs and clips, motion checks, rig inventory, trails, curve plots, previews.
 - [Troubleshooting](docs/troubleshooting.md): common messages, the crash journal, where state is kept.
 

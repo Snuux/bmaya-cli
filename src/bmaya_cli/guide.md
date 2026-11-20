@@ -45,6 +45,7 @@ bmaya exec -f build_crate.py
 - `bmaya views [NAME ...] -o views.png` instead of several `bmaya shot` calls with moved cameras, when the subject is a model.
 - `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` instead of moving, merging and deleting vertices one by one.
 - `bmaya skin NAME --load weights.json` instead of `skinPercent` per vertex, `--copy-from OLD` instead of `copySkinWeights`, and `bmaya skin` to check weights.
+- `bmaya bones ROOT --against FILE.fbx` instead of parsing a game file's skeleton or importing it; `bmaya mirror hand_r` instead of `mirrorJoint` plus a mirrored, frozen, re-skinned copy.
 - `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")` or `FBXExport`. Add `--selection`, `--animation`, `--start N --end N` (frame 0 works), or `--clip NAME` to bake one clip into a take of that name. It refuses a mesh with no faces or one that would come out inside out, then reads the written file back: check `issues` in the result before telling the user the export worked. Units are not converted; the scene unit is what the importer sees.
 - `bmaya export --game-exporter [NODE]` when the scene has Game Exporter nodes (File > Game Exporter): it exports as their Export button does, a file per clip with one take each, and checks every file the same way. `--clip NAME` for one clip, `--copy-textures` to put a model's textures next to its FBX. Use it instead of a script that drives the Game Exporter.
 - `bmaya inspect FILE.fbx` (or `.glb`, `.gltf`) reads a model file without Maya: unit, up axis, fps, meshes and their counts, skin, the skeleton with bind positions (`--axes` adds each joint's axes), takes with frame ranges, textures and whether they are found. Use it to check what an export wrote, or to read a file from the game, instead of importing it into the scene or opening Blender.
@@ -100,6 +101,15 @@ Bind with `cmds.skinCluster` (recipe below) or let `bmaya skin --load` bind for 
 - `--prune` drops weights under 0.01 (`--prune 0.05` for another floor), `--max 4` keeps the 4 biggest weights per vertex, `--normalize` makes them add up to 1. They combine with each other and with the edits above.
 - `bmaya views NAME --style weights --joint J -o w.png` draws one joint's weights, blue for none to red for all; `--style influence` gives each joint a color. Pose the skeleton with `bmaya exec` first to see the deformation too.
 - `bmaya audit` lists the same skin issues, and `bmaya export` reports them before writing.
+
+## Skeletons and mirroring
+
+- `bmaya bones [ROOT]` lists the joints at the bind pose: parent, position, bone length, jointOrient, which of its axes points at the child (`aim`), the left/right `twin` and how many vertices it moves. It also reports whether twins mirror each other (`behavior` like `mirrorJoint`, or `orientation`), joint names used twice, bad scales, unweighted joints, and plain transforms between joints, which FBX writes as extra nodes. Name a joint for its chain, or a skinned mesh for its skeleton.
+- `bmaya bones hand --against game/hand.fbx` compares the skeleton with a game file (`.fbx`, `.glb`, `.gltf`): names (`--rename "{}_r"` maps them), parents, positions in the scene's unit, axes and bone proportions. A skeleton that is the same but scaled, turned or moved shows as one `fit`; the joints that differ after it are in `moved`. Run it after building a skeleton for the game and before exporting.
+- `bmaya bones ROOT --orient world` gives the joints the world's axes, `--orient xy` points +x at the child and +y up, `--orient=-zy` points -z at the child. Joints stay where they are, rotate goes into jointOrient, and every skin is compensated so the mesh does not move. Do this before animating: joints with rotation keys are refused.
+- `bmaya pose ROOT --bind` stands the skeleton where the meshes were bound. Keyed joints keep that pose only until the frame changes (`shot`, `playblast` and `motion` change it).
+- `bmaya skin MESH --rebind` makes the current pose the bind pose and keeps the mesh as it shows now: pose the joints into a new rest pose, then rebind. Vertices shared by several joints drift a little if you pose back; this does not invert the skin. `--keep-shape` keeps the mesh's bound shape instead, for joints moved to new places.
+- `bmaya mirror hand_r` builds the other side across x through 0: the mesh with its faces the right way out, twin joints made like `mirrorJoint` and named by side, and the weights copied vertex for vertex with the joints swapped. A joint name mirrors only its chain. `--axis x=12.5` moves the plane, `--name` names the copy. One undo step.
 
 ## Animating
 
