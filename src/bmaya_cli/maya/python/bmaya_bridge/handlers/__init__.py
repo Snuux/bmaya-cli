@@ -9,6 +9,7 @@ from maya import cmds
 from bmaya_bridge.handlers import (
     animation,
     bones,
+    clips,
     execute,
     export,
     game_export,
@@ -57,6 +58,7 @@ UNRECORDED: dict[str, Handler] = {
     "audit_mesh": without_undo(mesh.audit_mesh),
     "diff_mesh": without_undo(mesh.diff_mesh),
     "get_animation_info": without_undo(animation.get_animation_info),
+    "get_clips": without_undo(clips.get_clips),
     "plot_animation": without_undo(plot.plot_animation),
     "get_motion": without_undo(motion.get_motion),
     "get_rig_info": without_undo(rig.get_rig_info),
@@ -83,6 +85,7 @@ COMMANDS: dict[str, Handler] = {
     "set_pose": bones.set_pose,
     "orient_joints": bones.orient_joints,
     "mirror_node": mirror.mirror_node,
+    "edit_clip": clips.edit_clip,
     "scene_file": scene.scene_file,
     "undo": scene.undo,
     "stop": scene.stop,

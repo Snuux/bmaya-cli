@@ -908,6 +908,130 @@ def check_get_animation_info() -> str:
     return "overview, clips, curves, skeleton, skin, blend shape ok"
 
 
+def check_get_clips() -> str:
+    exporter = "clips_exporter"
+    model = assert_read_only("get_clips")
+    issues = model["issues"]
+    assert "spin: its row is in clips_exporter, which exports a model, not clips" in issues, issues
+    assert not any(issue.startswith("nod: a bookmark") for issue in issues), issues
+    assert any("has no row at index 1" in issue for issue in issues), issues
+    assert any("row with no name at index 3" in issue for issue in issues), issues
+    assert model["exporters"] == [] and model["fps"] == 24, model
+
+    cmds.setAttr(exporter + ".exportTypeIndex", 2)
+    try:
+        report = assert_read_only("get_clips")
+        clips = {entry["name"]: entry for entry in report["clips"]["items"]}
+        assert clips["spin"] == {
+            "name": "spin",
+            "range": [1, 24],
+            "length": 23,
+            "exporter": exporter,
+            "index": 0,
+            "bookmark": "mark_spin",
+            "keys": clips["spin"]["keys"],
+        }, clips["spin"]
+        assert clips["spin"]["keys"] > 0 and clips["wave"]["export"] is False, clips
+        assert "exporter" not in clips["nod"] and clips["nod"]["range"] == [2, 4], clips["nod"]
+        issues = report["issues"]
+        assert "wave: the bookmark spans 12:20, the Game Exporter row 12:18" in issues, issues
+        assert "nod: a bookmark with no Game Exporter row, so it is not exported" in issues, issues
+        assert "spin and wave overlap at 12:18" in issues, issues
+        assert report["exporters"] == [exporter], report
+
+        wave = assert_read_only("get_clips", name="wave")
+        assert wave["clips"]["total"] == 1, wave
+        assert all("wave" in issue for issue in wave["issues"]), wave
+        expect_error("get_clips", "Clips: ", name="nope")
+    finally:
+        cmds.setAttr(exporter + ".exportTypeIndex", 1)
+    return "rows and bookmarks merged, model exporter, row holes, mismatch, orphan, export off"
+
+
+def row_names(exporter: str) -> list[str]:
+    indices = cmds.getAttr(exporter + ".animClips", multiIndices=True) or []
+    return [cmds.getAttr(f"{exporter}.animClips[{index}].animClipName") or "" for index in indices]
+
+
+def check_edit_clip() -> str:
+    exporter = "clips_exporter"
+    cmds.setAttr(exporter + ".exportTypeIndex", 2)
+    cmds.setKeyframe("root", attribute="rotateY", time=60, value=10)
+    cmds.setKeyframe("root", attribute="rotateY", time=95, value=12)
+    made = []
+    try:
+        added = call("edit_clip", name="jump", add="30")
+        assert added["range"] == [50, 80] and added["index"] == 4, added
+        assert added["exporter"] == exporter and added["bookmark"] == "bookmark_jump", added
+        assert added["animation"] == [1, 80], added
+        assert cmds.getAttr("bookmark_jump.name") == "jump", "the bookmark has no clip name"
+        listed = call("get_clips", name="jump")["clips"]["items"][0]
+        assert listed["keys"] >= 1 and listed["bookmark"] == "bookmark_jump", listed
+
+        moved = call("edit_clip", name="jump", set="50:90")
+        assert moved["was"] == [50, 80] and moved["range"] == [50, 90], moved
+        assert (moved["rows"], moved["bookmarks"]) == (1, 1), moved
+        longer = call("edit_clip", name="wave", set="40")
+        assert longer["range"] == [12, 52], longer
+        assert cmds.getAttr("mark_wave.timeRangeStop") == 52, "the bookmark kept its old end"
+
+        removed = call("edit_clip", name="jump", remove=True, keys=True)
+        assert removed["keys_removed"] >= 2 and removed["rows"] == 1, removed
+        assert not cmds.objExists("bookmark_jump"), "the bookmark is still there"
+        assert not cmds.keyframe("root", attribute="rotateY", query=True, time=(95, 95)), (
+            "the key the loop keeps past the clip's end stayed"
+        )
+        cmds.undo()
+        assert cmds.objExists("bookmark_jump"), "undo did not bring the bookmark back"
+        assert cmds.getAttr(f"{exporter}.animClips[4].animClipName") == "jump", "row not back"
+        assert cmds.keyframe("root", attribute="rotateY", query=True, time=(60, 60)), "keys lost"
+
+        call("edit_clip", name="hop", add="100:110")
+        middle = call("edit_clip", name="jump", remove=True)
+        assert any("keys in 50:90 stay" in issue for issue in middle["issues"]), middle
+        assert row_names(exporter) == ["spin", "wave", "", "hop"], row_names(exporter)
+        assert cmds.getAttr(f"{exporter}.animClips[4].animClipStart") == 100, "hop did not move"
+        cmds.undo()
+        assert row_names(exporter) == ["spin", "wave", "", "jump", "hop"], row_names(exporter)
+
+        given = call("edit_clip", name="nod", add="10")
+        assert given["exporter"] == exporter and given["bookmark"] == "mark_nod", given
+        assert given["range"] == [2, 12], given
+        cmds.undo()
+
+        expect_error("edit_clip", "--set", name="jump", add="0:10")
+        expect_error("edit_clip", "Clips: ", name="nope", remove=True)
+        expect_error("edit_clip", "one of", name="jump", add="0:10", remove=True)
+        expect_error("edit_clip", "--add 0:90", name="hop2", add="10:5")
+        expect_error("edit_clip", "--remove", name="jump", set="0:9", keys=True)
+        expect_error("edit_clip", "--gap", name="hop2", add="10", gap="-5")
+
+        second = cmds.createNode("gameFbxExporter", name="clips_second")
+        made.append(second)
+        cmds.setAttr(second + ".exportTypeIndex", 2)
+        expect_error("edit_clip", "--node", name="hop2", add="200:210")
+        picked = call("edit_clip", name="hop2", add="200:210", node=second)
+        assert picked["exporter"] == second and picked["index"] == 0, picked
+        cmds.setAttr(second + ".exportTypeIndex", 1)
+        expect_error("edit_clip", "exports a model", name="hop3", add="220:230", node=second)
+        cmds.setAttr(exporter + ".exportTypeIndex", 1)
+        alone = call("edit_clip", name="skip", add="300:310")
+        assert "exporter" not in alone and "only a bookmark" in alone["note"], alone
+        expect_error("edit_clip", "Game Exporter, Animation Clips", name="skip", add="10")
+    finally:
+        cmds.setAttr(exporter + ".exportTypeIndex", 1)
+        for node in ("bookmark_jump", "bookmark_hop", "bookmark_hop2", "bookmark_skip", *made):
+            if cmds.objExists(node):
+                cmds.delete(node)
+        for index in (4, 5, 6):
+            cmds.removeMultiInstance(f"{exporter}.animClips[{index}]", b=True)
+        cmds.setAttr("mark_wave.timeRangeStop", 20)
+        cmds.setAttr(f"{exporter}.animClips[2].animClipEnd", 18)
+        cmds.cutKey("root", attribute="rotateY", clear=True)
+        cmds.playbackOptions(animationStartTime=1, animationEndTime=24)
+    return "add after the last clip, set, remove with padding keys, rows move down, undo, errors"
+
+
 def check_plot_animation() -> str:
     from PySide6 import QtGui
 
@@ -2840,6 +2964,8 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("remesh_mesh", check_remesh_mesh),
     ("cleanup_mesh", check_cleanup_mesh),
     ("get_animation_info", check_get_animation_info),
+    ("get_clips", check_get_clips),
+    ("edit_clip", check_edit_clip),
     ("plot_animation", check_plot_animation),
     ("export_fbx", check_export_fbx),
     ("plan_game_export", check_plan_game_export),
