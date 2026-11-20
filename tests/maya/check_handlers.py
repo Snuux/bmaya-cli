@@ -229,10 +229,14 @@ def check_get_viewport_screenshot() -> str:
     assert not cmds.getAttr("defaultRenderGlobals.imageFilePrefix"), "render prefix not restored"
 
     made = cmds.camera(name="shot_side")[0]
+    holders = [cmds.group(empty=True, name=f"shot_{side}") for side in ("ga", "gb")]
+    twins = [cmds.parent(cmds.camera()[0], holder)[0] for holder in holders]
     try:
         expect_error("get_viewport_screenshot", "--camera shot_side1", camera="shot_side")
+        twins = [cmds.rename(twin, "shot_twin1") for twin in twins]
+        expect_error("get_viewport_screenshot", "bmaya scene", camera="shot_twin")
     finally:
-        cmds.delete(made)
+        cmds.delete(made, *holders)
         cmds.file(modified=False)
 
     sheet = assert_read_only("get_viewport_screenshot", frames="1,12,24", camera="top")
@@ -640,6 +644,19 @@ def check_compare_views(outer: str) -> None:
         assert edit["compare"]["differ"]["front"] > 0.1, edit
         cmds.move(0, -1, 0, outer + ".vtx[2:3]", relative=True)
 
+        ell = [(2, 0, 0), (2, 1, 0), (1, 1, 0), (1, 2, 0), (0, 2, 0), (0, 0, 0)]
+        concave = cmds.polyCreateFacet(point=ell, name="views_ell", constructionHistory=False)[0]
+        call("diff_mesh", name=concave, mark=True)
+        same = assert_read_only(
+            "get_model_views", names=concave, compare="mark", views="front", style="silhouette"
+        )
+        assert same["compare"]["differ"]["front"] == 0, same["compare"]
+        cmds.delete(concave)
+        tall = assert_read_only(
+            "get_model_views", names=outer, compare=wide, views="all", max_size=800
+        )
+        assert max(tall["width"], tall["height"]) <= 800, tall
+
         expect_error("get_model_views", "no mark", names=wide, compare="mark")
         expect_error(
             "get_model_views", "--compare draws", names=outer, compare=wide, style="shaded"
@@ -747,7 +764,7 @@ def check_diff_mesh() -> str:
         assert changed["topology_changed"] is True and changed["against"] == copy, changed
         assert changed["before"]["verts"] == 8 and changed["after"]["verts"] == 26, changed
         unpaired = call("diff_mesh", name=box, against=copy, image=True)
-        assert "path" not in unpaired and "--compare mark" in unpaired["note"], unpaired
+        assert "path" not in unpaired and "--compare diff_copy" in unpaired["note"], unpaired
         cmds.delete(copy)
 
         expect_error("diff_mesh", "one mesh at a time", name="props")
@@ -2528,6 +2545,90 @@ def check_bake_uv() -> str:
     return f"position and normal maps, {baked['covered']} of the texels covered, bounds ok"
 
 
+def check_status_cases() -> None:
+    from bmaya_bridge.handlers import status
+
+    made = []
+    try:
+        driver = cmds.spaceLocator(name="st_driver")[0]
+        driven = cmds.spaceLocator(name="st_driven")[0]
+        cmds.setDrivenKeyframe(driven + ".tx", currentDriver=driver + ".ty", value=0)
+        cmds.setDrivenKeyframe(driven + ".tx", currentDriver=driver + ".ty", driverValue=1, value=2)
+        cmds.select(clear=True)
+        bone = cmds.joint(name="st_spline", position=(0, 0, 0))
+        cmds.joint(name="st_spline_end", position=(0, 4, 0))
+        spline = cmds.curve(
+            name="st_spline_curve", point=[(0, 0, 0), (0, 2, 0), (0, 4, 0)], degree=2
+        )
+        cmds.skinCluster(bone, "st_spline_end", spline)
+        group = cmds.group(empty=True, name="st_grp")
+        kid = cmds.polyCube(name="st_kid", constructionHistory=False)[0]
+        cmds.parent(kid, group)
+        cmds.setKeyframe(kid, attribute="translateX", time=1, value=0)
+        cmds.setKeyframe(kid, attribute="translateX", time=10, value=3)
+        control = cmds.circle(name="st_ctrl", constructionHistory=False)[0]
+        shaders = []
+        for color in ("red", "blue"):
+            shader = cmds.shadingNode("lambert", asShader=True, name=f"st_{color}")
+            engine = cmds.sets(
+                renderable=True, noSurfaceShader=True, empty=True, name=f"st_{color}SG"
+            )
+            cmds.connectAttr(shader + ".outColor", engine + ".surfaceShader")
+            shaders += [shader, engine]
+        cmds.sets(kid + ".f[0:2]", edit=True, forceElement="st_redSG")
+        cmds.sets(kid + ".f[3:5]", edit=True, forceElement="st_blueSG")
+        made += [driver, driven, bone, spline, group, control, *shaders]
+        status.take_baseline("cases")
+        assert status.BASELINE[0].why == "cases", (
+            "the baseline failed on driven keys or a skinned curve"
+        )
+        assert call("scene_status")["same"] is True, "a fresh baseline differs"
+
+        cmds.rename(group, "st_grp2")
+        cmds.rename("st_redSG", "st_redSG2")
+        cmds.keyTangent(kid, attribute="translateX", inTangentType="linear", outTangentType="step")
+        cmds.move(0, 3, 0, control + ".cv[0:3]", relative=True)
+        cmds.sets("st_grp2|st_kid.f[0]", edit=True, forceElement="st_blueSG")
+        cmds.polyUVSet("st_grp2|st_kid", create=True, uvSet="lightmap")
+        cmds.setAttr("st_blue.color", 0, 0, 1, type="double3")
+        copy = cmds.duplicate(control, name="st_ctrl_copy")[0]
+        made += [copy]
+        found = call("scene_status")
+        changed = {
+            entry["name"].rsplit("|", 1)[-1]: entry["what"] for entry in found["changed"]["items"]
+        }
+        renamed = found["renamed"]["items"]
+        assert {"from": "st_grp", "to": "st_grp2"} in renamed, renamed
+        assert not any(entry["from"].startswith("st_ctrl") for entry in renamed), renamed
+        assert "st_kid" not in changed, changed
+        assert changed["st_kid_translateX"] == ["tangents"], changed
+        assert changed["st_ctrlShape"] == ["points"], changed
+        kid_what = changed["st_kidShape"]
+        assert "materials" in kid_what and "uv_sets" in kid_what, kid_what
+        assert changed["st_blue"] == ["settings"], changed
+        assert "st_ctrl_copy" in {entry["name"] for entry in found["added"]["items"]}, found
+
+        source = WORK_DIR / "st_ref.ma"
+        prop = cmds.polyCube(name="st_prop", constructionHistory=False)[0]
+        cmds.select(prop)
+        cmds.file(str(source), exportSelected=True, type="mayaAscii", force=True)
+        cmds.delete(prop)
+        for space in ("sta", "stb"):
+            cmds.file(str(source), reference=True, namespace=space)
+        status.take_baseline("cases")
+        cmds.setAttr("sta:st_prop.translateX", 7)
+        twice = call("scene_status")
+        moved = {entry["name"] for entry in twice["changed"]["items"]}
+        assert "sta:st_prop" in moved and "stb:st_prop" not in moved, twice["changed"]
+        for space in ("sta", "stb"):
+            cmds.file(str(source), removeReference=True, referenceNode=f"{space}RN")
+    finally:
+        for node in made + ["st_redSG2", "st_red", "st_blue", "st_blueSG"]:
+            if cmds.objExists(node):
+                cmds.delete(node)
+        cmds.select(clear=True)
+
+
 def check_scene_status() -> str:
     from bmaya_bridge.handlers import status
 
@@ -2535,11 +2636,19 @@ def check_scene_status() -> str:
     gone = cmds.polyCube(name="st_gone", constructionHistory=False)[0]
     paint = cmds.shadingNode("file", asTexture=True, name="st_paint")
     cmds.setAttr(paint + ".fileTextureName", "old.png", type="string")
+    cmds.setKeyframe("st_gone", attribute="translateY", time=1, value=0)
+    cmds.setKeyframe("st_gone", attribute="translateY", time=10, value=5)
+    cmds.currentTime(1)
     status.take_baseline("check")
     try:
         clean = assert_read_only("scene_status")
         assert clean["same"] is True and clean["baseline"]["why"] == "check", clean
         assert clean["changed"]["total"] == 0, clean["changed"]
+        cmds.currentTime(10)
+        later = assert_read_only("scene_status")
+        assert later["same"] is True, later
+        assert cmds.currentTime(query=True) == 10, "status moved the time slider"
+        cmds.currentTime(1)
 
         cmds.move(0, 0.5, 0, box + ".vtx[3]", relative=True)
         cmds.rename(box, "st_box2")
@@ -2569,6 +2678,7 @@ def check_scene_status() -> str:
         flagged = call("scene_status")
         assert flagged["same"] is True and "modified flag is set" in flagged["note"], flagged
 
+        check_status_cases()
         status.BASELINE.clear()
         missing = call("scene_status")
         assert missing["baseline"] is None and "no baseline" in missing["note"], missing

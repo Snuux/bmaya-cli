@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import time
 from typing import Any, NamedTuple
@@ -563,21 +564,29 @@ def diff_mesh(params: dict[str, Any]) -> dict[str, Any]:
     result = {"name": after.name, "against": before.name if against else "mark"}
     result.update(compare_marks(before, after))
     if bool_param(params, "image"):
-        draw_moves(shape, before, after, result, params)
+        draw_moves(shape, before, after, result, params, against)
     return result
 
 
 def draw_moves(
-    shape: str, before: Mark, after: Mark, result: dict[str, Any], params: dict[str, Any]
+    shape: str,
+    before: Mark,
+    after: Mark,
+    result: dict[str, Any],
+    params: dict[str, Any],
+    against: str,
 ) -> None:
-    """The views sheet of the mesh with each vertex colored by how far it moved."""
+    """The views sheet of the mesh with each vertex colored by how far it moved, on a
+    square-root scale so small moves still show beside a big one. A picture that cannot be
+    drawn becomes a note: the numbers stay."""
     from bmaya_bridge.handlers.views import get_model_views  # views imports this module
 
     name = result["name"]
     if result["topology_changed"]:
+        other = against or "mark"
         result["note"] = (
             f"no picture: the topology changed, so vertices do not pair up. "
-            f"bmaya views {name} --compare mark -o diff.png draws both shapes"
+            f"bmaya views {name} --compare {other} -o diff.png draws both shapes"
         )
         return
     size = max(size_of(after.points) + [0.0])
@@ -587,19 +596,27 @@ def draw_moves(
     legend = [{"name": "did not move", "color": hex_of(skinweights.heat(0.0))}]
     if longest:
         legend += [
-            {"name": f"{rnd(longest / 2.0)} {unit}", "color": hex_of(skinweights.heat(0.5))},
+            {"name": f"{rnd(longest / 25.0)} {unit}", "color": hex_of(skinweights.heat(0.2))},
+            {"name": f"{rnd(longest / 4.0)} {unit}", "color": hex_of(skinweights.heat(0.5))},
             {"name": f"{rnd(longest)} {unit}", "color": hex_of(skinweights.heat(1.0))},
         ]
-    sheet = get_model_views(
-        {
-            "names": shape,
-            "views": text_param(params, "views"),
-            "style": "parts",
-            "max_size": int_param(params, "max_size", 0, 0, 4000),
-        },
-        paint={shape: [skinweights.heat(share) for share in shares]},
-        paint_legend=legend,
-    )
+    try:
+        sheet = get_model_views(
+            {
+                "names": shape,
+                "views": text_param(params, "views"),
+                "style": "parts",
+                "max_size": int_param(params, "max_size", 0, 0, 4000),
+            },
+            paint={shape: [skinweights.heat(math.sqrt(share)) for share in shares]},
+            paint_legend=legend,
+        )
+    except BridgeError as error:
+        result["note"] = (
+            f"no picture: {error.message} Draw fewer views or a smaller sheet: "
+            f"bmaya diff {name} -o moved.png --views front --size 800"
+        )
+        return
     for key in ("path", "width", "height", "views"):
         result[key] = sheet[key]
     if sheet.get("note"):

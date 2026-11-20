@@ -4,13 +4,13 @@ import contextlib
 import math
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import maya.api.OpenMaya as om
 from maya import cmds
 
-from bmaya_bridge import skinweights, softrender
+from bmaya_bridge import skinweights, softrender, uvcheck
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers import _sampling, _skin, viewport
 from bmaya_bridge.handlers._common import (
@@ -626,6 +626,7 @@ def get_model_views(
 
 
 COMPARE_STYLES = ("parts", "xray", "silhouette")
+COMPARE_NAMES = 3
 ONLY_FIRST: softrender.Color = softrender.part_color(0)
 ONLY_SECOND: softrender.Color = softrender.part_color(1)
 BOTH: softrender.Color = (190, 190, 190)
@@ -645,14 +646,48 @@ def mark_part(shape: str, with_edges: bool) -> softrender.Part:
     triangles: list[int] = []
     edges: dict[tuple[int, int], None] = {}
     for face in found.faces:
-        for index in range(1, len(face) - 1):
-            triangles.extend((face[0], face[index], face[index + 1]))
+        flat = flattened([points[point] for point in face])
+        for first, second, third in uvcheck.triangles(flat):
+            triangles.extend((face[first], face[second], face[third]))
         for index in range(len(face)):
             one, two = face[index], face[(index + 1) % len(face)]
             edges[(min(one, two), max(one, two))] = None
     return softrender.Part(
         points, triangles, list(edges) if with_edges else [], softrender.part_color(1)
     )
+
+
+def flattened(corners: list[Vec]) -> list[tuple[float, float]]:
+    """A face's corners on the plane it mostly lies in, so a concave n-gon is cut into
+    triangles inside it, as Maya does, and not fanned from its first corner."""
+    nx = ny = nz = 0.0
+    count = len(corners)
+    for index in range(count):
+        x0, y0, z0 = corners[index]
+        x1, y1, z1 = corners[(index + 1) % count]
+        nx += (y0 - y1) * (z0 + z1)
+        ny += (z0 - z1) * (x0 + x1)
+        nz += (x0 - x1) * (y0 + y1)
+    drop = max(range(3), key=lambda axis: abs((nx, ny, nz)[axis]))
+    keep = [axis for axis in range(3) if axis != drop]
+    return [(corner[keep[0]], corner[keep[1]]) for corner in corners]
+
+
+def names_of(meshes: list[str]) -> str:
+    names = list(dict.fromkeys(part_name(shape) for shape in meshes))
+    if len(names) <= COMPARE_NAMES:
+        return ", ".join(names)
+    return ", ".join(names[:COMPARE_NAMES]) + f" and {len(names) - COMPARE_NAMES} more"
+
+
+def recolor(canvas: softrender.Canvas, color: softrender.Color) -> None:
+    """Silhouettes are drawn near black; in a comparison each side keeps its own color."""
+    old = softrender.pack(softrender.SILHOUETTE)
+    new = softrender.pack(color)
+    pixels = canvas.pixels
+    for index in range(len(pixels)):
+        if pixels[index] == old:
+            pixels[index] = new
 
 
 def shifted(part: softrender.Part, offset: Vec) -> softrender.Part:
@@ -669,15 +704,16 @@ def center_of(box: Box) -> Vec:
 
 
 def overlay(
-    first: softrender.Canvas, second: softrender.Canvas, size: int
+    first: Sequence[float], second: Sequence[float], size: int
 ) -> tuple[softrender.Canvas, float]:
-    """Both silhouettes on one canvas: grey where both cover, blue or red where only one
-    does; also the share of covered texels where they disagree."""
+    """Both silhouettes, given by their depth buffers, on one canvas: grey where both cover,
+    a side's own color where only it does; also the share of covered texels where they
+    disagree."""
     out = softrender.Canvas(size, size)
     both = only = 0
     for index in range(size * size):
-        one = first.depth[index] != softrender.NOWHERE
-        two = second.depth[index] != softrender.NOWHERE
+        one = first[index] != softrender.NOWHERE
+        two = second[index] != softrender.NOWHERE
         if one and two:
             out.pixels[index] = softrender.pack(BOTH)
             both += 1
@@ -723,7 +759,7 @@ def compare_views(params: dict[str, Any]) -> dict[str, Any]:
             read_part(shape, 0, wire)._replace(color=softrender.part_color(1))
             for shape in second_meshes
         ]
-        second_name = ", ".join(dict.fromkeys(part_name(shape) for shape in second_meshes))
+        second_name = names_of(second_meshes)
     first_box = softrender.bounds(first)
     second_box = softrender.bounds(second)
     if first_box is None or second_box is None:
@@ -734,10 +770,11 @@ def compare_views(params: dict[str, Any]) -> dict[str, Any]:
         b = center_of(second_box)
         offset = (a[0] - b[0], a[1] - b[1], a[2] - b[2])
         second = [shifted(part, offset) for part in second]
+        second_box = softrender.bounds(second) or second_box
     box = softrender.bounds(first + second)
     per_unit = _sampling.linear_scale()
     scene_box = in_unit(box, per_unit)
-    tile = longest // 3
+    tile = longest // max(3, len(views))
     triangles = softrender.triangle_count(first + second)
     if triangles * len(views) * 3 > MAX_WORK:
         raise BridgeError(
@@ -749,22 +786,38 @@ def compare_views(params: dict[str, Any]) -> dict[str, Any]:
         first = [part._replace(edges=[]) for part in first]
         second = [part._replace(edges=[]) for part in second]
         notes.append("edges left out: too dense for these tiles")
-    first_name = ", ".join(dict.fromkeys(part_name(shape) for shape in first_meshes))
+    first_name = names_of(first_meshes)
     unit = cmds.currentUnit(query=True, linear=True)
     tiles = [Tile(name, name, False) for name in views]
     images = []
     differ = {}
+    deadline = time.perf_counter() + DRAW_SECONDS
     with scene_kept(), view_cameras(tiles, scene_box) as cameras:
-        for entry in tiles:
+        for index, entry in enumerate(tiles):
+            if time.perf_counter() > deadline:
+                raise BridgeError(
+                    f"Comparing stopped after {DRAW_SECONDS:g} seconds, at view {index + 1} of "
+                    f"{len(tiles)}.",
+                    hint="Pass fewer --views or a smaller --size, like --views front --size 900.",
+                )
             view = _sampling.camera_view(cameras[entry.label], tile, tile)
-            for name, parts in ((first_name, first), (second_name, second)):
+            outlines = []
+            sides = (
+                (first_name, first, first_box, ONLY_FIRST),
+                (second_name, second, second_box, ONLY_SECOND),
+            )
+            for name, parts, own_box, color in sides:
                 canvas = softrender.render(parts, view, tile, tile, style, wire)
+                if style == "silhouette":
+                    outlines.append(canvas.depth)
+                    recolor(canvas, color)
+                else:
+                    plain = softrender.render(parts, view, tile, tile, "silhouette", False)
+                    outlines.append(plain.depth)
                 image = to_image(canvas, tile)
-                annotate(image, view, box, unit, ON_LIGHT, [])
+                annotate(image, view, own_box, unit, ON_LIGHT, [])
                 images.append((f"{entry.label}: {name}", image))
-            one = softrender.render(first, view, tile, tile, "silhouette", False)
-            two = softrender.render(second, view, tile, tile, "silhouette", False)
-            both, share = overlay(one, two, tile)
+            both, share = overlay(outlines[0], outlines[1], tile)
             differ[entry.label] = rnd(share, 4)
             legend = [
                 {"name": first_name, "color": hex_color(ONLY_FIRST)},

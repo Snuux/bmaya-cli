@@ -124,10 +124,11 @@ def model_panel() -> str:
 
 def camera_transform(name: str) -> str:
     numbered = name + "1"
+    found = cmds.ls(numbered, long=True) or []
     if (
         not cmds.objExists(name)
-        and cmds.objExists(numbered)
-        and cmds.listRelatives(numbered, shapes=True, type="camera")
+        and len(found) == 1
+        and cmds.listRelatives(found[0], shapes=True, type="camera")
     ):
         raise BridgeError(
             f"No camera named '{name}', but there is '{numbered}'.",

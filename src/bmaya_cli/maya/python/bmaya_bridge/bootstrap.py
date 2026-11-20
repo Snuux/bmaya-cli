@@ -33,7 +33,7 @@ def window_shown() -> bool:
         except ImportError:
             return True
     app = QtWidgets.QApplication.instance()
-    if app is None:
+    if not isinstance(app, QtWidgets.QApplication):
         return True
     return any(
         widget.objectName() == "MayaWindow" and widget.isVisible()
