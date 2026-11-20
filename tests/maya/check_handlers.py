@@ -848,6 +848,8 @@ def check_export_refusals(target: Path) -> str:
     flagged = mirrored_box("export_flagged")
     try:
         expect_error("export_fbx", "export_ghostShape has no faces", path=str(target))
+        ghost = call("audit_mesh", names=holder)["meshes"][0]
+        assert ghost["issues"] == ["export_ghostShape has no faces"], ghost
         forced = call("export_fbx", path=str(target), ignore_checks=True)
         assert any("has no faces" in issue for issue in forced["issues"]), forced["issues"]
         cmds.delete(holder)

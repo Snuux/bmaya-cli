@@ -253,10 +253,28 @@ def symmetry_of(mesh: om.MFnMesh, transform: str, axis: int) -> dict[str, Any]:
     return result
 
 
+def empty_entry(transform: str) -> dict[str, Any]:
+    issues = transform_issues(transform) + name_issues(transform)
+    issues += [problem.text for problem in shape_problems(transform)]
+    return {
+        "name": display_name(transform),
+        "verts": 0,
+        "tris": 0,
+        "faces": {"tris": 0, "quads": 0, "ngons": 0},
+        "size": [0, 0, 0],
+        "uv_sets": 0,
+        "materials": 0,
+        "issues": issues,
+    }
+
+
 def audit_one(shape: str, symmetry_axis: int | None = None) -> dict[str, Any]:
     path = dag_path(shape)
-    mesh = om.MFnMesh(path)
     transform = cmds.listRelatives(shape, parent=True, fullPath=True)[0]
+    try:
+        mesh = om.MFnMesh(path)
+    except ValueError:
+        return empty_entry(transform)
 
     tri_counts, _ = mesh.getTriangles()
     tris = int(sum(tri_counts))
