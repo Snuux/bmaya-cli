@@ -2094,6 +2094,81 @@ def check_rebind_skin() -> str:
     return f"posed rebind kept the mesh within {gap:.1e}, keep-shape, blendShape chain ok"
 
 
+def check_mirror_node() -> str:
+    made = side_rig("mr")
+    try:
+        cmds.setAttr("mr_lo_r.rotateZ", 35)
+        cmds.setKeyframe("mr_lo_r", attribute="rotateZ", time=1, value=35)
+        cmds.currentTime(1)
+        source_rows = skin_rows("mr_arm_r")
+        cmds.flushUndo()
+        result = call("mirror_node", name="mr_arm_r")
+        assert result["made"] == "mr_arm_l" and result["axis"] == "x", result
+        assert sorted(result["joints"]["made"]["items"]) == ["mr_end_l", "mr_lo_l", "mr_up_l"], (
+            result
+        )
+        assert result["weights"]["paired"] == 3, result["weights"]
+        assert result["weights"]["unpaired"]["items"] == ["mr_root"], result["weights"]
+        assert result["issues"] == [], result["issues"]
+        assert abs(cmds.getAttr("mr_lo_r.rotateZ") - 35) < 1e-6, "the source pose was not put back"
+        assert cmds.getAttr(cmds.listRelatives("mr_arm_l", shapes=True)[0] + ".opposite") is False
+        cmds.undo()
+        assert not cmds.objExists("mr_arm_l") and not cmds.objExists("mr_up_l"), "undo left parts"
+        cmds.redo()
+
+        cmds.setAttr("mr_lo_r.rotateZ", 0)
+        for joint in ("mr_up", "mr_lo", "mr_end"):
+            right = world_at(joint + "_r")
+            left = world_at(joint + "_l")
+            image = [-right[0], right[1], right[2]]
+            assert max(abs(a - b) for a, b in zip(left, image, strict=True)) < 1e-4, joint
+        right = shape_points("mr_arm_r")
+        left = shape_points("mr_arm_l")
+        worst = max(
+            abs(p.x + q.x) + abs(p.y - q.y) + abs(p.z - q.z)
+            for p, q in zip(right, left, strict=True)
+        )
+        assert worst < 1e-4, f"vertex i of the copy is not the mirror of vertex i: {worst}"
+        expected = [
+            {name[:-2] + "_l" if name.endswith("_r") else name: w for name, w in row.items()}
+            for row in source_rows
+        ]
+        gap = worst_gap(skin_rows("mr_arm_l"), expected)
+        assert gap < 1e-6, f"mirrored weights are off by {gap}"
+        audit = call("audit_mesh", names="mr_arm_l")["meshes"][0]
+        assert not any("inside out" in issue or "inward" in issue for issue in audit["issues"]), (
+            audit
+        )
+
+        expect_error("mirror_node", "already exists", name="mr_arm_r")
+        unsided = cmds.polyCube(name="mr_box", constructionHistory=False)[0]
+        expect_error("mirror_node", "no side", name=unsided)
+        cmds.delete(unsided)
+        cmds.delete("mr_arm_l", "mr_up_l")
+        joint_only = call("mirror_node", name="mr_up_r")
+        assert sorted(joint_only["joints"]["made"]["items"]) == ["mr_end_l", "mr_lo_l", "mr_up_l"]
+        cmds.delete("mr_up_l")
+    finally:
+        cmds.delete([node for node in made + ["mr_arm_l"] if cmds.objExists(node)])
+
+    off = side_rig("mo", parent_at=(5.0, 0.0, 0.0))
+    try:
+        call("mirror_node", name="mo_arm_r")
+        up_r = world_at("mo_up_r")
+        up_l = world_at("mo_up_l")
+        assert abs(up_l[0] + up_r[0]) < 1e-4, (up_r, up_l)
+        plain = cmds.polyCube(name="crate_r", constructionHistory=False)[0]
+        cmds.move(3, 0, 0, plain)
+        cut = call("mirror_node", name="crate_r", axis="x=1")
+        box = cmds.exactWorldBoundingBox("crate_l")
+        assert abs(box[0] + 1.5) < 1e-4 and abs(box[3] + 0.5) < 1e-4, box
+        assert "joints" not in cut, cut
+        cmds.delete("crate_r", "crate_l")
+    finally:
+        cmds.delete([node for node in off + ["mo_arm_l"] if cmds.objExists(node)])
+    return f"mesh, joints, weights within {gap:.1e}, posed source, plane off the parent, undo ok"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("projection", check_projection),
     ("sampling", check_sampling),
@@ -2129,6 +2204,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("rebind_skin", check_rebind_skin),
     ("get_bones", check_get_bones),
     ("set_pose", check_set_pose),
+    ("mirror_node", check_mirror_node),
     ("undo", check_undo),
     ("stop", check_stop),
 ]
