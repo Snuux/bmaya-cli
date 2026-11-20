@@ -12,7 +12,7 @@ from maya import cmds
 
 from bmaya_bridge import skinweights, softrender
 from bmaya_bridge.errors import BridgeError
-from bmaya_bridge.handlers import _sampling, skin, viewport
+from bmaya_bridge.handlers import _sampling, _skin, viewport
 from bmaya_bridge.handlers._common import (
     bool_param,
     display_name,
@@ -100,10 +100,10 @@ def parse_style(raw: str) -> str:
 
 
 def skin_rows(shape: str) -> list[skinweights.Row] | None:
-    clusters = skin.clusters_of(shape)
+    clusters = _skin.clusters_of(shape)
     if not clusters:
         return None
-    return skin.read_skin(clusters[0], shape).rows
+    return _skin.read_skin(clusters[0], shape).rows
 
 
 def joint_named(joint: str, counts: dict[str, int]) -> str:

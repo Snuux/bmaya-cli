@@ -5,6 +5,7 @@ from maya import cmds
 
 from bmaya_bridge import meshcheck
 from bmaya_bridge.handlers._common import display_name
+from bmaya_bridge.handlers._skin import audit_skin
 from bmaya_bridge.shapecheck import Problem, ShapeFacts, classify
 
 
@@ -70,11 +71,16 @@ def mesh_transforms(nodes: list[str]) -> list[str]:
 
 
 def preflight(nodes: list[str]) -> tuple[list[str], list[str]]:
-    """Problems of every mesh under the nodes: (blocking, the rest), each led by the mesh name."""
+    """Problems of every mesh under the nodes, skin ones too: (blocking, the rest), each led by
+    the mesh name."""
     blocking = []
     issues = []
     for transform in mesh_transforms(nodes):
+        name = display_name(transform)
         for problem in shape_problems(transform):
-            text = f"{display_name(transform)}: {problem.text}"
-            (blocking if problem.blocking else issues).append(text)
+            (blocking if problem.blocking else issues).append(f"{name}: {problem.text}")
+        shown = cmds.listRelatives(transform, shapes=True, type="mesh", fullPath=True) or []
+        for shape in shown:
+            if not cmds.getAttr(shape + ".intermediateObject"):
+                issues.extend(f"{name}: {line}" for line in audit_skin(shape)[1])
     return blocking, issues

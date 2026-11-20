@@ -1619,10 +1619,10 @@ def check_projection() -> str:
 
 
 def skin_rows(mesh: str) -> list[dict[str, float]]:
-    from bmaya_bridge.handlers import skin
+    from bmaya_bridge.handlers import _skin
 
     shape = cmds.listRelatives(mesh, shapes=True, noIntermediate=True, fullPath=True)[0]
-    return skin.read_skin(skin.clusters_of(shape)[0], shape).rows
+    return _skin.read_skin(_skin.clusters_of(shape)[0], shape).rows
 
 
 def worst_gap(rows: list[dict[str, float]], other: list[dict[str, float]]) -> float:
@@ -1700,6 +1700,14 @@ def check_get_skin_info() -> str:
         assert broken["bind_pose"]["at"] is False, broken
         assert broken["bind_pose"]["moved"]["items"] == ["lo_r", "end_r"], broken
         assert broken["sample"]["unweighted"] == [1], broken
+
+        from bmaya_bridge.handlers._shapes import preflight
+
+        audited = call("audit_mesh", names="arm_r")["meshes"][0]
+        assert audited["skin"]["name"] == cluster, audited
+        assert "1 unweighted verts" in audited["issues"], audited["issues"]
+        blocking, issues = preflight(["arm_r"])
+        assert not blocking and "arm_r: 1 unweighted verts" in issues, issues
 
         cmds.select("arm_r", replace=True)
         assert call("get_skin_info")["source"] == "selection"

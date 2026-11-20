@@ -18,6 +18,7 @@ from bmaya_bridge.handlers._common import (
     text_param,
 )
 from bmaya_bridge.handlers._shapes import shape_problems
+from bmaya_bridge.handlers._skin import audit_skin
 from bmaya_bridge.meshcheck import Face, Vec
 
 MAX_MESHES = 50
@@ -326,6 +327,8 @@ def audit_one(shape: str, symmetry_axis: int | None = None) -> dict[str, Any]:
     issues.extend(transform_issues(transform))
     issues.extend(name_issues(transform))
     issues.extend(problem.text for problem in shape_problems(transform))
+    skin, skin_issues = audit_skin(shape)
+    issues.extend(skin_issues)
 
     entry: dict[str, Any] = {
         "name": display_name(transform),
@@ -350,6 +353,8 @@ def audit_one(shape: str, symmetry_axis: int | None = None) -> dict[str, Any]:
     color_sets = mesh.getColorSetNames()
     if color_sets:
         entry["color_sets"] = list(color_sets)
+    if skin:
+        entry["skin"] = skin
     if symmetry_axis is not None:
         entry["symmetry"] = symmetry_of(mesh, transform, symmetry_axis)
         if entry["symmetry"]["unmatched"]:
