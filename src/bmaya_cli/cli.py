@@ -382,6 +382,55 @@ def build_parser() -> argparse.ArgumentParser:
         "--against", default="", metavar="OTHER", help="compare with this mesh instead of the mark"
     )
 
+    topo = add(
+        "topo",
+        "cmd_topo",
+        "find edge loops around tubes, the tubes, and where joints go in them",
+        "Reads one mesh's topology: vertex, face and edge counts, shells, open edges, and how\n"
+        "many vertices have each number of edges (`valence`). Then the closed edge loops that\n"
+        "go around a tube, like the loops of a finger or an arm: each with its center, mean\n"
+        "radius and plane normal. Loops of a size that sit closer than their radius make a\n"
+        "tube, listed from its thick end to its thin end with the gaps between loops and its\n"
+        "`axis`. A run is a stretch of tightly spaced loops (a gap over --gap times the\n"
+        "closest one, 1.2 by default, starts a new run); the middle loop of every run of\n"
+        "three or more is where a joint goes (`joints`), as a modeler places a knuckle in\n"
+        "the middle of the loops around it.\n\n"
+        "Loops are walked across vertices with four edges: they need quads, and a\n"
+        "triangulated mesh has none. --ids adds each loop's vertex numbers. -o draws the mesh\n"
+        "from several sides like `bmaya views`, each tube's loops in its color, the joint\n"
+        "places as black dots; --tubes 0,3 draws only those tubes and frames on them.",
+        examples(
+            "bmaya topo hand_r",
+            "bmaya topo hand_r -o loops.png --views front,top",
+            "bmaya topo hand_r -o fingers.png --tubes 0,1,2,3   # close up on four tubes",
+            "bmaya topo hand_r --ids --limit 200",
+            "bmaya topo arm --gap 1.5           # join looser loops into one run",
+        ),
+    )
+    topo.add_argument("name", help="the mesh")
+    topo.add_argument("-o", "--output", default="", metavar="FILE", help="draw the loops to a PNG")
+    topo.add_argument("--ids", action="store_true", help="add each loop's vertex numbers")
+    topo.add_argument(
+        "--gap",
+        type=float,
+        default=0,
+        metavar="G",
+        help="a gap over G times a tube's closest one starts a new run (default 1.2)",
+    )
+    topo.add_argument("--limit", type=int, default=0, metavar="N", help="loops listed (default 60)")
+    topo.add_argument(
+        "--views", default="", metavar="A,B", help="with -o: views to draw (default 4 views)"
+    )
+    topo.add_argument(
+        "--size", type=int, default=0, help="with -o: longest side of the sheet (default 1600)"
+    )
+    topo.add_argument(
+        "--tubes",
+        default="",
+        metavar="A,B",
+        help="with -o: draw only these tubes and frame the views on them",
+    )
+
     remesh = add(
         "remesh",
         "cmd_remesh",

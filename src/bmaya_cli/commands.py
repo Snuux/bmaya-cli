@@ -233,6 +233,27 @@ def cmd_diff(args: argparse.Namespace) -> int:
     return forward(args, "diff_mesh", params)
 
 
+def cmd_topo(args: argparse.Namespace) -> int:
+    if (args.views or args.size or args.tubes) and not args.output:
+        raise usage(
+            "--views, --size and --tubes go with -o.", f"bmaya topo {args.name} -o loops.png"
+        )
+    params = {
+        "name": args.name,
+        "ids": args.ids,
+        "gap": args.gap,
+        "limit": args.limit,
+        "image": bool(args.output),
+        "views": args.views,
+        "max_size": args.size,
+        "tubes": args.tubes,
+    }
+    if not args.output:
+        return forward(args, "get_topology", params)
+    deliver_png(call(args, "get_topology", params), args.output)
+    return EXIT_OK
+
+
 def cmd_remesh(args: argparse.Namespace) -> int:
     params = {
         "name": args.name,

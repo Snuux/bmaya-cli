@@ -460,6 +460,34 @@ def test_skeleton_commands_refuse_flags_that_do_not_go_together(
     capsys.readouterr()
 
 
+def test_topo_report_and_picture(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    def picture(params: dict[str, Any]) -> dict[str, Any]:
+        made = tmp_path / "maya_topo.png"
+        made.write_bytes(PNG)
+        return {"path": str(made), "got": params}
+
+    one_maya(home, make_bridge, {"get_topology": picture})
+    reply = run(capsys, "topo", "hand_r", "--ids", "--gap", "1.5")[1]
+    assert reply["got"] == {
+        "name": "hand_r",
+        "ids": True,
+        "gap": 1.5,
+        "limit": 0,
+        "image": False,
+        "views": "",
+        "max_size": 0,
+        "tubes": "",
+    }
+    target = tmp_path / "out" / "loops.png"
+    drawn = run(capsys, "topo", "hand_r", "-o", str(target), "--views", "front")[1]
+    assert drawn["got"]["image"] is True and drawn["got"]["views"] == "front"
+    assert target.read_bytes() == PNG and drawn["path"] == target.resolve().as_posix()
+    assert main(["topo", "hand_r", "--views", "front"]) == commands.EXIT_USAGE
+    capsys.readouterr()
+
+
 def test_a_command_the_maya_module_lacks_asks_for_an_install(
     home: Path, make_bridge: BridgeFactory, capsys: Output
 ) -> None:
