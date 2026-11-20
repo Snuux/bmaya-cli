@@ -1,4 +1,4 @@
-# FBX export
+# Export
 
 `bmaya export` resets the FBX exporter and applies a preset. All presets use Y up, FBX 2020 (`FBX202000`), binary, tangents on.
 
@@ -58,7 +58,7 @@ Maya's FBX plugin keeps baking at the frame rate of an earlier export in the sam
 
 ## glTF
 
-`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. `bmaya install --gltf` downloads the release bmaya pins, checks its SHA-256 and installs it as the Maya module `maya_glb_io`; `bmaya doctor` reports it. bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install`.
+`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. It is a fork of [annomodtutorials/maya-glb-io](https://github.com/annomodtutorials/maya-glb-io) (MIT) with fixes for skinned export, units and constraint-driven animation. `bmaya install --gltf` downloads the release bmaya pins, checks its SHA-256 and installs it as the Maya module `maya_glb_io`; `bmaya doctor` reports it. bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install`.
 
 | | glTF |
 |---|---|
