@@ -228,6 +228,13 @@ def check_get_viewport_screenshot() -> str:
     assert sorted(cmds.ls(materials=True)) == materials, "a stand-in material was left behind"
     assert not cmds.getAttr("defaultRenderGlobals.imageFilePrefix"), "render prefix not restored"
 
+    made = cmds.camera(name="shot_side")[0]
+    try:
+        expect_error("get_viewport_screenshot", "--camera shot_side1", camera="shot_side")
+    finally:
+        cmds.delete(made)
+        cmds.file(modified=False)
+
     sheet = assert_read_only("get_viewport_screenshot", frames="1,12,24", camera="top")
     assert sheet["frames"] == [1, 12, 24] and sheet["camera"] == "top", sheet
     assert Path(sheet["path"]).is_file(), sheet
@@ -577,6 +584,8 @@ def check_get_model_views() -> str:
         assert not cmds.file(query=True, modified=True), "views marked the scene modified"
 
         check_weight_views()
+        check_compare_views(outer)
+        check_views_without_geometry(outer)
 
         expect_error("get_model_views", "--views", names=names, views="front,under")
         expect_error("get_model_views", "--style", names=names, style="clay")
@@ -598,6 +607,66 @@ def check_get_model_views() -> str:
     finally:
         cmds.delete(outer, inner, dense)
     return "parts, silhouette, section, xray, dense mesh without edges, shaded, metres ok"
+
+
+def check_compare_views(outer: str) -> None:
+    wide = cmds.duplicate(outer, name="views_wide")[0]
+    cmds.scale(1.5, 1, 1, wide)
+    cmds.move(5, 0, 0, wide)
+    try:
+        both = assert_read_only(
+            "get_model_views",
+            names=outer,
+            compare=wide,
+            style="silhouette",
+            views="front,right",
+            max_size=900,
+        )
+        assert (both["width"], both["height"]) == (900, 600), both
+        found = both["compare"]
+        assert found["first"] == outer and found["second"] == wide, found
+        assert found["moved"] == [-5, 0, 0], found
+        assert abs(found["differ"]["front"] - 1 / 3) < 0.03, found
+        assert found["differ"]["right"] < 0.02, found
+        assert color_count(both["path"], (255, 127, 14), 40) > 0.01 * 900 * 600, "no orange"
+
+        call("diff_mesh", name=outer, mark=True)
+        cmds.move(0, 1, 0, outer + ".vtx[2:3]", relative=True)
+        edit = assert_read_only(
+            "get_model_views", names=outer, compare="mark", views="front", max_size=600
+        )
+        assert edit["compare"]["second"] == f"{outer} (mark)", edit
+        assert edit["compare"]["moved"] == [0, 0, 0], edit
+        assert edit["compare"]["differ"]["front"] > 0.1, edit
+        cmds.move(0, -1, 0, outer + ".vtx[2:3]", relative=True)
+
+        expect_error("get_model_views", "no mark", names=wide, compare="mark")
+        expect_error(
+            "get_model_views", "--compare draws", names=outer, compare=wide, style="shaded"
+        )
+        expect_error("get_model_views", "one mesh", names=f"{outer},{wide}", compare="mark")
+    finally:
+        cmds.delete(wide)
+
+
+def check_views_without_geometry(outer: str) -> None:
+    hollow = cmds.polyCube(name="views_hollow", constructionHistory=False)[0]
+    bone = cmds.joint(name="views_bone")
+    cmds.select(clear=True)
+    cmds.skinCluster(bone, hollow, toSelectedBones=True)
+    try:
+        origs = [
+            shape
+            for shape in cmds.listRelatives(hollow, shapes=True, fullPath=True)
+            if cmds.getAttr(shape + ".intermediateObject")
+        ]
+        cmds.delete(origs)
+        kept = assert_read_only("get_model_views", names=f"{outer},{hollow}", views="front")
+        assert "no geometry: views_hollow" in kept["note"], kept
+        expect_error("get_model_views", "no geometry", names=hollow)
+        expect_error("diff_mesh", "no geometry", name=hollow)
+    finally:
+        cmds.delete(hollow, bone)
 
 
 def check_weight_views() -> str:
@@ -631,6 +700,8 @@ def check_weight_views() -> str:
 
 
 def check_diff_mesh() -> str:
+    from bmaya_bridge import skinweights
+
     box = cmds.polyCube(name="diff_box", constructionHistory=False)[0]
     cmds.select(clear=True)
     try:
@@ -646,6 +717,11 @@ def check_diff_mesh() -> str:
         assert moved["max_move"] == 1 and moved["after"]["size"] == [1, 2, 1], moved
         assert moved["moved_box"][1] == moved["moved_box"][4] == 1.5, moved
         assert moved["uv_changed"] is False and "uv" not in moved, moved
+        drawn = assert_read_only("diff_mesh", name=box, image=True, views="front", max_size=400)
+        assert (drawn["width"], drawn["height"]) == (400, 400) and drawn["moved"] == 1, drawn
+        assert color_count(drawn["path"], skinweights.heat(1.0), 40) > 100, "no red at the move"
+        assert color_count(drawn["path"], skinweights.heat(0.0), 40) > 1000, "no still blue"
+        Path(drawn["path"]).unlink()
 
         call("diff_mesh", name=box, mark=True)
         cmds.polyEditUV(box + ".map[3]", uValue=0.1)
@@ -670,6 +746,8 @@ def check_diff_mesh() -> str:
         changed = call("diff_mesh", name=box, against=copy)
         assert changed["topology_changed"] is True and changed["against"] == copy, changed
         assert changed["before"]["verts"] == 8 and changed["after"]["verts"] == 26, changed
+        unpaired = call("diff_mesh", name=box, against=copy, image=True)
+        assert "path" not in unpaired and "--compare mark" in unpaired["note"], unpaired
         cmds.delete(copy)
 
         expect_error("diff_mesh", "one mesh at a time", name="props")
@@ -2450,6 +2528,58 @@ def check_bake_uv() -> str:
     return f"position and normal maps, {baked['covered']} of the texels covered, bounds ok"
 
 
+def check_scene_status() -> str:
+    from bmaya_bridge.handlers import status
+
+    box = cmds.polyCube(name="st_box", constructionHistory=False)[0]
+    gone = cmds.polyCube(name="st_gone", constructionHistory=False)[0]
+    paint = cmds.shadingNode("file", asTexture=True, name="st_paint")
+    cmds.setAttr(paint + ".fileTextureName", "old.png", type="string")
+    status.take_baseline("check")
+    try:
+        clean = assert_read_only("scene_status")
+        assert clean["same"] is True and clean["baseline"]["why"] == "check", clean
+        assert clean["changed"]["total"] == 0, clean["changed"]
+
+        cmds.move(0, 0.5, 0, box + ".vtx[3]", relative=True)
+        cmds.rename(box, "st_box2")
+        cmds.setAttr(paint + ".fileTextureName", "new.png", type="string")
+        cmds.delete(gone)
+        cmds.polySphere(name="st_new", constructionHistory=False)
+        cmds.setKeyframe("st_box2", attribute="translateY", time=1, value=2)
+        cmds.currentUnit(time="ntsc", updateAnimation=False)
+        found = call("scene_status")
+        assert found["same"] is False, found
+        assert {"from": "st_box", "to": "st_box2"} in found["renamed"]["items"], found["renamed"]
+        changed = {entry["name"]: entry["what"] for entry in found["changed"]["items"]}
+        shape_change = [what for name, what in changed.items() if name == "st_box2Shape"]
+        assert shape_change and "points" in shape_change[0], changed
+        assert changed["st_paint"] == ["path"], changed
+        assert "translate" in changed["st_box2"], changed
+        assert {"name": "st_gone", "type": "transform"} in found["deleted"]["items"], found
+        added = {entry["name"] for entry in found["added"]["items"]}
+        assert "st_new" in added and "st_box2_translateY" in added, added
+        assert found["settings"] == ["time"], found.get("settings")
+
+        cmds.currentUnit(time="film", updateAnimation=False)
+        status.take_baseline("check")
+        value = cmds.getAttr("st_box2.translateX")
+        cmds.setAttr("st_box2.translateX", value)
+        cmds.file(modified=True)
+        flagged = call("scene_status")
+        assert flagged["same"] is True and "modified flag is set" in flagged["note"], flagged
+
+        status.BASELINE.clear()
+        missing = call("scene_status")
+        assert missing["baseline"] is None and "no baseline" in missing["note"], missing
+    finally:
+        for node in ("st_box2", "st_box", "st_gone", "st_new", "st_paint"):
+            if cmds.objExists(node):
+                cmds.delete(node)
+        cmds.currentUnit(time="film", updateAnimation=False)
+    return "moved points, rename, texture path, delete, add, keys, settings, flag without change"
+
+
 def check_mirror_node() -> str:
     made = side_rig("mr")
     try:
@@ -2605,6 +2735,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("plan_game_export", check_plan_game_export),
     ("export_game_file", check_export_game_file),
     ("scene_file", check_scene_file),
+    ("scene_status", check_scene_status),
     ("get_motion", check_get_motion),
     ("get_rig_info", check_get_rig_info),
     ("get_skin_info", check_get_skin_info),

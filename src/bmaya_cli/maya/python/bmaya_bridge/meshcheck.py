@@ -183,6 +183,15 @@ def moves(before: list[Vec], after: list[Vec], tolerance: float) -> Moves:
     return Moves(moved, longest, total / moved, box)
 
 
+def move_shares(before: list[Vec], after: list[Vec], tolerance: float) -> list[float]:
+    """Each point's move as a share of the longest move, 0 for a point that stayed."""
+    distances = [math.dist(old, after[index]) for index, old in enumerate(before)]
+    longest = max(distances + [0.0])
+    if longest <= tolerance:
+        return [0.0] * len(distances)
+    return [distance / longest if distance > tolerance else 0.0 for distance in distances]
+
+
 def flipped_uv_faces(face_uvs: list[list[tuple[float, float]]]) -> int:
     """Faces whose UVs run the other way round than the face: mirrored in the texture."""
     flipped = 0

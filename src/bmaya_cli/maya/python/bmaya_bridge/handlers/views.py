@@ -24,7 +24,7 @@ from bmaya_bridge.handlers._common import (
 )
 from bmaya_bridge.handlers._qt import qt_core, qt_gui
 from bmaya_bridge.handlers.framing import aim
-from bmaya_bridge.handlers.mesh import target_meshes
+from bmaya_bridge.handlers.mesh import MARKS, has_geometry, mark_key, target_meshes
 from bmaya_bridge.projection import Vec, View, project
 
 if TYPE_CHECKING:
@@ -228,6 +228,20 @@ def shown_meshes(names: str) -> tuple[list[str], str]:
             "`bmaya scene --type mesh` lists them.",
         )
     return meshes, source
+
+
+def drawable(meshes: list[str], notes: list[str]) -> list[str]:
+    kept = [shape for shape in meshes if has_geometry(shape)]
+    empty = [part_name(shape) for shape in meshes if shape not in kept]
+    if empty and not kept:
+        raise BridgeError(
+            f"{', '.join(empty[:5])} {'has' if len(empty) == 1 else 'have'} no geometry to draw.",
+            hint="A skinned mesh whose Orig shape was deleted has none: undo that delete, or "
+            "`bmaya audit NAME` to see what is left.",
+        )
+    if empty:
+        notes.append(f"left out, no geometry: {', '.join(empty[:5])}")
+    return kept
 
 
 def read_part(shape: str, index: int, with_edges: bool) -> softrender.Part:
@@ -451,9 +465,14 @@ def get_model_views(
     marks: list[softrender.Mark] | None = None,
     labels: list[Label] | None = None,
     frame: Box | None = None,
+    paint: dict[str, list[softrender.Color]] | None = None,
+    paint_legend: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """The views sheet; `marks` and `labels` draw extra lines, dots and words over it, and
-    `frame` is the box the cameras frame instead of the whole meshes."""
+    """The views sheet; `marks` and `labels` draw extra lines, dots and words over it,
+    `frame` is the box the cameras frame instead of the whole meshes, and `paint` colors
+    each vertex of the named shapes (with `paint_legend` as the legend)."""
+    if text_param(params, "compare"):
+        return compare_views(params)
     longest = int_param(params, "max_size", 1600, 400, 2000)
     style = parse_style(text_param(params, "style"))
     views = parse_views(text_param(params, "views"))
@@ -470,13 +489,14 @@ def get_model_views(
             hint=f"bmaya views NAME --style weights --joint {joint}",
         )
     meshes, source = shown_meshes(text_param(params, "names"))
+    notes: list[str] = []
+    meshes = drawable(meshes, notes)
     section_text = text_param(params, "section")
     tile_count = len(views) + (1 if section_text else 0)
     columns = tile_count if tile_count <= 3 else math.ceil(math.sqrt(tile_count))
     tile = longest // columns
     triangles = sum(int(cmds.polyEvaluate(shape, triangle=True)) for shape in meshes)
     work = triangles * tile_count
-    notes = []
     drawn = style != "shaded"
     if drawn and work > MAX_WORK:
         raise BridgeError(
@@ -498,6 +518,14 @@ def get_model_views(
     legend: list[dict[str, Any]] = []
     if style in softrender.COLORED:
         parts, legend, painted = colored_parts(meshes, parts, style, joint)
+    if paint:
+        by_path = {cmds.ls(shape, long=True)[0]: colors for shape, colors in paint.items()}
+        parts = [
+            part._replace(colors=by_path.get(cmds.ls(meshes[index], long=True)[0]))
+            for index, part in enumerate(parts)
+        ]
+        legend = list(paint_legend or [])
+        style = "weights"
     box = frame or softrender.bounds(parts)
     if box is None:
         raise BridgeError("The meshes have no points to draw.", hint="`bmaya audit` shows why.")
@@ -509,7 +537,7 @@ def get_model_views(
 
     unit = cmds.currentUnit(query=True, linear=True)
     names = list(dict.fromkeys(part_name(shape) for shape in meshes))
-    if drawn and style in ("parts", "xray"):
+    if drawn and style in ("parts", "xray") and not paint:
         colors: dict[str, softrender.Color] = {}
         for index, shape in enumerate(meshes):
             colors.setdefault(part_name(shape), parts[index].color)
@@ -592,6 +620,176 @@ def get_model_views(
         result["light"] = light
     if offscreen and not drawn:
         result["offscreen"] = True
+    if notes:
+        result["note"] = "; ".join(notes)
+    return result
+
+
+COMPARE_STYLES = ("parts", "xray", "silhouette")
+ONLY_FIRST: softrender.Color = softrender.part_color(0)
+ONLY_SECOND: softrender.Color = softrender.part_color(1)
+BOTH: softrender.Color = (190, 190, 190)
+
+
+def mark_part(shape: str, with_edges: bool) -> softrender.Part:
+    """The caller's `diff --mark` of the mesh as a part to draw, in centimeters."""
+    found = MARKS.get(mark_key(shape))
+    if found is None:
+        name = part_name(shape)
+        raise BridgeError(
+            f"'{name}' has no mark to compare with.",
+            hint=f"Take one before the edit: bmaya diff {name} --mark.",
+        )
+    factor = found.unit_cm
+    points = [(x * factor, y * factor, z * factor) for x, y, z in found.points]
+    triangles: list[int] = []
+    edges: dict[tuple[int, int], None] = {}
+    for face in found.faces:
+        for index in range(1, len(face) - 1):
+            triangles.extend((face[0], face[index], face[index + 1]))
+        for index in range(len(face)):
+            one, two = face[index], face[(index + 1) % len(face)]
+            edges[(min(one, two), max(one, two))] = None
+    return softrender.Part(
+        points, triangles, list(edges) if with_edges else [], softrender.part_color(1)
+    )
+
+
+def shifted(part: softrender.Part, offset: Vec) -> softrender.Part:
+    points = [(x + offset[0], y + offset[1], z + offset[2]) for x, y, z in part.points]
+    return part._replace(points=points)
+
+
+def center_of(box: Box) -> Vec:
+    return (
+        (box[0][0] + box[1][0]) / 2.0,
+        (box[0][1] + box[1][1]) / 2.0,
+        (box[0][2] + box[1][2]) / 2.0,
+    )
+
+
+def overlay(
+    first: softrender.Canvas, second: softrender.Canvas, size: int
+) -> tuple[softrender.Canvas, float]:
+    """Both silhouettes on one canvas: grey where both cover, blue or red where only one
+    does; also the share of covered texels where they disagree."""
+    out = softrender.Canvas(size, size)
+    both = only = 0
+    for index in range(size * size):
+        one = first.depth[index] != softrender.NOWHERE
+        two = second.depth[index] != softrender.NOWHERE
+        if one and two:
+            out.pixels[index] = softrender.pack(BOTH)
+            both += 1
+        elif one:
+            out.pixels[index] = softrender.pack(ONLY_FIRST)
+            only += 1
+        elif two:
+            out.pixels[index] = softrender.pack(ONLY_SECOND)
+            only += 1
+    covered = both + only
+    return out, (only / float(covered) if covered else 0.0)
+
+
+def compare_views(params: dict[str, Any]) -> dict[str, Any]:
+    style = parse_style(text_param(params, "style"))
+    if style not in COMPARE_STYLES:
+        raise BridgeError(
+            f"--compare draws parts, xray or silhouette, not {style}.",
+            hint="bmaya views NAME --compare OTHER --style silhouette",
+        )
+    if text_param(params, "section") or text_param(params, "light"):
+        raise BridgeError(
+            "--compare takes no --section or --light.", hint="bmaya views NAME --compare OTHER"
+        )
+    views = parse_views(text_param(params, "views"))
+    longest = int_param(params, "max_size", 1500, 600, 2400)
+    notes: list[str] = []
+    first_meshes = drawable(shown_meshes(text_param(params, "names"))[0], notes)
+    target = text_param(params, "compare")
+    wire = style != "silhouette" and not bool_param(params, "no_wire")
+    first = [read_part(shape, 0, wire) for shape in first_meshes]
+    if target == "mark":
+        if len(first_meshes) != 1:
+            raise BridgeError(
+                "--compare mark compares one mesh with its mark.",
+                hint="Name one mesh: bmaya views NAME --compare mark.",
+            )
+        second = [mark_part(first_meshes[0], wire)]
+        second_name = f"{part_name(first_meshes[0])} (mark)"
+    else:
+        second_meshes = drawable(shown_meshes(target)[0], notes)
+        second = [
+            read_part(shape, 0, wire)._replace(color=softrender.part_color(1))
+            for shape in second_meshes
+        ]
+        second_name = ", ".join(dict.fromkeys(part_name(shape) for shape in second_meshes))
+    first_box = softrender.bounds(first)
+    second_box = softrender.bounds(second)
+    if first_box is None or second_box is None:
+        raise BridgeError("Nothing to draw on one side.", hint="`bmaya audit` shows why.")
+    offset = (0.0, 0.0, 0.0)
+    if target != "mark":
+        a = center_of(first_box)
+        b = center_of(second_box)
+        offset = (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+        second = [shifted(part, offset) for part in second]
+    box = softrender.bounds(first + second)
+    per_unit = _sampling.linear_scale()
+    scene_box = in_unit(box, per_unit)
+    tile = longest // 3
+    triangles = softrender.triangle_count(first + second)
+    if triangles * len(views) * 3 > MAX_WORK:
+        raise BridgeError(
+            f"{triangles} triangles in {len(views)} views are too many to compare in time.",
+            hint="Pass fewer --views, like --views front,right.",
+        )
+    if wire and not softrender.wire_fits(triangles, tile):
+        wire = False
+        first = [part._replace(edges=[]) for part in first]
+        second = [part._replace(edges=[]) for part in second]
+        notes.append("edges left out: too dense for these tiles")
+    first_name = ", ".join(dict.fromkeys(part_name(shape) for shape in first_meshes))
+    unit = cmds.currentUnit(query=True, linear=True)
+    tiles = [Tile(name, name, False) for name in views]
+    images = []
+    differ = {}
+    with scene_kept(), view_cameras(tiles, scene_box) as cameras:
+        for entry in tiles:
+            view = _sampling.camera_view(cameras[entry.label], tile, tile)
+            for name, parts in ((first_name, first), (second_name, second)):
+                canvas = softrender.render(parts, view, tile, tile, style, wire)
+                image = to_image(canvas, tile)
+                annotate(image, view, box, unit, ON_LIGHT, [])
+                images.append((f"{entry.label}: {name}", image))
+            one = softrender.render(first, view, tile, tile, "silhouette", False)
+            two = softrender.render(second, view, tile, tile, "silhouette", False)
+            both, share = overlay(one, two, tile)
+            differ[entry.label] = rnd(share, 4)
+            legend = [
+                {"name": first_name, "color": hex_color(ONLY_FIRST)},
+                {"name": second_name, "color": hex_color(ONLY_SECOND)},
+                {"name": "both", "color": hex_color(BOTH)},
+            ]
+            image = to_image(both, tile)
+            annotate(image, view, box, unit, ON_LIGHT, legend)
+            images.append((f"{entry.label}: both", image))
+    path = viewport.new_image_path("compare")
+    width, height = viewport.compose_sheet(images, 3, (tile, tile), path)
+    result: dict[str, Any] = {
+        "path": path,
+        "width": width,
+        "height": height,
+        "views": views,
+        "style": style,
+        "compare": {
+            "first": first_name,
+            "second": second_name,
+            "moved": rnd_list(value * per_unit for value in offset),
+            "differ": differ,
+        },
+        "unit": unit,
+    }
     if notes:
         result["note"] = "; ".join(notes)
     return result

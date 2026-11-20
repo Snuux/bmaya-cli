@@ -7,12 +7,13 @@ from typing import Any, NamedTuple
 import maya.api.OpenMaya as om
 from maya import cmds
 
-from bmaya_bridge import clients, meshcheck
+from bmaya_bridge import clients, meshcheck, skinweights
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
     cm_per_unit,
     display_name,
+    int_param,
     resolve,
     rnd,
     rnd_list,
@@ -385,6 +386,15 @@ class Mark(NamedTuple):
 MARKS: dict[tuple[str, str], Mark] = {}
 
 
+def has_geometry(shape: str) -> bool:
+    """False for a shape whose deformer lost its input, like a skinned mesh whose Orig
+    shape was deleted: MFnMesh refuses it."""
+    try:
+        return om.MFnMesh(dag_path(shape)).numVertices > 0
+    except (RuntimeError, ValueError):
+        return False
+
+
 def single_mesh(name: str) -> str:
     meshes = meshes_under(resolve(name))
     if not meshes:
@@ -396,6 +406,12 @@ def single_mesh(name: str) -> str:
         raise BridgeError(
             f"'{name}' holds {len(meshes)} meshes; this works on one mesh at a time.",
             hint="Name one of them: " + ", ".join(display_name(parent) for parent in parents) + ".",
+        )
+    if not has_geometry(meshes[0]):
+        raise BridgeError(
+            f"'{name}' has no geometry.",
+            hint="A skinned mesh whose Orig shape was deleted has none: undo that delete. "
+            f"`bmaya audit {name}` shows what is left.",
         )
     return meshes[0]
 
@@ -546,7 +562,52 @@ def diff_mesh(params: dict[str, Any]) -> dict[str, Any]:
         before = in_current_unit(found)
     result = {"name": after.name, "against": before.name if against else "mark"}
     result.update(compare_marks(before, after))
+    if bool_param(params, "image"):
+        draw_moves(shape, before, after, result, params)
     return result
+
+
+def draw_moves(
+    shape: str, before: Mark, after: Mark, result: dict[str, Any], params: dict[str, Any]
+) -> None:
+    """The views sheet of the mesh with each vertex colored by how far it moved."""
+    from bmaya_bridge.handlers.views import get_model_views  # views imports this module
+
+    name = result["name"]
+    if result["topology_changed"]:
+        result["note"] = (
+            f"no picture: the topology changed, so vertices do not pair up. "
+            f"bmaya views {name} --compare mark -o diff.png draws both shapes"
+        )
+        return
+    size = max(size_of(after.points) + [0.0])
+    shares = meshcheck.move_shares(before.points, after.points, max(1e-9, MOVE_TOLERANCE * size))
+    unit = cmds.currentUnit(query=True, linear=True)
+    longest = result.get("max_move", 0.0)
+    legend = [{"name": "did not move", "color": hex_of(skinweights.heat(0.0))}]
+    if longest:
+        legend += [
+            {"name": f"{rnd(longest / 2.0)} {unit}", "color": hex_of(skinweights.heat(0.5))},
+            {"name": f"{rnd(longest)} {unit}", "color": hex_of(skinweights.heat(1.0))},
+        ]
+    sheet = get_model_views(
+        {
+            "names": shape,
+            "views": text_param(params, "views"),
+            "style": "parts",
+            "max_size": int_param(params, "max_size", 0, 0, 4000),
+        },
+        paint={shape: [skinweights.heat(share) for share in shares]},
+        paint_legend=legend,
+    )
+    for key in ("path", "width", "height", "views"):
+        result[key] = sheet[key]
+    if sheet.get("note"):
+        result["note"] = sheet["note"]
+
+
+def hex_of(color: tuple[int, int, int]) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*color)
 
 
 def audit_mesh(params: dict[str, Any]) -> dict[str, Any]:

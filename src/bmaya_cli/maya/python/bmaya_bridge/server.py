@@ -386,6 +386,8 @@ def start(schedule: Scheduler | None = None, headless: bool = False) -> int:
         )
         port = _bridge.start()
         _add_maya_callbacks()
+        if maya_version:
+            _take_baseline("bridge start", only_if_clean=True)
         if not _atexit_registered:
             atexit.register(_shutdown)
             _atexit_registered = True
@@ -458,8 +460,8 @@ def _add_maya_callbacks() -> None:
     messages = OpenMaya.MSceneMessage
     try:
         _callback_ids.append(messages.addCallback(messages.kAfterOpen, _on_scene_opened))
-        _callback_ids.append(messages.addCallback(messages.kAfterNew, _on_scene_renamed))
-        _callback_ids.append(messages.addCallback(messages.kAfterSave, _on_scene_renamed))
+        _callback_ids.append(messages.addCallback(messages.kAfterNew, _on_scene_new))
+        _callback_ids.append(messages.addCallback(messages.kAfterSave, _on_scene_saved))
         _callback_ids.append(messages.addCallback(messages.kMayaExiting, _on_maya_exiting))
     except Exception:
         traceback.print_exc()
@@ -484,12 +486,36 @@ def _on_scene_opened(*_: object) -> None:
     scene = _scene_name()
     bridge.set_scene(scene)
     bridge.journal.event("scene_opened", scene=scene)
+    _take_baseline("opened")
 
 
 def _on_scene_renamed(*_: object) -> None:
     bridge = _bridge
     if bridge is not None and bridge.running:
         bridge.set_scene(_scene_name())
+
+
+def _on_scene_new(*_: object) -> None:
+    _on_scene_renamed()
+    _take_baseline("new")
+
+
+def _on_scene_saved(*_: object) -> None:
+    _on_scene_renamed()
+    _take_baseline("saved")
+
+
+def _take_baseline(why: str, only_if_clean: bool = False) -> None:
+    """Remembers the scene for `bmaya file status`; a failure here must never break a save."""
+    try:
+        from bmaya_bridge.handlers import status
+
+        if only_if_clean:
+            status.take_baseline_if_clean(why)
+        else:
+            status.take_baseline(why)
+    except Exception:
+        traceback.print_exc()
 
 
 def _on_maya_exiting(*_: object) -> None:
