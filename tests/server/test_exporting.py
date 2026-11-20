@@ -125,3 +125,120 @@ def test_a_refusal_keeps_its_hint(
     code, out, err = export(home, make_bridge, capsys, refuse, str(tmp_path / "x.fbx"))
     assert code == 1 and out is None
     assert "error: Export refused" in err and "hint: --ignore-checks" in err
+
+
+def game_plan(folder: Path, texture: Path) -> dict[str, Any]:
+    crate = {"meshes": ["crate"], "joints": [], "takes": [], "fps": 30.0, "up": "y"}
+    return {
+        "jobs": [
+            {
+                "node": "gx_model",
+                "kind": "model",
+                "path": (folder / "crate.fbx").as_posix(),
+                "textures": [
+                    {"node": "skin_file", "path": texture.as_posix()},
+                    {"node": "tiles_file", "path": "C:/art/rock.<UDIM>.png"},
+                    {"node": "gone_file", "path": (folder / "nowhere.png").as_posix()},
+                ],
+                "expected": crate,
+            },
+            {
+                "node": "gx_clips",
+                "kind": "clip",
+                "clip": "walk",
+                "path": (folder / "anim" / "hero_walk.fbx").as_posix(),
+                "frames": [0, 16],
+                "expected": {**WALKER, "meshes": []},
+            },
+        ],
+        "skipped": [{"node": "rig:gx", "reason": "referenced"}],
+        "issues": ["crate: crateShape is instanced under 2 transforms"],
+    }
+
+
+def game_bridge(
+    home: Path, make_bridge: BridgeFactory, plan: dict[str, Any], fail_on: str = ""
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def write(params: dict[str, Any]) -> dict[str, Any]:
+        calls.append(params)
+        if params["path"].endswith(fail_on) and fail_on:
+            raise FakeError("Timeout", "still running in Maya")
+        target = Path(params["path"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fixture = "walker.fbx" if params["kind"] == "clip" else "crate.fbx"
+        shutil.copy(FIXTURES / fixture, target)
+        return {"path": params["path"], "size": target.stat().st_size}
+
+    bridge = make_bridge({"plan_game_export": lambda params: plan, "export_game_file": write})
+    bridge.write_registry(home, 111)
+    return calls
+
+
+def test_game_exporter_writes_each_planned_file_and_copies_textures(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    texture = tmp_path / "src" / "skin.png"
+    texture.parent.mkdir()
+    texture.write_bytes(b"png")
+    calls = game_bridge(home, make_bridge, game_plan(tmp_path / "out", texture))
+    code = main(["export", "--game-exporter", "--copy-textures"])
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert [Path(item["path"]).name for item in out["written"]["items"]] == [
+        "crate.fbx",
+        "hero_walk.fbx",
+    ]
+    copy = (tmp_path / "out" / "skin.png").as_posix()
+    assert out["textures"] == {"copied": [copy], "kept": 0}
+    assert calls[0]["textures"] == {"skin_file": copy}
+    assert calls[1] == {
+        "node": "gx_clips",
+        "kind": "clip",
+        "clip": "walk",
+        "path": (tmp_path / "out" / "anim" / "hero_walk.fbx").as_posix(),
+        "textures": {},
+    }
+    issues = out["issues"]["items"]
+    assert issues[0] == "crate: crateShape is instanced under 2 transforms"
+    assert any(i.startswith("tiles_file: tiled or empty path") for i in issues), issues
+    assert any(i.startswith("gone_file:") and "does not exist" in i for i in issues), issues
+    assert out["skipped"] == [{"node": "rig:gx", "reason": "referenced"}]
+    assert out["calls"] == 3
+
+    game_bridge(home, make_bridge, game_plan(tmp_path / "out", texture))
+    assert main(["export", "--game-exporter", "--copy-textures"]) == 0
+    assert json.loads(capsys.readouterr().out)["textures"] == {"copied": [], "kept": 1}
+
+
+def test_game_exporter_stops_with_what_was_written(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    plan = game_plan(tmp_path / "out", tmp_path / "none.png")
+    game_bridge(home, make_bridge, plan, fail_on="hero_walk.fbx")
+    code = main(["export", "--game-exporter", "gx_clips"])
+    err = capsys.readouterr().err
+    assert code == 3
+    assert "still writing" in err and "written before it: crate.fbx" in err
+    assert "Do not resend" in err
+
+
+def test_game_exporter_arguments(capsys: Output) -> None:
+    for argv in (
+        ["export"],
+        ["export", "a.fbx", "--game-exporter"],
+        ["export", "--game-exporter", "--preset", "godot"],
+        ["export", "a.fbx", "--copy-textures"],
+    ):
+        assert main(argv) == 2, argv
+        assert "error:" in capsys.readouterr().err
+
+
+def test_game_exporter_on_an_old_maya_module(
+    home: Path, make_bridge: BridgeFactory, capsys: Output
+) -> None:
+    make_bridge({}).write_registry(home, 111)
+    assert main(["export", "--game-exporter"]) == 1
+    err = capsys.readouterr().err
+    assert "does not know --game-exporter" in err and "bmaya install" in err

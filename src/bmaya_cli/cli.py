@@ -563,15 +563,23 @@ def build_parser() -> argparse.ArgumentParser:
         "flag hides inside-out faces, stops the export (--ignore-checks writes it anyway).\n"
         "After writing, the file is read back: `written` says what it holds, and `issues`\n"
         "lists what is missing or wrong in it, like a mesh that came out empty, joints that\n"
-        "are not there, a take with the wrong frames or keys baked at another frame rate.",
+        "are not there, a take with the wrong frames or keys baked at another frame rate.\n"
+        "--game-exporter exports the way the scene's Game Exporter nodes are set up, like\n"
+        "their Export button: their paths, sets and presets, a file per clip with one take\n"
+        "each. Without a NODE it runs every node in the scene; --clip NAME runs one clip.\n"
+        "--copy-textures copies the model's textures next to its FBX and points the file at\n"
+        "the copies, for engines that look for them there.",
         examples(
             "bmaya export hero.fbx",
             "bmaya export out/walk.fbx --preset unreal --selection --animation --start 0 --end 24",
             "bmaya export out/walk.fbx --preset godot --selection --clip zombie_walk",
+            "bmaya export --game-exporter                     # every Game Exporter node",
+            "bmaya export --game-exporter gameExporter_fp --clip fp_eat",
+            "bmaya export --game-exporter gameExporter_model --copy-textures",
         ),
         module="exporting",
     )
-    export.add_argument("path", metavar="FILE.fbx", help="target file")
+    export.add_argument("path", metavar="FILE.fbx", nargs="?", default="", help="target file")
     export.add_argument("--preset", default="", help="unity (default), unreal or godot")
     export.add_argument("--selection", action="store_true", help="export only the selection")
     export.add_argument("--animation", action="store_true", help="bake and export animation")
@@ -588,6 +596,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the file even when the checks before export find a mesh that would come out "
         "broken",
+    )
+    export.add_argument(
+        "--game-exporter",
+        nargs="?",
+        const="*",
+        default="",
+        metavar="NODE",
+        help="export as the Game Exporter nodes are set up (one node, or all of them)",
+    )
+    export.add_argument(
+        "--copy-textures",
+        action="store_true",
+        help="with --game-exporter: copy model textures next to the FBX and point the file at them",
     )
 
     inspect = add(
