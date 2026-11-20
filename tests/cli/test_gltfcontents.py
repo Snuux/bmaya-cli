@@ -164,3 +164,15 @@ def test_a_joint_under_a_plain_node_hangs_under_the_joint_above(tmp_path: Path) 
     joints = read_gltf(path).joints
     assert [(joint.name, joint.parent) for joint in joints] == [("root", ""), ("tip", "root")]
     assert joints[1].at == (0.0, 3.0, 0.0)
+
+
+def test_layout_turns_v_over_and_lists_triangles(tmp_path: Path) -> None:
+    from bmaya_cli.gltfcontents import read_gltf_layouts
+
+    doc, data = model()
+    path = tmp_path / "card.glb"
+    path.write_bytes(glb(doc, data))
+    layout = read_gltf_layouts(path)[0]
+    assert layout.mesh == "card"
+    assert layout.faces == [[0, 1, 2], [2, 1, 3]]
+    assert layout.uvs[0] == (0.0, 1.0) and layout.uvs[3] == (1.0, 0.0)

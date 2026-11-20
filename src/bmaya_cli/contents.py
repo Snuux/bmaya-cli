@@ -70,3 +70,11 @@ class Contents(NamedTuple):
     joints_from: str
     takes: list[Take]
     textures: list[Texture]
+
+
+class Layout(NamedTuple):
+    """One mesh's first UV set: the UVs, and each face's UV indices corner by corner."""
+
+    mesh: str
+    uvs: list[tuple[float, float]]
+    faces: list[list[int]]

@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 from bmaya_cli.contents import Contents, Joint, ModelFileError, Take
-from bmaya_cli.fbxcontents import read_fbx
+from bmaya_cli.fbxcontents import read_fbx, read_fbx_layouts
 from bmaya_cli.fbxfile import MAGIC as FBX_MAGIC
-from bmaya_cli.gltfcontents import GLB_MAGIC, read_gltf
+from bmaya_cli.gltfcontents import GLB_MAGIC, read_gltf, read_gltf_layouts
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 1000
@@ -32,6 +32,37 @@ def read(path: str | Path) -> Contents:
     if head == FBX_MAGIC or suffix == ".fbx":
         return read_fbx(file)
     raise ModelFileError(f"Not a model file this command reads: {file.name}", f"It reads {READS}.")
+
+
+def read_layout(path: str | Path, mesh: str) -> dict[str, Any]:
+    """The UV layout of the mesh named `mesh` in a model file, or of its only mesh."""
+    file = Path(path)
+    contents = read(file)
+    if contents.format == "fbx":
+        layouts = read_fbx_layouts(file)
+    else:
+        layouts = read_gltf_layouts(file)
+    if not layouts:
+        raise ModelFileError(
+            f"{file.name} has no mesh with UVs.", f"`bmaya inspect {file.as_posix()}` shows it."
+        )
+    wanted = leaf(mesh)
+    picked = [layout for layout in layouts if leaf(layout.mesh) == wanted]
+    if not picked and len(layouts) == 1:
+        picked = layouts
+    if len(picked) != 1:
+        names = ", ".join(leaf(layout.mesh) for layout in layouts[:NAMES_IN_ISSUE])
+        raise ModelFileError(
+            f"{file.name} has no single mesh named {wanted}; it has: {names}.",
+            "Name the scene mesh the way the file does, or rename one of them.",
+        )
+    layout = picked[0]
+    return {
+        "path": file.as_posix(),
+        "name": leaf(layout.mesh),
+        "uvs": [[round(u, 6), round(v, 6)] for u, v in layout.uvs],
+        "faces": layout.faces,
+    }
 
 
 def rounded(values: tuple[float, ...] | list[float], digits: int = 4) -> list[float]:

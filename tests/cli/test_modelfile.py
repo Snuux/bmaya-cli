@@ -106,3 +106,20 @@ def test_inspect_errors_carry_hints(capsys: pytest.CaptureFixture[str], tmp_path
     text.write_text("hello")
     assert cli.main(["inspect", str(text)]) == 1
     assert "It reads binary .fbx" in capsys.readouterr().err
+
+
+def test_read_layout_gives_the_uvs_of_a_named_mesh() -> None:
+    from bmaya_cli.modelfile import read_layout
+
+    layout = read_layout(FIXTURES / "crate.fbx", "|props|crate")
+    assert layout["name"] == "crate"
+    assert len(layout["faces"]) == 6 and all(len(face) == 4 for face in layout["faces"])
+    assert len(layout["uvs"]) == 14
+    assert all(0.0 <= u <= 1.0 and 0.0 <= v <= 1.0 for u, v in layout["uvs"])
+
+
+def test_read_layout_takes_the_only_mesh_whatever_its_name() -> None:
+    from bmaya_cli.modelfile import read_layout
+
+    layout = read_layout(FIXTURES / "walker.fbx", "crate")
+    assert layout["name"] != "crate" and layout["faces"]

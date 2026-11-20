@@ -8,7 +8,16 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from bmaya_cli.contents import Contents, Joint, Mesh, ModelFileError, Take, Texture, usual_gap
+from bmaya_cli.contents import (
+    Contents,
+    Joint,
+    Layout,
+    Mesh,
+    ModelFileError,
+    Take,
+    Texture,
+    usual_gap,
+)
 from bmaya_cli.matrix import (
     Matrix,
     column_major,
@@ -348,3 +357,43 @@ def read_gltf(path: str | Path) -> Contents:
         takes=takes,
         textures=read_textures(doc, file.parent),
     )
+
+
+def read_gltf_layouts(path: str | Path) -> list[Layout]:
+    """TEXCOORD_0 of every mesh as triangles. glTF counts v from the top; Maya from the
+    bottom, so v is turned over."""
+    file = Path(path)
+    data = file.read_bytes()
+    if data[:4] == GLB_MAGIC:
+        doc, binary = split_glb(data)
+    else:
+        doc = json.loads(data)
+        binary = None
+    buffers = Buffers(doc, file.parent, binary)
+    out = []
+    for index, node in enumerate(doc.get("nodes", [])):
+        if "mesh" not in node:
+            continue
+        mesh = doc["meshes"][node["mesh"]]
+        uvs: list[tuple[float, float]] = []
+        faces: list[list[int]] = []
+        for primitive in mesh.get("primitives", []):
+            attributes = primitive.get("attributes", {})
+            if "TEXCOORD_0" not in attributes or primitive.get("mode", TRIANGLES) != TRIANGLES:
+                continue
+            coords = buffers.read(attributes["TEXCOORD_0"])
+            if coords is None:
+                continue
+            base = len(uvs)
+            uvs.extend((row[0], 1.0 - row[1]) for row in coords)
+            if "indices" in primitive:
+                order = [int(row[0]) for row in buffers.read(primitive["indices"]) or []]
+            else:
+                order = list(range(len(coords)))
+            for start in range(0, len(order) - 2, 3):
+                faces.append(
+                    [base + order[start], base + order[start + 1], base + order[start + 2]]
+                )
+        name = node.get("name") or mesh.get("name") or f"node{index}"
+        out.append(Layout(name, uvs, faces))
+    return out

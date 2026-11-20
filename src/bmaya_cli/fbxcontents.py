@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 
 from bmaya_cli import fbxfile
-from bmaya_cli.contents import Contents, Joint, Mesh, Take, Texture, Vec, usual_gap
+from bmaya_cli.contents import Contents, Joint, Layout, Mesh, Take, Texture, Vec, usual_gap
 from bmaya_cli.fbxfile import Document, Node, Value, child, children, props70, split_name
 from bmaya_cli.matrix import (
     Matrix,
@@ -425,3 +425,36 @@ def read_fbx(path: str | Path) -> Contents:
         takes=takes,
         textures=read_textures(scene, file.parent),
     )
+
+
+def read_fbx_layouts(path: str | Path) -> list[Layout]:
+    """The first UV set of every mesh, corner by corner as the polygons list them."""
+    scene = Scene(fbxfile.parse(Path(path).read_bytes()))
+    out = []
+    for key, model in scene.of("Model", "Mesh"):
+        geometries = scene.below(key, "Geometry")
+        if not geometries:
+            continue
+        geometry = scene.objects[geometries[0]]
+        layers = children(geometry, "LayerElementUV")
+        indices = array_of(geometry, "PolygonVertexIndex")
+        if not layers or indices is None:
+            continue
+        values = array_of(layers[0], "UV")
+        flat = values.values() if values is not None else []
+        uvs = [(flat[k], flat[k + 1]) for k in range(0, len(flat) - 1, 2)]
+        mapping = child(layers[0], "MappingInformationType")
+        by_vertex = mapping is not None and mapping.props and str(mapping.props[0]) == "ByVertice"
+        uv_index = array_of(layers[0], "UVIndex")
+        lookup = uv_index.values() if uv_index is not None else None
+        faces: list[list[int]] = []
+        corners: list[int] = []
+        for corner, vertex in enumerate(indices.values()):
+            point = vertex if vertex >= 0 else -vertex - 1
+            spot = point if by_vertex else corner
+            corners.append(lookup[spot] if lookup is not None else spot)
+            if vertex < 0:
+                faces.append(corners)
+                corners = []
+        out.append(Layout(name_of(model), uvs, faces))
+    return out
