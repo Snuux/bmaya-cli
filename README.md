@@ -94,6 +94,7 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya views [NAME ...] [-o FILE] [--views front,right,top,persp\|all] [--style parts\|silhouette\|xray\|weights\|influence\|shaded] [--joint J] [--section x\|y=12.5] [--no-wire] [--size N]` | Draws a model from several sides in one PNG: a color per mesh, edges on top, width and height on the straight-on views. `silhouette` for the shape, `xray` and `--section` for what is inside, `weights --joint J` and `influence` for skin weights, `shaded` for Maya's own render. |
 | `bmaya audit [NAME ...] [--symmetry x\|y\|z]` | Game-readiness check: counts, faces by kind, size, n-gons, non-manifold geometry, flipped or inward normals, UVs and their overlaps, materials, history, transforms, stray and instanced shapes, the opposite flag, skin weights, mirror symmetry. |
 | `bmaya diff NAME [--mark] [--against OTHER]` | What an edit changed in a mesh: counts, size, area, volume, moved vertices and where they are. |
+| `bmaya topo NAME [--ids] [--gap G] [-o FILE [--tubes A,B]]` | Edge flow: shells, valence, closed edge loops around tubes, the tubes, and joint places in the middle of each run of close loops. `-o` draws them over the mesh. |
 | `bmaya remesh NAME [--to tris --edge L \| --to quads --faces N]` | Rebuilds the topology: even triangles, or quads with Maya's Retopologize. |
 | `bmaya reduce NAME --tris N \| --percent P [--keep-uvs] [--keep-borders] [--keep-hard-edges] [--keep-quads]` | Lowers the triangle count and keeps the shape. |
 | `bmaya cleanup NAME [--merge DIST] [--ngons]` | Merges vertices on the same spot, removes bad faces and edges, conforms the normals and turns them outward. |
@@ -134,6 +135,7 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 - [FBX export](docs/export.md): what each preset writes.
 - [Modeling](docs/modeling.md): view sheets and their styles, sections, audit numbers, diff, remesh, reduce, cleanup.
 - [Skin weights](docs/skin.md): the skin report, weights files, copy, mirror, prune, weight pictures.
+- [Topology](docs/topology.md): edge loops around tubes, runs of loops, joint places, the loops picture.
 - [Skeletons and mirroring](docs/skeleton.md): the bones report, comparing with a game file, new axes, bind pose, rebinding, mirroring a skinned mesh.
 - [Animation](docs/animation.md): frame specs and clips, motion checks, rig inventory, trails, curve plots, previews.
 - [Troubleshooting](docs/troubleshooting.md): common messages, the crash journal, where state is kept.

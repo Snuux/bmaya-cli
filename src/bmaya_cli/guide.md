@@ -41,7 +41,7 @@ bmaya exec -f build_crate.py
 
 ## Dedicated commands first
 
-- `bmaya audit [NAME ...]` instead of hand-written topology checks.
+- `bmaya audit [NAME ...]` instead of hand-written topology checks, `bmaya topo NAME` instead of walking edge loops yourself.
 - `bmaya views [NAME ...] -o views.png` instead of several `bmaya shot` calls with moved cameras, when the subject is a model.
 - `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` instead of moving, merging and deleting vertices one by one.
 - `bmaya skin NAME --load weights.json` instead of `skinPercent` per vertex, `--copy-from OLD` instead of `copySkinWeights`, and `bmaya skin` to check weights.
@@ -84,6 +84,7 @@ Reading a `views` sheet:
 The commands:
 
 - `bmaya audit NAME --symmetry x` checks that every vertex has a twin across the plane through the mesh's pivot, and gives the positions of a few that have none. Run it after editing one side of a mirrored model.
+- `bmaya topo NAME` reads the edge flow: closed edge loops around tubes (fingers, arms) with their centres and radii, the tubes they make, and where joints go: the middle loop of each run of three or more close loops, as a modeler places loops around a knuckle. `-o loops.png` draws the loops in a color per tube and the joint places as dots; `--tubes 0,3` frames a close-up. Use it to place joints from the model's own loops instead of writing a loop walker.
 - `bmaya diff NAME --mark` remembers a mesh; `bmaya diff NAME` after the edit gives counts, size, area and volume before and after, and for an unchanged topology how many vertices moved, how far, and the box they are in. `--against OTHER` compares two meshes.
 - `bmaya remesh NAME --to tris --edge 0.5` rebuilds the mesh as even triangles; `--to quads --faces 800` runs Maya's Retopologize for a quad mesh. UVs and skin weights are lost, so remesh before unwrapping and skinning; to skin the new mesh like the old one, remesh a copy and run `bmaya skin COPY --copy-from OLD`.
 - `bmaya reduce NAME --tris 5000` (or `--percent 50`) lowers the triangle count and keeps the shape; `--keep-uvs`, `--keep-borders`, `--keep-hard-edges`, `--keep-quads` pin what matters.

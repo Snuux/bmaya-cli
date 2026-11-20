@@ -662,7 +662,7 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
         assert f"bmaya {name}" in guide
     for name in ("undo", "motion", "rig", "playblast", "skin", "bones", "pose", "mirror"):
         assert f"bmaya {name}" in guide
-    for name in ("views", "diff", "remesh", "reduce", "cleanup"):
+    for name in ("views", "diff", "remesh", "reduce", "cleanup", "topo"):
         assert f"bmaya {name}" in guide
     for name in ("sessions", "use", "start", "stop"):
         assert f"bmaya {name}" in guide
