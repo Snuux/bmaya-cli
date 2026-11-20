@@ -7,6 +7,7 @@ from maya import cmds
 
 from bmaya_bridge import clients, lifecycle
 from bmaya_bridge.errors import BridgeError
+from bmaya_bridge.handlers import _gltf
 from bmaya_bridge.handlers._common import (
     anim_curves,
     bool_param,
@@ -339,6 +340,46 @@ def scene_file(params: dict[str, Any]) -> dict[str, Any]:
         f"Unknown file action '{action}'.",
         hint="Use one of: new, open, save, import.",
     )
+
+
+GLTF_SUFFIXES = (".glb", ".gltf")
+# Every option is given, or the library falls back to the Maya user's saved preferences.
+# The file's node transforms are kept as they are: no drop to the floor, no freeze.
+GLTF_IMPORT_OPTIONS: dict[str, Any] = {
+    "target": "auto",
+    "scale": "auto",
+    "useNamespace": False,
+    "skipMaterials": False,
+    "skipSkinning": False,
+    "importAnimation": True,
+    "centerPivot": False,
+    "centerOnOrigin": False,
+    "dropToFloor": False,
+    "bakeTransforms": False,
+    "convertSpecGloss": True,
+    "materialPrefix": "",
+    "emissionLuminance": "1000.0",
+}
+
+
+def import_gltf(params: dict[str, Any]) -> dict[str, Any]:
+    path = require_existing(text_param(params, "path"), "import")
+    if os.path.splitext(path)[1].lower() not in GLTF_SUFFIXES:
+        raise BridgeError(
+            f"import_gltf reads .glb and .gltf, not {os.path.basename(path)}.",
+            hint="bmaya file import reads .ma, .mb, .fbx and .obj itself.",
+        )
+    gltf = _gltf.library()
+    from maya_glb_io import importer
+
+    before = set(cmds.ls(assemblies=True, long=True) or [])
+    importer.import_file(path, options=dict(GLTF_IMPORT_OPTIONS))
+    after = cmds.ls(assemblies=True, long=True) or []
+    added = [display_name(node) for node in after if node not in before]
+    result = scene_state()
+    result["imported"] = listing(added, 50)
+    result["library"] = {"name": _gltf.NAME, "version": gltf.__version__}
+    return result
 
 
 def stop(params: dict[str, Any]) -> dict[str, Any]:

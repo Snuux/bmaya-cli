@@ -70,6 +70,7 @@ UNRECORDED: dict[str, Handler] = {
     "get_skin_info": without_undo(skin.get_skin_info),
     "save_skin_weights": without_undo(skin.save_skin_weights),
     "export_fbx": without_undo(export.export_fbx),
+    "export_gltf": without_undo(export.export_gltf),
     "plan_game_export": without_undo(game_export.plan_game_export),
     "export_game_file": without_undo(game_export.export_game_file),
 }
@@ -87,6 +88,7 @@ COMMANDS: dict[str, Handler] = {
     "mirror_node": mirror.mirror_node,
     "edit_clip": clips.edit_clip,
     "scene_file": scene.scene_file,
+    "import_gltf": scene.import_gltf,
     "undo": scene.undo,
     "stop": scene.stop,
 }

@@ -6,6 +6,7 @@ from typing import Any
 from maya import cmds, mel
 
 from bmaya_bridge.errors import BridgeError
+from bmaya_bridge.handlers import _gltf
 from bmaya_bridge.handlers._common import (
     bool_param,
     display_name,
@@ -14,11 +15,12 @@ from bmaya_bridge.handlers._common import (
     listing,
     number_text,
     rnd,
+    scene_kept,
     select_only,
     text_param,
 )
 from bmaya_bridge.handlers._shapes import mesh_transforms, preflight
-from bmaya_bridge.handlers._timeline import find_clip
+from bmaya_bridge.handlers._timeline import clips, find_clip
 
 NODE_LIMIT = 30
 EXPECTED_LIMIT = 500
@@ -94,22 +96,24 @@ def ensure_fbx_plugin() -> None:
         ) from exc
 
 
-def target_path(raw: str) -> str:
+def target_path(raw: str, suffixes: tuple[str, ...] = (".fbx",)) -> str:
+    ending = " or ".join(suffixes)
+    example = f"C:/game/Assets/hero{suffixes[0]}"
     if not raw:
         raise BridgeError(
             "No export path given.",
-            hint="Pass an absolute path ending in .fbx, for example C:/game/Assets/hero.fbx.",
+            hint=f"Pass an absolute path ending in {ending}, for example {example}.",
         )
     path = os.path.expanduser(raw)
     if not os.path.isabs(path):
         raise BridgeError(
             f"Export path must be absolute: {raw}",
-            hint="Pass a full path ending in .fbx, for example C:/game/Assets/hero.fbx.",
+            hint=f"Pass a full path ending in {ending}, for example {example}.",
         )
-    if os.path.splitext(path)[1].lower() != ".fbx":
+    if os.path.splitext(path)[1].lower() not in suffixes:
         raise BridgeError(
-            f"Export path must end in .fbx: {raw}",
-            hint="Change the file extension to .fbx.",
+            f"Export path must end in {ending}: {raw}",
+            hint=f"Change the file extension to {ending}.",
         )
     return os.path.abspath(path).replace("\\", "/")
 
@@ -274,6 +278,22 @@ def check_shapes(nodes: list[str], ignore: bool) -> list[str]:
     return blocking + issues
 
 
+def export_roots(selection_only: bool) -> list[str]:
+    if selection_only:
+        nodes = cmds.ls(selection=True, long=True, objectsOnly=True) or []
+        if not nodes:
+            raise BridgeError(
+                "selection_only is set but nothing is selected.",
+                hint="Select the objects to export first, or drop --selection.",
+            )
+        return nodes
+    roots = cmds.ls(assemblies=True, long=True) or []
+    nodes = [root for root in roots if not cmds.listRelatives(root, shapes=True, type="camera")]
+    if not nodes:
+        raise BridgeError("The scene is empty, so there is nothing to export.")
+    return nodes
+
+
 def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     preset = text_param(params, "preset").lower() or "unity"
     if preset not in PRESETS:
@@ -287,18 +307,7 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     animation = bool_param(params, "animation") or bool(clip)
 
     selection = cmds.ls(selection=True, long=True) or []
-    if selection_only:
-        nodes = cmds.ls(selection=True, long=True, objectsOnly=True) or []
-        if not nodes:
-            raise BridgeError(
-                "selection_only is set but nothing is selected.",
-                hint="Select the objects to export first, or drop --selection.",
-            )
-    else:
-        roots = cmds.ls(assemblies=True, long=True) or []
-        nodes = [root for root in roots if not cmds.listRelatives(root, shapes=True, type="camera")]
-        if not nodes:
-            raise BridgeError("The scene is empty, so there is nothing to export.")
+    nodes = export_roots(selection_only)
 
     options: dict[str, Any] = dict(PRESETS[preset])
     options.update(COMMON_OPTIONS)
@@ -338,3 +347,102 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     if reloaded:
         result["reloaded"] = True
     return result
+
+
+GLTF_SUFFIXES = (".glb", ".gltf")
+
+
+def gltf_animations(params: dict[str, Any], path: str) -> list[tuple[str, float, float]]:
+    """(name, first frame, last frame) of each animation the file gets."""
+    if bool_param(params, "clips"):
+        if text_param(params, "clip") or bool_param(params, "animation"):
+            raise BridgeError(
+                "--clips writes every clip; it cannot go with --clip or --animation.",
+                hint="Drop one of them.",
+            )
+        found = [entry for entry in clips() if entry.get("export", True)]
+        found.sort(key=lambda entry: entry["range"][0])
+        if not found:
+            raise BridgeError(
+                "--clips found no clips in the scene.",
+                hint="The scene has no Game Exporter clips or time slider bookmarks. "
+                "`bmaya clip NAME --add A:B` makes one; --animation exports the playback range.",
+            )
+        names = [entry["name"] for entry in found]
+        twice = sorted({name for name in names if names.count(name) > 1})
+        if twice:
+            raise BridgeError(
+                "Clip names are used twice with different ranges: " + ", ".join(twice) + ".",
+                hint="An engine finds animations by name. `bmaya clip` lists the clips; "
+                "rename or remove one of each pair.",
+            )
+        return [(entry["name"], *map(float, entry["range"])) for entry in found]
+    clip = text_param(params, "clip")
+    if not (bool_param(params, "animation") or clip):
+        return []
+    start, end = bake_range(params)
+    return [(clip or os.path.splitext(os.path.basename(path))[0], start, end)]
+
+
+def export_gltf(params: dict[str, Any]) -> dict[str, Any]:
+    gltf = _gltf.library()
+    from maya_glb_io import exporter
+
+    path = target_path(text_param(params, "path"), GLTF_SUFFIXES)
+    binary = path.lower().endswith(".glb")
+    selection_only = bool_param(params, "selection_only")
+    animations = gltf_animations(params, path)
+    nodes = export_roots(selection_only)
+    issues = check_shapes(nodes, bool_param(params, "ignore_checks"))
+    if cmds.upAxis(query=True, axis=True) == "z":
+        issues.append(
+            "the scene is Z-up and glTF is Y-up: the file is not turned, so it lies on its back "
+            "in an engine"
+        )
+
+    options: dict[str, Any] = {
+        "up_axis": "y",
+        "animation": bool(animations),
+        "take": animations[0][0] if animations else "",
+        "bake": [frame(animations[0][1]), frame(animations[0][2])] if animations else [],
+    }
+    expected = expectation(nodes, options)
+    expected["takes"] = [
+        {"name": name, "frames": [frame(first), frame(last)]} for name, first, last in animations
+    ]
+    library_options: dict[str, Any] = {
+        "format": "glb" if binary else "gltf",
+        "embedTextures": binary,
+        "copyTextures": not binary,
+        "convertUnits": True,
+        "applyTransforms": False,
+        "exportSkin": True,
+        "exportMorphTargets": True,
+        "exportAnimation": bool(animations),
+        "clips": [{"name": name, "start": first, "end": last} for name, first, last in animations],
+    }
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    before = file_stamp(path)
+    with scene_kept():
+        exporter.export_nodes(nodes, path, options=library_options)
+    after = file_stamp(path)
+    if after is None or after == before:
+        raise BridgeError(
+            f"glTF export did not write {path}.",
+            hint="Check the Script Editor for [glb_io] errors, and that the file is not open "
+            "in another program.",
+        )
+    return {
+        "path": path,
+        "size": os.path.getsize(path),
+        "library": {"name": _gltf.NAME, "version": gltf.__version__},
+        "options": {
+            "format": library_options["format"],
+            "textures": "embedded" if binary else "copied next to the file",
+            "unit": "m",
+            "animations": [name for name, _, _ in animations],
+        },
+        "nodes": listing([display_name(node) for node in nodes], NODE_LIMIT),
+        "issues": issues,
+        "expected": expected,
+    }

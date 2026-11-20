@@ -1535,6 +1535,85 @@ def check_get_rig_info() -> str:
     return "controls, driven and locked attrs, limits, IK, constraints, switches, joints"
 
 
+def gltf_missing() -> str:
+    """Why maya-glb-io cannot be used here, or "" when it can."""
+    from bmaya_bridge.handlers import _gltf
+
+    try:
+        _gltf.library()
+    except BridgeError as exc:
+        return exc.message
+    return ""
+
+
+def check_export_gltf() -> str:
+    from bmaya_cli.modelfile import compare, read
+
+    folder = WORK_DIR / "gltf"
+    target = folder / "hero.glb"
+    missing = gltf_missing()
+    if missing:
+        expect_error("export_gltf", "bmaya install --gltf", path=str(target))
+        return f"skipped, {missing}"
+    cmds.select("crate", replace=True)
+    time = cmds.currentTime(query=True)
+    result = assert_read_only("export_gltf", path=str(target), clips=True)
+    assert target.is_file() and result["size"] == target.stat().st_size > 0, result
+    assert cmds.currentTime(query=True) == time, "the export left the time moved"
+    names = result["options"]["animations"]
+    assert names == ["spin", "nod", "wave"], names
+    contents = read(target)
+    assert [take.name for take in contents.takes] == names, contents.takes
+    assert compare(contents, result["expected"]) == [], compare(contents, result["expected"])
+    spine = next(joint for joint in contents.joints if joint.name == "spine")
+    assert max(abs(a - b) for a, b in zip(spine.at, (0.0, 0.02, 0.0), strict=True)) < 1e-4, spine
+    assert contents.unit == "m" and contents.up == "y", (contents.unit, contents.up)
+
+    nod = call("export_gltf", path=str(folder / "nod.gltf"), clip="nod")
+    assert nod["options"]["animations"] == ["nod"], nod["options"]
+    assert (folder / "nod.bin").is_file(), sorted(p.name for p in folder.iterdir())
+    nod_take = read(folder / "nod.gltf").takes[0]
+    assert [round(s * 24, 3) for s in nod_take.seconds] == [2, 4], nod_take
+    static = call("export_gltf", path=str(folder / "static.glb"), selection_only=True)
+    assert static["options"]["animations"] == [] and not read(folder / "static.glb").takes
+
+    expect_error("export_gltf", ".glb or .gltf", path=str(WORK_DIR / "hero.fbx"))
+    expect_error("export_gltf", "cannot go with", path=str(target), clips=True, clip="nod")
+    cmds.select(clear=True)
+    return f"3 clips in one file, {result['size']} bytes, bind pose in metres, .gltf, static"
+
+
+def check_import_gltf() -> str:
+    source = WORK_DIR / "gltf" / "import_me.glb"
+    missing = gltf_missing()
+    if missing:
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"")
+        expect_error("import_gltf", "bmaya install --gltf", path=str(source))
+        return f"skipped, {missing}"
+    cmds.select("body", replace=True)
+    call("export_gltf", path=str(source), selection_only=True, animation=True)
+    cmds.select(clear=True)
+    before = cmds.ls(assemblies=True, long=True)
+    joints = set(cmds.ls(type="joint", long=True))
+    shapes = len(cmds.ls(type="blendShape"))
+    result = call("import_gltf", path=str(source))
+    assert len(cmds.ls(type="blendShape")) == shapes + 1, "the morph targets did not come in"
+    added = result["imported"]["items"]
+    assert added and result["modified"] is True, result
+    new_joints = set(cmds.ls(type="joint", long=True)) - joints
+    assert len(new_joints) == 3, new_joints
+    skins = set()
+    for joint in new_joints:
+        skins.update(cmds.listConnections(joint, type="skinCluster") or [])
+    assert len(skins) == 1, skins
+    cmds.undo()
+    assert cmds.ls(assemblies=True, long=True) == before, "undo left imported nodes"
+    expect_error("import_gltf", "File not found", path=str(WORK_DIR / "nothing.glb"))
+    expect_error("import_gltf", ".glb and .gltf", path=str(Path(__file__)))
+    return f"{len(added)} roots, skin and morphs, one undo step takes it all back"
+
+
 def check_scene_file() -> str:
     saved = call("scene_file", action="save", path=str(WORK_DIR / "scenes" / "check.ma"))
     assert saved["scene"].endswith("scenes/check.ma") and saved["modified"] is False, saved
@@ -2986,6 +3065,8 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("export_fbx", check_export_fbx),
     ("plan_game_export", check_plan_game_export),
     ("export_game_file", check_export_game_file),
+    ("export_gltf", check_export_gltf),
+    ("import_gltf", check_import_gltf),
     ("scene_file", check_scene_file),
     ("scene_status", check_scene_status),
     ("get_motion", check_get_motion),
