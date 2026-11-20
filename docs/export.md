@@ -58,7 +58,17 @@ Maya's FBX plugin keeps baking at the frame rate of an earlier export in the sam
 
 ## glTF
 
-`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. It is a fork of [annomodtutorials/maya-glb-io](https://github.com/annomodtutorials/maya-glb-io) (MIT) with fixes for skinned export, units and constraint-driven animation. `bmaya install --gltf` downloads the release bmaya pins, checks its SHA-256 and installs it as the Maya module `maya_glb_io`; `bmaya doctor` reports it. bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install`.
+`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. It is a fork of [annomodtutorials/maya-glb-io](https://github.com/annomodtutorials/maya-glb-io) (MIT) with fixes for skinned export, units and constraint-driven animation.
+
+The library is not installed with bmaya. Install it once:
+
+```bash
+bmaya install --gltf
+```
+
+That downloads the release bmaya pins, checks its SHA-256 and installs it as the Maya module `maya_glb_io`, next to the bmaya module. It installs only the library: `bmaya install` is still what copies the bridge into a Maya you open yourself. Everything but glTF works without it; `.glb` and `.gltf` export and import stop with a hint to run this command. `bmaya doctor` says whether the library is there and whether it is the pinned release. After updating bmaya, run `bmaya install --gltf` again if `doctor` reports an older one, then restart Maya: a running Maya keeps the version it loaded. `bmaya uninstall --gltf` removes it.
+
+bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install`.
 
 | | glTF |
 |---|---|
