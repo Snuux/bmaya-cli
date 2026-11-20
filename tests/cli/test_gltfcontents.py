@@ -152,3 +152,15 @@ def test_refuses_gltf_1(tmp_path: Path) -> None:
     path.write_text(json.dumps({"asset": {"version": "1.0"}}))
     with pytest.raises(ModelFileError, match="2.0"):
         read_gltf(path)
+
+
+def test_a_joint_under_a_plain_node_hangs_under_the_joint_above(tmp_path: Path) -> None:
+    doc, _ = model()
+    doc["buffers"][0]["uri"] = "missing.bin"
+    doc["nodes"][1]["children"] = [3]
+    doc["nodes"].append({"name": "gap", "children": [2], "translation": [0, 1, 0]})
+    path = tmp_path / "gap.gltf"
+    path.write_text(json.dumps(doc))
+    joints = read_gltf(path).joints
+    assert [(joint.name, joint.parent) for joint in joints] == [("root", ""), ("tip", "root")]
+    assert joints[1].at == (0.0, 3.0, 0.0)

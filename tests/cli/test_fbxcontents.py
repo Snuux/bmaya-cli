@@ -227,3 +227,19 @@ def test_units_and_up_axis(tmp_path: Path) -> None:
         "y",
         30.0,
     )
+
+
+def test_a_joint_under_a_null_hangs_under_the_joint_above(tmp_path: Path) -> None:
+    objects = [
+        N("Model", [20, name("hand", "Model"), "LimbNode"]),
+        N("Model", [21, name("transform1", "Model"), "Null"]),
+        N("Model", [22, name("finger", "Model"), "LimbNode"]),
+    ]
+    links = [("OO", 20, 0), ("OO", 21, 20), ("OO", 22, 21)]
+    path = tmp_path / "gap.fbx"
+    path.write_bytes(write(build(objects, links)))
+    joints = read_fbx(path).joints
+    assert [(joint.name, joint.parent) for joint in joints] == [
+        ("hand", ""),
+        ("finger", "hand"),
+    ]

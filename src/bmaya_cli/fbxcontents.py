@@ -260,7 +260,17 @@ def read_skeleton(scene: Scene) -> tuple[list[Joint], str]:
         models = scene.above(key, "Model")
         return models[0] if models else 0
 
-    parent_of = {key: parent_model(key) for key in joints}
+    def parent_joint(key: int) -> int:
+        """The nearest joint above, past Null nodes that Maya writes for transforms between
+        joints."""
+        seen = set()
+        parent = parent_model(key)
+        while parent and parent not in joints and parent not in seen:
+            seen.add(parent)
+            parent = parent_model(parent)
+        return parent if parent in joints else 0
+
+    parent_of = {key: parent_joint(key) for key in joints}
     bound = bind_matrices(scene)
     world: dict[int, Matrix] = {}
 
@@ -275,9 +285,17 @@ def read_skeleton(scene: Scene) -> tuple[list[Joint], str]:
 
     def visit(key: int) -> None:
         order.append(key)
+        for low in joints_under(key):
+            visit(low)
+
+    def joints_under(key: int) -> list[int]:
+        found = []
         for low in scene.below(key, "Model"):
             if low in joints:
-                visit(low)
+                found.append(low)
+            else:
+                found.extend(joints_under(low))
+        return found
 
     for key in joints:
         if parent_of[key] not in joints:

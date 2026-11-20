@@ -216,21 +216,38 @@ def read_skeleton(doc: dict[str, Any], buffers: Buffers) -> tuple[list[Joint], s
             parent[kid] = index
     order: list[int] = []
 
-    def visit(index: int) -> None:
-        order.append(index)
+    def joint_above(index: int) -> int | None:
+        """The nearest joint above, past nodes the skin does not list."""
+        up = parent.get(index)
+        seen = set()
+        while up is not None and up not in members and up not in seen:
+            seen.add(up)
+            up = parent.get(up)
+        return up if up in members else None
+
+    def joints_under(index: int) -> list[int]:
+        found = []
         for kid in doc["nodes"][index].get("children", []):
             if kid in members:
-                visit(kid)
+                found.append(kid)
+            else:
+                found.extend(joints_under(kid))
+        return found
+
+    def visit(index: int) -> None:
+        order.append(index)
+        for kid in joints_under(index):
+            visit(kid)
 
     for joint in members:
-        if parent.get(joint) not in members:
+        if joint_above(joint) is None:
             visit(joint)
     out = []
     for joint in order:
         at, axes = position_and_axes(bind.get(joint, worlds[joint]))
-        up = parent.get(joint)
+        up = joint_above(joint)
         out.append(
-            Joint(node_name(doc, joint), node_name(doc, up) if up in members else "", at, axes)
+            Joint(node_name(doc, joint), node_name(doc, up) if up is not None else "", at, axes)
         )
     if all(joint in bind for joint in order):
         return out, "bind_pose"
