@@ -1586,6 +1586,288 @@ def check_projection() -> str:
     return f"sphere lands within {worst:.2f} px of its projection; trail and --fit in place"
 
 
+def skin_rows(mesh: str) -> list[dict[str, float]]:
+    from bmaya_bridge.handlers import skin
+
+    shape = cmds.listRelatives(mesh, shapes=True, noIntermediate=True, fullPath=True)[0]
+    return skin.read_skin(skin.clusters_of(shape)[0], shape).rows
+
+
+def worst_gap(rows: list[dict[str, float]], other: list[dict[str, float]]) -> float:
+    assert len(rows) == len(other), (len(rows), len(other))
+    worst = 0.0
+    for index, one in enumerate(rows):
+        two = other[index]
+        for name in set(one) | set(two):
+            worst = max(worst, abs(one.get(name, 0.0) - two.get(name, 0.0)))
+    return worst
+
+
+def arm_mesh(name: str, x: float) -> str:
+    mesh = cmds.polyCylinder(
+        name=name, height=8, radius=1, subdivisionsAxis=12, subdivisionsHeight=12
+    )[0]
+    cmds.rotate(0, 0, 90, mesh)
+    cmds.move(x, 0, 0, mesh)
+    cmds.makeIdentity(mesh, apply=True, translate=True, rotate=True)
+    cmds.xform(mesh, pivots=(0, 0, 0), worldSpace=True)
+    cmds.delete(mesh, constructionHistory=True)
+    return mesh
+
+
+def arm_rig() -> list[str]:
+    """A right arm skinned to skin_root and up_r, lo_r, end_r, with the left joints mirrored."""
+    cmds.select(clear=True)
+    root = cmds.joint(name="skin_root", position=(0, 0, 0))
+    cmds.joint(name="up_r", position=(2, 0, 0))
+    cmds.joint(name="lo_r", position=(6, 0, 0))
+    cmds.joint(name="end_r", position=(10, 0, 0))
+    cmds.mirrorJoint("up_r", mirrorYZ=True, mirrorBehavior=True, searchReplace=("_r", "_l"))
+    arm = arm_mesh("arm_r", 6)
+    cmds.skinCluster(
+        [root, "up_r", "lo_r", "end_r"], arm, toSelectedBones=True, maximumInfluences=3
+    )
+    plain = cmds.polyCube(name="skin_plain", constructionHistory=False)[0]
+    return [root, arm, plain]
+
+
+def check_get_skin_info() -> str:
+    made = arm_rig()
+    try:
+        report = assert_read_only("get_skin_info", names="arm_r")
+        entry = report["meshes"][0]
+        assert entry["skin"].startswith("skinCluster"), entry
+        assert entry["verts"] == 156 and entry["influences"]["total"] == 4, entry
+        assert entry["most_per_vertex"] <= 3 and entry["issues"] == [], entry
+        assert entry["bind_pose"] == {"at": True, "moved": {"items": [], "shown": 0, "total": 0}}
+        assert entry["method"] == "linear" and entry["normalize"] == "interactive", entry
+
+        tight = call("get_skin_info", names="arm_r", max=1)["meshes"][0]
+        assert "verts with more than 1 influences" in tight["issues"][0], tight
+        assert tight["sample"]["over"], tight
+
+        rows = call("get_skin_info", names="arm_r", verts="0:2,150")["meshes"][0]["rows"]
+        assert [row["vertex"] for row in rows["items"]] == [0, 1, 2, 150], rows
+        assert abs(sum(rows["items"][0]["weights"].values()) - 1) < 1e-3, rows
+
+        cluster = entry["skin"]
+        cmds.setAttr(cluster + ".normalizeWeights", 0)
+        cmds.setAttr(f"{cluster}.weightList[0].weights[0]", 5.0)
+        for index in cmds.getAttr(f"{cluster}.weightList[1].weights", multiIndices=True):
+            cmds.removeMultiInstance(f"{cluster}.weightList[1].weights[{index}]")
+        cmds.setAttr(cluster + ".skinningMethod", 1)
+        cmds.setAttr("lo_r.rotateZ", 30)
+        broken = call("get_skin_info", names="arm_r")["meshes"][0]
+        issues = " | ".join(broken["issues"])
+        for expected in (
+            "1 verts whose weights do not add up to 1",
+            "1 unweighted verts",
+            "dual quaternion skinning",
+        ):
+            assert expected in issues, f"{expected!r} missing from {issues}"
+        assert broken["bind_pose"]["at"] is False, broken
+        assert broken["bind_pose"]["moved"]["items"] == ["lo_r", "end_r"], broken
+        assert broken["sample"]["unweighted"] == [1], broken
+
+        cmds.select("arm_r", replace=True)
+        assert call("get_skin_info")["source"] == "selection"
+        cmds.select(clear=True)
+        assert call("get_skin_info")["source"] == "scene"
+        expect_error("get_skin_info", "one mesh", names="arm_r,skin_plain", verts="0")
+        expect_error("get_skin_info", "not in the mesh", names="arm_r", verts="9999")
+    finally:
+        cmds.delete(made)
+    return "influences, budget, rows by vertex, broken weights, dq, moved joints ok"
+
+
+def check_save_skin_weights() -> str:
+    made = arm_rig()
+    target = WORK_DIR / "weights" / "arm.json"
+    try:
+        saved = assert_read_only("save_skin_weights", name="arm_r", path=str(target))
+        assert saved["verts"] == 156 and saved["joints"] == 4, saved
+        data = json.loads(target.read_text(encoding="utf-8"))
+        assert data["mesh"] == "arm_r" and len(data["weights"]) == 156, sorted(data)
+        assert worst_gap(data["weights"], skin_rows("arm_r")) < 1e-6
+        expect_error("save_skin_weights", "no skin", name="skin_plain", path=str(target))
+    finally:
+        cmds.delete(made)
+    return f"{saved['size']} bytes, rows match the cluster to 1e-6"
+
+
+def check_edit_skin() -> str:
+    made = arm_rig()
+    saved = WORK_DIR / "arm_saved.json"
+    try:
+        call("save_skin_weights", name="arm_r", path=str(saved))
+        original = skin_rows("arm_r")
+        lines = [check_edit_load(saved, original, made)]
+        lines.append(check_edit_copy(made))
+        lines.append(check_edit_mirror(made))
+        lines.append(check_edit_trim())
+        lines.append(check_edit_refusals(saved))
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+    return "; ".join(lines)
+
+
+def check_edit_load(saved: Path, original: list[dict[str, float]], made: list[str]) -> str:
+    cluster = cmds.ls(cmds.listHistory("arm_r"), type="skinCluster")[0]
+    cmds.skinPercent(cluster, "arm_r", transformValue=[("skin_root", 1.0)])
+    cmds.flushUndo()
+    loaded = call("edit_skin", name="arm_r", load=str(saved))
+    assert loaded["source"]["verts"] == 156 and loaded["changed"] > 100, loaded
+    assert worst_gap(skin_rows("arm_r"), original) < 1e-5
+    cmds.undo()
+    assert all(row == {"skin_root": 1.0} for row in skin_rows("arm_r")), "undo missed"
+    cmds.redo()
+    assert worst_gap(skin_rows("arm_r"), original) < 1e-5
+
+    fresh = arm_mesh("arm_fresh", 6)
+    made.append(fresh)
+    cmds.flushUndo()
+    bound = call("edit_skin", name=fresh, load=str(saved), max=3)
+    assert bound["bound"] == "arm_fresh_skin", bound
+    assert worst_gap(skin_rows(fresh), original) < 1e-5
+    assert cmds.getAttr("arm_fresh_skin.maxInfluences") == 3
+    cmds.undo()
+    assert not cmds.objExists("arm_fresh_skin"), "undo left the new skin"
+    cmds.redo()
+    assert cmds.objExists("arm_fresh_skin"), "redo lost the skin"
+
+    partial = WORK_DIR / "partial.json"
+    partial.write_text(json.dumps({"weights": {"3": {"up": 1}}}), encoding="utf-8")
+    one = call("edit_skin", name=fresh, load=str(partial), rename="{}_r")
+    assert one["changed"] == 1 and skin_rows(fresh)[3] == {"up_r": 1.0}, one
+
+    extra = WORK_DIR / "extra.json"
+    extra.write_text(json.dumps({"weights": {"4": {"up_l": 1}}}), encoding="utf-8")
+    added = call("edit_skin", name=fresh, load=str(extra))
+    assert added["added"]["items"] == ["up_l"], added
+    cmds.undo()
+    assert "up_l" not in cmds.skinCluster("arm_fresh_skin", query=True, influence=True)
+    return "load, undo/redo, bind from a file, partial load with rename, added joint ok"
+
+
+def check_edit_copy(made: list[str]) -> str:
+    ours = arm_mesh("arm_remesh", 6)
+    theirs = arm_mesh("arm_theirs", 6)
+    made.extend([ours, theirs])
+    for mesh in (ours, theirs):
+        cmds.polyRemesh(
+            mesh,
+            maxEdgeLength=0.4,
+            useRelativeValues=False,
+            worldSpace=True,
+            constructionHistory=False,
+        )
+    copied = call("edit_skin", name=ours, copy_from="arm_r")
+    assert copied["bound"] == "arm_remesh_skin" and copied["source"]["mesh"] == "arm_r", copied
+    assert "far" not in copied, copied
+    joints = cmds.skinCluster("arm_r", query=True, influence=True)
+    reference = cmds.skinCluster(joints, theirs, toSelectedBones=True, maximumInfluences=4)[0]
+    source = cmds.ls(cmds.listHistory("arm_r"), type="skinCluster")[0]
+    cmds.copySkinWeights(
+        sourceSkin=source,
+        destinationSkin=reference,
+        noMirror=True,
+        surfaceAssociation="closestPoint",
+        influenceAssociation=["name"],
+        normalize=True,
+    )
+    gap = worst_gap(skin_rows(ours), skin_rows(theirs))
+    assert gap < 1e-4, f"copied weights differ from copySkinWeights by {gap}"
+
+    cmds.setAttr("lo_r.rotateZ", 40)
+    again = call("edit_skin", name=ours, copy_from="arm_r")
+    assert again["changed"] == 0, again
+    unbound = arm_mesh("arm_posed", 6)
+    made.append(unbound)
+    expect_error("edit_skin", "bind pose", name=unbound, copy_from="arm_r")
+    cmds.setAttr("lo_r.rotateZ", 0)
+    return f"copy onto a remesh matches copySkinWeights within {gap:.1e}, posed source ok"
+
+
+def check_edit_mirror(made: list[str]) -> str:
+    left = arm_mesh("arm_l", 6)
+    cmds.setAttr(left + ".scaleX", -1)
+    cmds.makeIdentity(left, apply=True, scale=True)
+    cmds.setAttr(left + ".opposite", False)
+    cmds.polyNormal(left, normalMode=0, userNormalMode=0, constructionHistory=False)
+    made.append(left)
+    mirrored = call("edit_skin", name=left, copy_from="arm_r", mirror="x")
+    assert mirrored["mirror"]["paired"] == 3, mirrored
+    assert mirrored["mirror"]["unpaired"]["items"] == ["skin_root"], mirrored
+    expected = [
+        {name[:-2] + "_l" if name.endswith("_r") else name: weight for name, weight in row.items()}
+        for row in skin_rows("arm_r")
+    ]
+    gap = worst_gap(skin_rows(left), expected)
+    assert gap < 1e-5, f"mirrored weights are off by {gap}"
+
+    body = cmds.polyCylinder(
+        name="skin_body", height=20, radius=1, subdivisionsAxis=12, subdivisionsHeight=20
+    )[0]
+    cmds.rotate(0, 0, 90, body)
+    cmds.makeIdentity(body, apply=True, rotate=True)
+    cmds.delete(body, constructionHistory=True)
+    made.append(body)
+    joints = ["skin_root", "up_r", "lo_r", "end_r", "up_l", "lo_l", "end_l"]
+    cluster = cmds.skinCluster(joints, body, toSelectedBones=True, maximumInfluences=3)[0]
+    cmds.skinPercent(cluster, body, transformValue=[("skin_root", 1.0)])
+    points = cmds.xform(body + ".vtx[*]", query=True, worldSpace=True, translation=True)
+    xs = [points[index] for index in range(0, len(points), 3)]
+    for vertex, x in enumerate(xs):
+        if x > 4:
+            cmds.skinPercent(cluster, f"{body}.vtx[{vertex}]", transformValue=[("lo_r", 1.0)])
+    expect_error("edit_skin", "which half", name=body, mirror="x")
+    half = call("edit_skin", name=body, mirror="+x")
+    assert half["source"] == {"half": "+x"}, half
+    rows = skin_rows(body)
+    on_left = [vertex for vertex, row in enumerate(rows) if row.get("lo_l", 0) > 0.99]
+    assert on_left == [vertex for vertex, x in enumerate(xs) if x < -4], on_left
+    assert all(rows[vertex] == {"skin_root": 1.0} for vertex, x in enumerate(xs) if abs(x) < 1e-6)
+    return f"mirror onto a flipped copy within {gap:.1e}, half of one mesh ok"
+
+
+def check_edit_trim() -> str:
+    cluster = cmds.ls(cmds.listHistory("arm_r"), type="skinCluster")[0]
+    cmds.setAttr(cluster + ".maintainMaxInfluences", False)
+    cmds.skinPercent(
+        cluster,
+        "arm_r.vtx[0]",
+        transformValue=[("skin_root", 0.4), ("up_r", 0.3), ("lo_r", 0.25), ("end_r", 0.05)],
+    )
+    trimmed = call("edit_skin", name="arm_r", prune="0.1", max=2)
+    assert trimmed["pruned"] >= 1 and trimmed["capped"] >= 1, trimmed
+    first = skin_rows("arm_r")[0]
+    assert sorted(first) == ["skin_root", "up_r"], first
+    assert abs(first["skin_root"] - 0.4 / 0.7) < 1e-6, first
+    assert trimmed["after"]["most_per_vertex"] <= 2, trimmed
+    same = call("edit_skin", name="arm_r", normalize=True)
+    assert same["changed"] == 0, same
+    return f"prune and --max 2 cut {trimmed['capped']} verts"
+
+
+def check_edit_refusals(saved: Path) -> str:
+    expect_error("edit_skin", "Nothing to change", name="arm_r")
+    expect_error("edit_skin", "do not go together", name="arm_r", load=str(saved), copy_from="b")
+    expect_error("edit_skin", "--rename", name="arm_r", load=str(saved), rename="{}_x")
+    expect_error("edit_skin", "--copy-from", name="skin_plain", load=str(saved))
+    expect_error("edit_skin", "no skin", name="skin_plain", copy_from="skin_plain")
+    expect_error("edit_skin", "no skin", name="skin_plain", prune="0.1")
+    expect_error("edit_skin", "itself", name="arm_r", copy_from="arm_r")
+    expect_error("edit_skin", "No weights file", name="arm_r", load=str(saved) + ".missing")
+    expect_error("edit_skin", "between 0 and 1", name="arm_r", prune="2")
+    expect_error("edit_skin", "Bad mirror", name="arm_r", mirror="w")
+    far = arm_mesh("arm_far", 60)
+    try:
+        expect_error("edit_skin", "overlap", name=far, copy_from="arm_r")
+    finally:
+        cmds.delete(far)
+    return "refusals ok"
+
+
 EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("projection", check_projection),
     ("sampling", check_sampling),
@@ -1615,6 +1897,9 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("scene_file", check_scene_file),
     ("get_motion", check_get_motion),
     ("get_rig_info", check_get_rig_info),
+    ("get_skin_info", check_get_skin_info),
+    ("save_skin_weights", check_save_skin_weights),
+    ("edit_skin", check_edit_skin),
     ("undo", check_undo),
     ("stop", check_stop),
 ]
@@ -1653,6 +1938,9 @@ def run_checks() -> int:
     assert set(COMMANDS) == {name for name, _ in CHECKS}, sorted(COMMANDS)
 
     checks = CHECKS + EXTRA_CHECKS
+    wanted = sys.argv[1:]
+    if wanted:
+        checks = [(name, check) for name, check in checks if any(w in name for w in wanted)]
     failures = 0
     lines = []
     try:
