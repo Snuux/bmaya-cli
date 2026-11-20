@@ -1,6 +1,6 @@
 [project]
 name = "bmaya-cli"
-version = "0.10.0"
+version = "0.11.0"
 description = "Command-line tool that lets AI agents and scripts drive Autodesk Maya"
 readme = "README.md"
 license = "MIT"
