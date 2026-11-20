@@ -57,7 +57,8 @@ def test_tubes_runs_and_joint_places() -> None:
     heights = [round(found[index].center[1], 6) for index in one.loops]
     assert heights == [0.0, 0.25, 0.5, 1.1, 1.35, 1.6, 2.1]
     assert [len(run) for run in one.runs] == [3, 3, 1]
-    assert [round(found[i].center[1], 6) for i in topology.joint_loops(one)] == [0.25, 1.35]
+    places = [topology.joint_place(loops, found)[1] for loops in topology.joint_loops(one)]
+    assert [round(place, 6) for place in places] == [0.25, 1.35]
     assert one.axis[1] > 0.999
     assert [round(gap, 6) for gap in one.gaps] == [0.25, 0.25, 0.6, 0.25, 0.25, 0.5]
 
@@ -95,3 +96,57 @@ def test_counts_of_a_mesh() -> None:
     assert topology.border_edges(faces) == 0
     assert topology.border_edges(faces[:-1]) == 3
     assert topology.loops(points, [[0, 1, 2]]) == []
+
+
+def test_evenly_spaced_loops_mark_no_joint() -> None:
+    points, faces = tube([0.0, 0.3, 0.6, 0.9, 1.2], 1.0)
+    one = topology.tubes(topology.loops(points, faces))[0]
+    assert [len(run) for run in one.runs] == [5]
+    assert topology.joint_loops(one) == []
+
+
+def test_an_even_run_puts_the_joint_between_its_two_middle_loops() -> None:
+    points, faces = tube([0.0, 0.2, 0.4, 0.6, 1.2, 1.4, 1.6, 2.4], 1.0, taper=0.02)
+    found = topology.loops(points, faces)
+    one = topology.tubes(found)[0]
+    assert [len(run) for run in one.runs] == [4, 3, 1]
+    places = [topology.joint_place(loops, found)[1] for loops in topology.joint_loops(one)]
+    assert [round(place, 6) for place in places] == [0.3, 1.4]
+
+
+def test_loops_side_by_side_are_not_one_tube() -> None:
+    first_points, first_faces = tube([0.0, 0.25], 1.0)
+    second_points, second_faces = tube([0.0, 0.25], 1.0, x=0.8)
+    shift = len(first_points)
+    points = first_points + second_points
+    faces = first_faces + [[index + shift for index in face] for face in second_faces]
+    assert len(topology.tubes(topology.loops(points, faces))) == 2
+
+
+def test_a_bent_tube_keeps_its_order() -> None:
+    rings = []
+    for step in range(50):
+        angle = math.radians(step * 4.0)
+        rings.append((10.0 * math.cos(angle), 10.0 * math.sin(angle), angle))
+    points: list[topology.Vec] = []
+    for cx, cy, angle in rings:
+        for side in range(SIDES):
+            turn = 2.0 * math.pi * side / SIDES
+            radial = (math.cos(angle), math.sin(angle), 0.0)
+            px = cx + 1.0 * math.cos(turn) * radial[0]
+            py = cy + 1.0 * math.cos(turn) * radial[1]
+            points.append((px, py, 1.0 * math.sin(turn)))
+    faces = []
+    for ring in range(len(rings) - 1):
+        for side in range(SIDES):
+            a = ring * SIDES + side
+            b = ring * SIDES + (side + 1) % SIDES
+            faces.append([a, b, b + SIDES, a + SIDES])
+    found = topology.loops(points, faces)
+    one = topology.tubes(found)[0]
+    angles = [
+        math.atan2(found[index].center[1], found[index].center[0]) % (2.0 * math.pi)
+        for index in one.loops
+    ]
+    assert angles == sorted(angles) or angles == sorted(angles, reverse=True)
+    assert len(one.loops) == 48

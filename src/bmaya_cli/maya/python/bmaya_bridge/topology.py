@@ -20,13 +20,19 @@ RADIUS_RATIO = 1.3
 NEAR_SHARE = 0.5
 RUN_GAP = 1.2
 RUN_LENGTH = 3
+PARALLEL = 0.8
+STACKED = 0.7
+APART = 0.05
 
 
 class Loop(NamedTuple):
+    """`ids` sorted; `walk` the same vertices in their order along the loop."""
+
     ids: list[int]
     center: Vec
     radius: float
     normal: Vec
+    walk: list[int]
 
 
 class Tube(NamedTuple):
@@ -163,6 +169,8 @@ def loops(points: Sequence[Vec], faces: Sequence[Sequence[int]]) -> list[Loop]:
             if edge == start:
                 closed = True
                 break
+            if edge in seen:
+                break
             walked.append(edge)
             vertex = edge[0] if edge[1] == vertex else edge[1]
         seen.update(walked)
@@ -172,46 +180,81 @@ def loops(points: Sequence[Vec], faces: Sequence[Sequence[int]]) -> list[Loop]:
         ring = [points[index] for index in ids]
         center = mean(ring)
         radius = sum(length(sub(point, center)) for point in ring) / len(ring)
-        found.append(Loop(ids, center, radius, ring_normal(ring, center)))
+        found.append(Loop(ids, center, radius, ring_normal(ring, center), walk_order(walked)))
     return found
 
 
+def walk_order(walked: list[Edge]) -> list[int]:
+    """The vertices of a closed chain of edges in the order the chain visits them."""
+    if len(walked) < 2:
+        return list(walked[0]) if walked else []
+    first, second = walked[0], walked[1]
+    start = first[0] if first[0] not in second else first[1]
+    order = [start]
+    for edge in walked:
+        here = order[-1]
+        order.append(edge[1] if edge[0] == here else edge[0])
+    return order[:-1]
+
+
 def joined(one: Loop, other: Loop) -> bool:
-    """Neighbouring loops of one tube: of a size, closer than their radius."""
+    """Neighbouring loops of one tube: of a size, closer than their radius, lying in
+    parallel planes, and one further along the tube than the other, not beside it."""
     small = min(one.radius, other.radius)
     big = max(one.radius, other.radius)
     if big >= RADIUS_RATIO * small:
         return False
-    return length(sub(one.center, other.center)) < NEAR_SHARE * (one.radius + other.radius)
+    offset = sub(other.center, one.center)
+    apart = length(offset)
+    if apart >= NEAR_SHARE * (one.radius + other.radius):
+        return False
+    if abs(sum(one.normal[k] * other.normal[k] for k in range(3))) < PARALLEL:
+        return False
+    along = abs(sum(offset[k] * one.normal[k] for k in range(3)))
+    return along >= APART * small and along >= STACKED * apart
+
+
+def tree_distances(
+    members: list[int], links: dict[int, list[tuple[int, float]]], start: int
+) -> dict[int, float]:
+    reach = {start: 0.0}
+    waiting = [start]
+    while waiting:
+        here = waiting.pop()
+        for other, step in links[here]:
+            if other not in reach:
+                reach[other] = reach[here] + step
+                waiting.append(other)
+    return reach
 
 
 def order_tube(members: list[int], found: Sequence[Loop]) -> list[int]:
-    """The loops of a tube from one end to the other, the thicker end first."""
+    """The loops of a tube from one end to the other, the thicker end first: along the
+    shortest tree that joins their centres, so a bent tube keeps its order."""
     if len(members) < 3:
         ordered = list(members)
     else:
-        near = {
-            index: [
-                other for other in members if other != index and joined(found[index], found[other])
-            ]
-            for index in members
-        }
-        ends = [index for index in members if len(near[index]) == 1]
-        ordered = []
-        if len(ends) == 2:
-            ordered = [ends[0]]
-            while len(ordered) < len(members):
-                step = [other for other in near[ordered[-1]] if other not in ordered]
-                if len(step) != 1:
-                    ordered = []
-                    break
-                ordered.append(step[0])
-        if not ordered:
-            axis = main_axis([found[index].center for index in members])
-            ordered = sorted(
-                members,
-                key=lambda index: sum(found[index].center[k] * axis[k] for k in range(3)),
-            )
+        centers = {index: found[index].center for index in members}
+        links: dict[int, list[tuple[int, float]]] = {index: [] for index in members}
+        best = {index: math.inf for index in members}
+        via = {index: -1 for index in members}
+        left = set(members)
+        current = members[0]
+        left.discard(current)
+        while left:
+            for other in left:
+                step = length(sub(centers[other], centers[current]))
+                if step < best[other]:
+                    best[other] = step
+                    via[other] = current
+            current = min(left, key=lambda index: best[index])
+            left.discard(current)
+            links[current].append((via[current], best[current]))
+            links[via[current]].append((current, best[current]))
+        first = tree_distances(members, links, members[0])
+        end = max(first, key=lambda index: first[index])
+        along = tree_distances(members, links, end)
+        ordered = sorted(members, key=lambda index: along[index])
     if found[ordered[0]].radius < found[ordered[-1]].radius:
         ordered.reverse()
     return ordered
@@ -227,8 +270,13 @@ def tubes(found: Sequence[Loop], gap: float = RUN_GAP) -> list[Tube]:
             index = parent[index]
         return index
 
-    for one in range(len(found)):
-        for other in range(one + 1, len(found)):
+    by_x = sorted(range(len(found)), key=lambda index: found[index].center[0])
+    widest = max((loop.radius for loop in found), default=0.0)
+    for position, one in enumerate(by_x):
+        reach = found[one].center[0] + NEAR_SHARE * (found[one].radius + widest)
+        for other in by_x[position + 1 :]:
+            if found[other].center[0] > reach:
+                break
             if joined(found[one], found[other]):
                 parent[root(one)] = root(other)
     groups: dict[int, list[int]] = {}
@@ -272,6 +320,20 @@ def runs(ordered: list[int], gaps: list[float], gap: float = RUN_GAP) -> list[li
     return out
 
 
-def joint_loops(tube: Tube, shortest: int = RUN_LENGTH) -> list[int]:
-    """The middle loop of each run of at least `shortest` loops: where a joint goes."""
-    return [run[len(run) // 2] for run in tube.runs if len(run) >= shortest]
+def joint_loops(tube: Tube, shortest: int = RUN_LENGTH) -> list[list[int]]:
+    """Where joints go: the middle loop of each run of at least `shortest` loops, or the two
+    middle loops of a run with an even count. A tube that is one run, its loops evenly
+    spaced, has no place that stands out and gives none."""
+    if len(tube.runs) < 2:
+        return []
+    out = []
+    for run in tube.runs:
+        if len(run) < shortest:
+            continue
+        middle = len(run) // 2
+        out.append([run[middle]] if len(run) % 2 else [run[middle - 1], run[middle]])
+    return out
+
+
+def joint_place(loops_at: list[int], found: Sequence[Loop]) -> Vec:
+    return mean([found[index].center for index in loops_at])
