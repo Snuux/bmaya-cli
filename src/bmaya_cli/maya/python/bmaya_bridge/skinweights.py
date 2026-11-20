@@ -263,19 +263,19 @@ def renamer(spec: str) -> Callable[[str], str]:
             if not old.strip() or not new.strip():
                 raise BridgeError(
                     f"Bad --rename entry '{entry}'.",
-                    hint="Map one name as OLD=NEW, or give a pattern like {}_r.",
+                    hint='Map one name as OLD=NEW, or give a pattern like "{}_r".',
                 )
             pairs[old.strip()] = new.strip()
         elif "{}" in entry:
             if pattern:
                 raise BridgeError(
-                    "--rename takes one pattern.", hint="Like --rename {}_r,arm=forearm_r."
+                    "--rename takes one pattern.", hint='Like --rename "{}_r,arm=forearm_r".'
                 )
             pattern = entry
         else:
             raise BridgeError(
                 f"Bad --rename entry '{entry}'.",
-                hint="Use {} for the name in the file, like {}_r or rig:{}, or OLD=NEW pairs.",
+                hint='Use {} for the name in the file, like "{}_r" or "rig:{}", or OLD=NEW pairs.',
             )
 
     def rename(name: str) -> str:

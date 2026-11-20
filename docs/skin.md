@@ -47,7 +47,7 @@ Weights are rounded to 6 digits, largest first.
 
 The list must have one entry per vertex. For a mesh whose topology changed, copy instead (below).
 
-`--rename` maps the joint names in the file to the scene's joints: `{}_r` puts each name into the pattern, `rig:{}` adds a namespace, `arm=forearm_r` maps one name. Entries combine: `{}_r,arm=forearm_r`.
+`--rename` maps the joint names in the file to the scene's joints: `"{}_r"` puts each name into the pattern, `"rig:{}"` adds a namespace, `arm=forearm_r` maps one name. Entries combine: `"{}_r,arm=forearm_r"`. Keep the quotes: PowerShell reads `{}` as a script block.
 
 The file is read by Maya itself, so a large mesh does not travel through the command's reply. 50,000 vertices with 60 joints make a 2.9 MB file and load in under a second.
 
@@ -89,4 +89,6 @@ Weights are written through `MFnSkinCluster.setWeights` inside a small command f
 - `bmaya views NAME --style weights --joint J` colors each vertex by J's weight, dark blue for none through green and yellow to red for all, blended across the faces and lit like `parts`. Meshes without a skin are grey.
 - `--style influence` gives each influence a color and blends them by weight; the legend and `influences` list the joints with the most vertices first. Past 12 influences colors repeat and `note` says so.
 
-Both draw the deformed mesh, so posing the skeleton with `bmaya exec` first shows the deformation too. A mesh that is not an influence of J is grey in `weights` style.
+Both draw the deformed mesh, so posing the skeleton with `bmaya exec` first shows the deformation too.
+
+A copy or mirror whose meshes only partly overlap is slow: every vertex farther than 5% of the source's size takes an unbounded closest-point search (about 0.3 ms each). Line the meshes up first.

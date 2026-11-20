@@ -532,8 +532,9 @@ def build_parser() -> argparse.ArgumentParser:
         "                    onto the other, +x onto -x with --mirror +x. Joints swap sides\n"
         "                    by name (hand_r/hand_l, L_hand, LeftHand). The plane goes\n"
         "                    through 0; +x=12.5 moves it\n"
-        "  --rename MAP      joint names of the file or SRC: {}_r adds a suffix, rig:{} a\n"
-        "                    namespace, arm=forearm_r maps one name\n"
+        '  --rename MAP      joint names of the file or SRC: "{}_r" adds a suffix,\n'
+        '                    "rig:{}" a namespace, arm=forearm_r maps one name. Quote\n'
+        "                    the braces: PowerShell reads {} as code\n"
         "  --prune [MIN]     drop weights under MIN (default 0.01)\n"
         "  --normalize       make every vertex's weights add up to 1\n"
         "  --max N           with an edit: keep the N biggest weights per vertex\n"
@@ -544,7 +545,7 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya skin",
             "bmaya skin hand_r --verts 0:10",
             "bmaya skin hand_r --save hand_r_weights.json",
-            "bmaya skin hand_r --load fit.json --rename {}_r",
+            'bmaya skin hand_r --load fit.json --rename "{}_r"',
             "bmaya skin hand_l --copy-from hand_r --mirror x",
             "bmaya skin body_new --copy-from body --prune --max 4",
             "bmaya skin body --mirror +x",
@@ -567,7 +568,7 @@ def build_parser() -> argparse.ArgumentParser:
     skin.add_argument(
         "--mirror", default="", metavar="AXIS", help="mirror across x, y or z (+x, -x=2.5)"
     )
-    skin.add_argument("--rename", default="", metavar="MAP", help="map joint names: {}_r, a=b")
+    skin.add_argument("--rename", default="", metavar="MAP", help='map joint names: "{}_r", a=b')
     skin.add_argument(
         "--prune",
         nargs="?",
