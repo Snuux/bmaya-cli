@@ -8,7 +8,7 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from bmaya_cli.contents import Contents, Joint, Mesh, ModelFileError, Take, Texture
+from bmaya_cli.contents import Contents, Joint, Mesh, ModelFileError, Take, Texture, usual_gap
 from bmaya_cli.matrix import (
     Matrix,
     column_major,
@@ -243,7 +243,7 @@ def read_takes(doc: dict[str, Any], buffers: Buffers) -> list[Take]:
         samplers = animation.get("samplers", [])
         first: float | None = None
         last: float | None = None
-        step: float | None = None
+        gaps: dict[float, int] = {}
         targets = set()
         for channel in animation.get("channels", []):
             target = channel.get("target", {})
@@ -258,9 +258,10 @@ def read_takes(doc: dict[str, Any], buffers: Buffers) -> list[Take]:
             times = buffers.read(sampler["input"])
             if times:
                 for a, b in zip(times, times[1:], strict=False):
-                    gap = b[0] - a[0]
-                    if gap > 1e-6 and (step is None or gap < step):
-                        step = gap
+                    gap = round(b[0] - a[0], 6)
+                    if gap > 0:
+                        gaps[gap] = gaps.get(gap, 0) + 1
+        step = usual_gap(gaps)
         keys = (first, last) if first is not None and last is not None else None
         name = animation.get("name", f"animation{index}")
         seconds = keys or (0.0, 0.0)

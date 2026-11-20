@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 
 from bmaya_cli import fbxfile
-from bmaya_cli.contents import Contents, Joint, Mesh, Take, Texture, Vec
+from bmaya_cli.contents import Contents, Joint, Mesh, Take, Texture, Vec, usual_gap
 from bmaya_cli.fbxfile import Document, Node, Value, child, children, props70, split_name
 from bmaya_cli.matrix import (
     Matrix,
@@ -313,7 +313,7 @@ def read_takes(scene: Scene) -> list[Take]:
         animated: set[int] = set()
         first: int | None = None
         last: int | None = None
-        step: int | None = None
+        gaps: dict[float, int] = {}
         for layer in scene.below(key, "AnimationLayer"):
             for curve_node in scene.below(layer, "AnimationCurveNode"):
                 for curve in scene.below(curve_node, "AnimationCurve"):
@@ -326,11 +326,12 @@ def read_takes(scene: Scene) -> list[Take]:
                     first = values[0] if first is None else min(first, values[0])
                     last = values[-1] if last is None else max(last, values[-1])
                     for a, b in zip(values, values[1:], strict=False):
-                        if b > a and (step is None or b - a < step):
-                            step = b - a
+                        if b > a:
+                            gaps[b - a] = gaps.get(b - a, 0) + 1
         keys = None
         if first is not None and last is not None:
             keys = (first / KTIME_PER_SECOND, last / KTIME_PER_SECOND)
+        step = usual_gap(gaps)
         key_step = step / KTIME_PER_SECOND if step else None
         out.append(Take(name_of(stack), (start, stop), curves, len(animated), keys, key_step))
     return out

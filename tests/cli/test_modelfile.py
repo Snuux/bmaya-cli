@@ -57,6 +57,16 @@ def test_takes_show_keys_only_when_they_differ() -> None:
     assert "frames" not in out["takes"]["items"][0]
 
 
+def test_keys_baked_at_another_rate_are_shown() -> None:
+    take = Take("walk", (0.0, 1.0), 6, 2, (0.0, 1.0), 1 / 24)
+    out = report(contents(takes=[take]))
+    assert out["takes"]["items"][0]["keys_fps"] == 24
+    assert out["issues"] == [
+        "take 'walk': keys are baked at 24 fps, the file says 30; Maya's FBX plugin can keep "
+        "the rate of an earlier export, export it again"
+    ]
+
+
 def test_issues() -> None:
     found = issues_of(
         contents(

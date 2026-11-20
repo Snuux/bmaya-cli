@@ -91,8 +91,6 @@ def test_what_the_file_lacks_is_listed(
         "1 of 4 scene joints are not in the file: jaw",
         "the file says 30 fps, the scene runs at 24",
         "take 'walk' covers frames 0:12.8, the scene asked for 0:20",
-        "take 'walk' is baked at 30 fps, the scene runs at 24: export it again; if this stays, "
-        "restart that Maya",
         "no take named 'run' in the file (takes: walk, wave)",
     ]
 

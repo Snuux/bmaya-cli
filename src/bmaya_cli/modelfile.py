@@ -15,6 +15,8 @@ from bmaya_cli.gltfcontents import GLB_MAGIC, read_gltf
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 1000
 NAMES_IN_ISSUE = 5
+FRAME_TOLERANCE = 0.5
+RATE_TOLERANCE = 0.01
 READS = "binary .fbx (version 7.1 and newer), .glb and .gltf"
 
 
@@ -56,6 +58,19 @@ def joint_entry(joint: Joint, axes: bool) -> dict[str, Any]:
     return entry
 
 
+def off_rate(take: Take, fps: float | None) -> float | None:
+    """The rate the keys were baked at, when their spacing falls between the file's frames.
+
+    Keys every second frame are on the frame grid and fine; keys 1/24 s apart in a 30 fps
+    file are not."""
+    if not take.key_step or not fps:
+        return None
+    frames = take.key_step * fps
+    if abs(frames - round(frames)) < RATE_TOLERANCE * max(1.0, frames):
+        return None
+    return round(1.0 / take.key_step, 3)
+
+
 def take_entry(take: Take, fps: float | None) -> dict[str, Any]:
     entry: dict[str, Any] = {"name": take.name}
     frames = frames_of(take.seconds, fps)
@@ -67,6 +82,9 @@ def take_entry(take: Take, fps: float | None) -> dict[str, Any]:
     if take.keys is not None and take.keys != take.seconds:
         keys = frames_of(take.keys, fps)
         entry["keys"] = keys if keys is not None else rounded(take.keys)
+    baked = off_rate(take, fps)
+    if baked:
+        entry["keys_fps"] = baked
     return entry
 
 
@@ -85,6 +103,14 @@ def issues_of(contents: Contents) -> list[str]:
             f"{len(clashes)} joint names are used twice, engines keep one: "
             + ", ".join(clashes[:NAMES_IN_ISSUE])
         )
+    for take in contents.takes:
+        baked = off_rate(take, contents.fps)
+        if baked:
+            out.append(
+                f"take '{take.name}': keys are baked at {baked:g} fps, the file says "
+                f"{contents.fps:g}; Maya's FBX plugin can keep the rate of an earlier export, "
+                "export it again"
+            )
     missing = sorted({t.path for t in contents.textures if not t.found})
     if missing:
         out.append(f"{len(missing)} textures not found: " + ", ".join(missing[:NAMES_IN_ISSUE]))
@@ -134,10 +160,6 @@ def report(contents: Contents, limit: int = DEFAULT_LIMIT, axes: bool = False) -
     return out
 
 
-FRAME_TOLERANCE = 0.5
-RATE_TOLERANCE = 0.01
-
-
 def leaf(name: str) -> str:
     return name.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
 
@@ -183,13 +205,6 @@ def compare_takes(contents: Contents, wanted: list[dict[str, Any]], fps: float) 
             )
         if take.curves == 0:
             out.append(f"take '{take.name}' has no animation curves")
-        elif take.key_step:
-            baked = 1.0 / take.key_step
-            if abs(baked - fps) > RATE_TOLERANCE * fps:
-                out.append(
-                    f"take '{take.name}' is baked at {baked:.3g} fps, the scene runs at {fps:g}: "
-                    "export it again; if this stays, restart that Maya"
-                )
     return out
 
 

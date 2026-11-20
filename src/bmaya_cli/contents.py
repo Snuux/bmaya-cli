@@ -7,6 +7,13 @@ from typing import NamedTuple
 Vec = tuple[float, float, float]
 
 
+def usual_gap(gaps: dict[float, int]) -> float | None:
+    """The spacing most keys have: baked curves end on a shorter gap at the clip's last frame."""
+    if not gaps:
+        return None
+    return max(gaps, key=lambda gap: (gaps[gap], -gap))
+
+
 class ModelFileError(Exception):
     def __init__(self, message: str, hint: str = "") -> None:
         super().__init__(message)
