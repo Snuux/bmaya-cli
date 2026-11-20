@@ -11,6 +11,7 @@ from bmaya_bridge import clients, meshcheck
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
+    cm_per_unit,
     display_name,
     resolve,
     rnd,
@@ -29,6 +30,7 @@ UV_EPSILON = 1e-6
 OVERLAP_FACES = 50000
 SYMMETRY_TOLERANCE = 1e-3
 MOVE_TOLERANCE = 1e-5
+UV_MOVE_TOLERANCE = 1e-6
 MARKS_KEPT = 20
 AUDIT_SECONDS = 30.0
 AXES = "xyz"
@@ -172,7 +174,11 @@ def name_issues(transform: str) -> list[str]:
 
 
 def read_points(mesh: om.MFnMesh, space: int) -> list[Vec]:
-    return [(point.x, point.y, point.z) for point in mesh.getPoints(space)]
+    """Points in the scene unit: the API gives centimeters whatever the scene is set to."""
+    factor = 1.0 / cm_per_unit()
+    return [
+        (point.x * factor, point.y * factor, point.z * factor) for point in mesh.getPoints(space)
+    ]
 
 
 def read_faces(mesh: om.MFnMesh) -> list[Face]:
@@ -371,6 +377,8 @@ class Mark(NamedTuple):
     points: list[Vec]
     faces: list[Face]
     tris: int
+    uv_set: str
+    corners: list[tuple[float, float] | None]
 
 
 MARKS: dict[tuple[str, str], Mark] = {}
@@ -395,15 +403,60 @@ def transform_of(shape: str) -> str:
     return cmds.listRelatives(shape, parent=True, fullPath=True)[0]
 
 
+def corner_uvs(mesh: om.MFnMesh, uv_set: str) -> list[tuple[float, float] | None]:
+    """The UV of every face corner in face order; None for the corners of a face without UVs."""
+    if not uv_set:
+        return []
+    us, vs = mesh.getUVs(uv_set)
+    counts, ids = mesh.getAssignedUVs(uv_set)
+    sizes = mesh.getVertices()[0]
+    out: list[tuple[float, float] | None] = []
+    start = 0
+    for face, count in enumerate(counts):
+        if count:
+            out.extend((us[uv], vs[uv]) for uv in ids[start : start + count])
+        else:
+            out.extend([None] * sizes[face])
+        start += count
+    return out
+
+
 def read_mark(shape: str) -> Mark:
     mesh = om.MFnMesh(dag_path(shape))
     tri_counts, _ = mesh.getTriangles()
+    uv_set = mesh.currentUVSetName() if mesh.numUVs() else ""
     return Mark(
         display_name(transform_of(shape)),
         read_points(mesh, om.MSpace.kWorld),
         read_faces(mesh),
         int(sum(tri_counts)),
+        uv_set,
+        corner_uvs(mesh, uv_set),
     )
+
+
+def uv_moves(before: Mark, after: Mark) -> dict[str, Any]:
+    """How the UV layout changed between two marks of the same topology."""
+    out: dict[str, Any] = {}
+    if before.uv_set != after.uv_set:
+        out["set"] = [before.uv_set or None, after.uv_set or None]
+    moved = 0
+    worst = 0.0
+    for index in range(min(len(before.corners), len(after.corners))):
+        one = before.corners[index]
+        two = after.corners[index]
+        if one is None or two is None:
+            if one != two:
+                moved += 1
+            continue
+        gap = ((one[0] - two[0]) ** 2 + (one[1] - two[1]) ** 2) ** 0.5
+        if gap > UV_MOVE_TOLERANCE:
+            moved += 1
+            worst = max(worst, gap)
+    out["moved"] = moved
+    if worst:
+        out["max_move"] = rnd(worst)
+    return out
 
 
 def mark_key(shape: str) -> tuple[str, str]:
@@ -445,6 +498,10 @@ def compare_marks(before: Mark, after: Mark) -> dict[str, Any]:
         result["max_move"] = rnd(found.max_move)
         result["mean_move"] = rnd(found.mean_move)
         result["moved_box"] = rnd_list(found.box[0] + found.box[1])
+    uv = uv_moves(before, after)
+    result["uv_changed"] = bool(uv.get("moved") or "set" in uv)
+    if result["uv_changed"]:
+        result["uv"] = uv
     return result
 
 

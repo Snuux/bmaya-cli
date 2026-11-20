@@ -645,6 +645,25 @@ def check_diff_mesh() -> str:
         assert moved["against"] == "mark" and moved["moved"] == 1, moved
         assert moved["max_move"] == 1 and moved["after"]["size"] == [1, 2, 1], moved
         assert moved["moved_box"][1] == moved["moved_box"][4] == 1.5, moved
+        assert moved["uv_changed"] is False and "uv" not in moved, moved
+
+        call("diff_mesh", name=box, mark=True)
+        cmds.polyEditUV(box + ".map[3]", uValue=0.1)
+        relaid = call("diff_mesh", name=box)
+        assert relaid["moved"] == 0 and relaid["uv_changed"] is True, relaid
+        assert relaid["uv"]["moved"] >= 1 and relaid["uv"]["max_move"] == 0.1, relaid
+        cmds.polyAutoProjection(box + ".f[*]", constructionHistory=False)
+        projected = call("diff_mesh", name=box)
+        assert projected["uv"]["moved"] > 10, projected
+
+        cmds.currentUnit(linear="m")
+        try:
+            call("diff_mesh", name=box, mark=True)
+            cmds.move(0, 0.01, 0, box + ".vtx[2]", relative=True)
+            metric = call("diff_mesh", name=box)
+            assert metric["max_move"] == 0.01 and metric["after"]["size"][0] == 0.01, metric
+        finally:
+            cmds.currentUnit(linear="cm")
 
         copy = cmds.duplicate(box, name="diff_copy")[0]
         cmds.polySmooth(box, constructionHistory=False)
@@ -657,7 +676,7 @@ def check_diff_mesh() -> str:
         expect_error("diff_mesh", "--against", name=box, mark=True, against=box)
     finally:
         cmds.delete(box)
-    return "mark, moved vertices and their box, topology change, --against ok"
+    return "mark, moved vertices and their box, UV changes, metres, topology change, --against ok"
 
 
 def tris_of(node: str) -> int:
@@ -2302,6 +2321,124 @@ def check_get_topology() -> str:
     return "loops, tubes, runs, joint places, ids, --gap, picture, triangles noted"
 
 
+def painted_texture(name: str, boxes: list[tuple[float, float, float, float]]) -> str:
+    """A black image with white boxes given in UV (u0, v0, u1, v1), like paint on islands."""
+    from PySide6 import QtCore, QtGui
+
+    size = 256
+    image = QtGui.QImage(size, size, QtGui.QImage.Format_RGB32)
+    image.fill(QtGui.QColor(0, 0, 0))
+    painter = QtGui.QPainter(image)
+    for u0, v0, u1, v1 in boxes:
+        rect = QtCore.QRectF(u0 * size, (1 - v1) * size, (u1 - u0) * size, (v1 - v0) * size)
+        painter.fillRect(rect, QtGui.QColor(230, 230, 230))
+    painter.end()
+    path = (WORK_DIR / name).as_posix()
+    assert image.save(path), path
+    return path
+
+
+def two_shell_mesh() -> str:
+    """Two 2x2 planes in one mesh, their UVs packed into u 0.1-0.4 and 0.6-0.9."""
+    left = cmds.polyPlane(name="uv_a", width=2, height=2, subdivisionsX=1, subdivisionsY=1)[0]
+    right = cmds.polyPlane(name="uv_b", width=2, height=2, subdivisionsX=1, subdivisionsY=1)[0]
+    cmds.move(3, 0, 0, right)
+    cmds.polyEditUV(left + ".map[*]", scaleU=0.3, scaleV=0.3, pivotU=0, pivotV=0)
+    cmds.polyEditUV(left + ".map[*]", uValue=0.1, vValue=0.1)
+    cmds.polyEditUV(right + ".map[*]", scaleU=0.3, scaleV=0.3, pivotU=0, pivotV=0)
+    cmds.polyEditUV(right + ".map[*]", uValue=0.6, vValue=0.1)
+    mesh = cmds.polyUnite(left, right, name="uv_pair", constructionHistory=False)[0]
+    return mesh
+
+
+def uv_material(mesh: str, color: str, normal: str) -> list[str]:
+    shader = cmds.shadingNode("lambert", asShader=True, name="uv_mat")
+    engine = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name="uv_matSG")
+    cmds.connectAttr(shader + ".outColor", engine + ".surfaceShader")
+    paint = cmds.shadingNode("file", asTexture=True, name="uv_paint")
+    cmds.setAttr(paint + ".fileTextureName", color, type="string")
+    cmds.connectAttr(paint + ".outColor", shader + ".color")
+    bumps = cmds.shadingNode("file", asTexture=True, name="uv_bumps")
+    cmds.setAttr(bumps + ".fileTextureName", normal, type="string")
+    bump = cmds.shadingNode("bump2d", asUtility=True, name="uv_bump")
+    cmds.connectAttr(bumps + ".outAlpha", bump + ".bumpValue")
+    cmds.connectAttr(bump + ".outNormal", shader + ".normalCamera")
+    cmds.sets(mesh, edit=True, forceElement=engine)
+    return [shader, engine, paint, bumps, bump]
+
+
+def check_get_uv() -> str:
+    mesh = two_shell_mesh()
+    fits = painted_texture("uv_fits.png", [(0.1, 0.1, 0.4, 0.4), (0.6, 0.1, 0.9, 0.4)])
+    stale = painted_texture("uv_stale.png", [(0.25, 0.45, 0.55, 0.75), (0.65, 0.5, 0.95, 0.8)])
+    made = uv_material(mesh, fits, stale)
+    try:
+        report = assert_read_only("get_uv", name=mesh, size=256)
+        assert report["shells"]["total"] == 2 and report["set"] == "map1", report
+        assert abs(report["coverage"] - 0.18) < 0.01 and report["overlap"] == 0, report
+        assert report["padding"]["between"] is None, report["padding"]
+        assert report["padding"]["edge"] is None and report["padding"]["checked_up_to"] == 16
+        assert abs(report["shells"]["items"][0]["density"] - 0.15 * 256) < 1.0, report["shells"]
+        assert report["flipped"] == 0 and len(report["hash"]) == 8, report
+        slots = {entry["node"]: entry["slot"] for entry in report["textures"]["items"]}
+        assert slots == {"uv_paint": "color", "uv_bumps": "normal"}, slots
+        assert any("uv_bumps is read as" in issue for issue in report["issues"]), report["issues"]
+        verdicts = {Path(entry["path"]).name: entry["verdict"] for entry in report["fit"]}
+        assert verdicts["uv_fits.png"] == "fits", report["fit"]
+
+        stale_fit = call("get_uv", name=mesh, size=256, textures=[stale])["fit"][0]
+        assert stale_fit["verdict"] == "does not fit", stale_fit
+
+        twin = cmds.duplicate(mesh, name="uv_twin")[0]
+        same = call("get_uv", name=mesh, against_mesh=twin)["against"]
+        assert same["same"] is True, same
+        cmds.polyEditUV(twin + ".map[0]", uValue=0.05)
+        moved = call("get_uv", name=mesh, against_mesh=twin)["against"]
+        assert moved["same"] is False and moved["moved_corners"] >= 1, moved
+        cmds.delete(twin)
+
+        cmds.polyEditUV(mesh + ".map[4:7]", uValue=-0.195)
+        close = call("get_uv", name=mesh, size=256)
+        assert abs(close["padding"]["between"] - 0.005 * 256) < 0.5, close["padding"]
+        assert any("texels apart" in issue for issue in close["issues"]), close["issues"]
+        cmds.polyEditUV(mesh + ".map[4:7]", uValue=0.195)
+        cmds.polyEditUV(mesh + ".map[4:7]", uValue=-0.4)
+        folded = call("get_uv", name=mesh, size=256)
+        assert folded["overlap"] > 0.05 and any("overlap" in i for i in folded["issues"]), folded
+        cmds.polyEditUV(mesh + ".map[4:7]", uValue=0.4)
+
+        picture = assert_read_only("get_uv", name=mesh, image=True, textures=[stale])
+        assert picture["width"] > 0 and Path(picture["path"]).is_file(), picture
+        Path(picture["path"]).unlink()
+
+        expect_error("get_uv", "No UV set", name=mesh, uv_set="nope")
+    finally:
+        cmds.delete([node for node in [mesh, *made] if cmds.objExists(node)])
+    return "shells, coverage, padding, density, slots, fit and misfit, compare, overlap, picture"
+
+
+def check_bake_uv() -> str:
+    mesh = two_shell_mesh()
+    try:
+        folder = WORK_DIR / "baked"
+        baked = assert_read_only(
+            "bake_uv", name=mesh, maps="position,normal", size=64, folder=str(folder)
+        )
+        assert abs(baked["covered"] - 0.18) < 0.02 and len(baked["files"]) == 3, baked
+        low, high = baked["bounds"]
+        assert low[0] < -0.9 and high[0] > 3.9 and abs(low[1]) < 1e-6, baked["bounds"]
+        data = Path(baked["files"][0]).read_bytes()
+        assert data[:6] == b"\x93NUMPY" and "(64, 64, 3, )" in data[:128].decode("latin1"), data[
+            :80
+        ]
+        normal = Path(baked["files"][1]).read_bytes()
+        assert len(normal) == len(data), (len(normal), len(data))
+        expect_error("bake_uv", "Unknown map", name=mesh, maps="depth", folder=str(folder))
+    finally:
+        cmds.delete(mesh)
+    return f"position and normal maps, {baked['covered']} of the texels covered, bounds ok"
+
+
 def check_mirror_node() -> str:
     made = side_rig("mr")
     try:
@@ -2468,6 +2605,8 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("orient_joints", check_orient_joints),
     ("mirror_node", check_mirror_node),
     ("get_topology", check_get_topology),
+    ("get_uv", check_get_uv),
+    ("bake_uv", check_bake_uv),
     ("undo", check_undo),
     ("stop", check_stop),
 ]

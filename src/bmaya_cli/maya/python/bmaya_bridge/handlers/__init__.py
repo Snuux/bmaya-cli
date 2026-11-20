@@ -21,6 +21,7 @@ from bmaya_bridge.handlers import (
     scene,
     skin,
     topology,
+    uv,
     viewport,
     views,
 )
@@ -60,6 +61,8 @@ UNRECORDED: dict[str, Handler] = {
     "get_rig_info": without_undo(rig.get_rig_info),
     "get_bones": without_undo(bones.get_bones),
     "get_topology": without_undo(topology.get_topology),
+    "get_uv": without_undo(uv.get_uv),
+    "bake_uv": without_undo(uv.bake_uv),
     "get_skin_info": without_undo(skin.get_skin_info),
     "save_skin_weights": without_undo(skin.save_skin_weights),
     "export_fbx": without_undo(export.export_fbx),
