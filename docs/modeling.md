@@ -43,9 +43,14 @@ Edges are left out when they would merge into a blob: past about 10000 triangles
 | `no material`, `default material only`, `N materials` | Material assignment. |
 | `construction history`, `unfrozen transform`, `negative scale`, `pivot not at origin` | Not ready for export. |
 | `namespace in name`, `default name`, `non-ASCII name` | Naming. |
+| `SHAPE has no faces` | An empty mesh: the exported file has nothing to show. `bmaya export` refuses it. |
+| `SHAPE has the opposite flag over inside-out faces` | Left by freezing a negative scale. Maya draws the mesh the right way, the exported file gets it inside out. `bmaya cleanup NAME` clears the flag and turns the faces out; `bmaya export` refuses the mesh until then. |
+| `SHAPE has the opposite flag` | The faces are stored the right way, but Maya draws them flipped. |
+| `SHAPE is instanced under N transforms`, `N visible shapes on one transform` | One shape in several places, or several meshes under one node: engines may duplicate or merge them. |
+| `N unused intermediate shapes, left from earlier versions` | Hidden shapes no deformer reads, often carried along by `duplicate`. Delete them. |
 | `N verts without a mirror twin across x` | With `--symmetry x`: the mesh is not mirrored across the plane through its pivot. `symmetry.sample` gives a few of those vertices. |
 
-`locked_normals`, `uvs_outside_01` and `flipped_uv_faces` are counted but are not issues: tiling textures, custom normals and mirrored UV shells are normal on game assets.
+`locked_normals`, `uvs_outside_01`, `flipped_uv_faces` and `color_sets` are reported but are not issues: tiling textures, custom normals and mirrored UV shells are normal on game assets.
 
 `bmaya diff NAME --mark` remembers a mesh. After an edit, `bmaya diff NAME` gives the counts, size, surface area and volume before and after. When the topology is the same it adds `moved`, `max_move`, `mean_move` and `moved_box`, the box around the vertices that moved. `--against OTHER` compares two meshes as they are. A mark belongs to one client and lives in that Maya until it stops.
 
@@ -56,7 +61,7 @@ Edges are left out when they would merge into a blob: past about 10000 triangles
 | `bmaya remesh NAME --to tris [--edge L]` | Even triangles with edges near `L` scene units (default: an edge that keeps about the triangle count). Maya's `polyRemesh`. An edge that would make more than 500000 triangles is refused, with the shortest edge that fits. |
 | `bmaya remesh NAME --to quads [--faces N] [--keep-hard-edges]` | A quad mesh of about `N` faces (default: half the triangle count). Maya's Retopologize, `polyRetopo`. Up to 200000 triangles in; reduce a denser mesh first. |
 | `bmaya reduce NAME --tris N` or `--percent P` | Fewer triangles, same shape. `--percent 50` keeps half. `--keep-borders`, `--keep-uvs`, `--keep-hard-edges`, `--keep-quads` pin what matters. Maya's `polyReduce`. |
-| `bmaya cleanup NAME [--merge DIST] [--ngons]` | Merges vertices on the same spot (UV seams stay), removes zero-area faces, zero-length edges and lamina faces, splits non-manifold geometry, makes the faces wind one way and turns the normals outward. `--ngons` also triangulates faces with five or more sides. |
+| `bmaya cleanup NAME [--merge DIST] [--ngons]` | Merges vertices on the same spot (UV seams stay), removes zero-area faces, zero-length edges and lamina faces, splits non-manifold geometry, makes the faces wind one way and turns the normals outward. It clears the opposite flag a mirrored freeze leaves (`opposite_cleared`). `--ngons` also triangulates faces with five or more sides. |
 
 Each works on one mesh, is one undo step (`bmaya undo`), and answers with `before`, `after` and the audit `issues` that are left. Each marks the mesh before it runs, so `bmaya diff NAME` shows the change even when the reply was lost: exit code 3 means Maya is still working, and the command must not be sent again.
 

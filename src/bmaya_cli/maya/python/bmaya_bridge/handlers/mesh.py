@@ -17,6 +17,7 @@ from bmaya_bridge.handlers._common import (
     rnd_list,
     text_param,
 )
+from bmaya_bridge.handlers._shapes import shape_problems
 from bmaya_bridge.meshcheck import Face, Vec
 
 MAX_MESHES = 50
@@ -281,10 +282,12 @@ def audit_one(shape: str, symmetry_axis: int | None = None) -> dict[str, Any]:
     for count, label in checks:
         if count:
             issues.append(f"{count} {label}")
-    if wound.inward and wound.shells == 1:
-        issues.append("normals point inward")
-    elif wound.inward:
-        issues.append(f"{wound.inward} of {wound.shells} shells have normals pointing inward")
+    # With the opposite flag set, shape_problems explains the stored winding instead.
+    if wound.inward and not cmds.getAttr(shape + ".opposite"):
+        if wound.shells == 1:
+            issues.append("normals point inward")
+        else:
+            issues.append(f"{wound.inward} of {wound.shells} shells have normals pointing inward")
     if not uv_sets or uv_count == 0:
         issues.append("no UVs")
     elif faces["no_uv"]:
@@ -304,6 +307,7 @@ def audit_one(shape: str, symmetry_axis: int | None = None) -> dict[str, Any]:
         issues.append("construction history: " + ", ".join(history[:5]))
     issues.extend(transform_issues(transform))
     issues.extend(name_issues(transform))
+    issues.extend(problem.text for problem in shape_problems(transform))
 
     entry: dict[str, Any] = {
         "name": display_name(transform),
@@ -325,6 +329,9 @@ def audit_one(shape: str, symmetry_axis: int | None = None) -> dict[str, Any]:
         entry["uvs_outside_01"] = uvs["outside"]
     if uvs.get("flipped"):
         entry["flipped_uv_faces"] = uvs["flipped"]
+    color_sets = mesh.getColorSetNames()
+    if color_sets:
+        entry["color_sets"] = list(color_sets)
     if symmetry_axis is not None:
         entry["symmetry"] = symmetry_of(mesh, transform, symmetry_axis)
         if entry["symmetry"]["unmatched"]:

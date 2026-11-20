@@ -402,7 +402,61 @@ def check_audit_mesh() -> str:
     assert whole["source"] == "scene" and whole["total"] >= 6, whole
     expect_error("audit_mesh", "bmaya scene", names="missing_mesh")
     numbers = check_audit_numbers()
-    return f"broken mesh flagged ({len(broken['issues'])} issues), clean mesh clean; {numbers}"
+    shapes = check_audit_shapes()
+    return (
+        f"broken mesh flagged ({len(broken['issues'])} issues), clean mesh clean; {numbers}; "
+        f"{shapes}"
+    )
+
+
+def mirrored_box(name: str) -> str:
+    box = cmds.polyCube(name=name, constructionHistory=False)[0]
+    cmds.setAttr(box + ".scaleX", -1)
+    cmds.makeIdentity(box, apply=True, scale=True)
+    return box
+
+
+def check_audit_shapes() -> str:
+    made = []
+    try:
+        stray = cmds.polyCube(name="audit_stray", constructionHistory=False)[0]
+        made.append(stray)
+        for index in range(2):
+            old = cmds.polySphere(constructionHistory=False)[0]
+            shape = cmds.parent(
+                cmds.listRelatives(old, shapes=True)[0], stray, shape=True, relative=True
+            )
+            cmds.setAttr(shape[0] + ".intermediateObject", True)
+            cmds.rename(shape[0], f"audit_old{index}")
+            cmds.delete(old)
+        cmds.polyColorSet(stray, create=True, colorSet="dirt")
+        entry = assert_read_only("audit_mesh", names=stray)["meshes"][0]
+        assert (
+            "2 unused intermediate shapes, left from earlier versions: audit_old0, audit_old1"
+            in entry["issues"]
+        ), entry
+        assert entry["color_sets"] == ["dirt"], entry
+
+        flipped = mirrored_box("audit_flagged")
+        made.append(flipped)
+        issues = call("audit_mesh", names=flipped)["meshes"][0]["issues"]
+        assert any("opposite flag over inside-out faces" in issue for issue in issues), issues
+        assert "normals point inward" not in issues, issues
+
+        shared = cmds.polyCube(name="audit_shared", constructionHistory=False)[0]
+        copy = cmds.instance(shared, name="audit_shared_copy")[0]
+        made += [shared, copy]
+        issues = call("audit_mesh", names=shared)["meshes"][0]["issues"]
+        assert "audit_sharedShape is instanced under 2 transforms" in issues, issues
+
+        from bmaya_bridge.handlers._shapes import preflight
+
+        blocking, rest = preflight(["|audit_flagged", "|audit_stray"])
+        assert len(blocking) == 1 and blocking[0].startswith("audit_flagged: "), blocking
+        assert len(rest) == 1 and rest[0].startswith("audit_stray: 2 unused"), rest
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+    return "stray, opposite and instanced shapes flagged"
 
 
 def check_audit_numbers() -> str:
@@ -659,7 +713,16 @@ def check_cleanup_mesh() -> str:
         expect_error("cleanup_mesh", "bmaya scene", name="missing_mesh")
     finally:
         cmds.delete(box)
-    return "split vertices merged, normals turned outward, one undo step ok"
+    flagged = mirrored_box("cleanup_flagged")
+    try:
+        fixed = call("cleanup_mesh", name=flagged)
+        assert fixed["opposite_cleared"] is True and fixed["normals_reversed"] is True, fixed
+        assert not cmds.getAttr(flagged + "Shape.opposite"), "cleanup left the opposite flag"
+        assert fixed["after"]["volume"] == 1, fixed
+        assert not any("opposite" in issue or "inward" in issue for issue in fixed["issues"]), fixed
+    finally:
+        cmds.delete(flagged)
+    return "split vertices merged, normals turned outward, opposite flag cleared, one undo step ok"
 
 
 def check_get_animation_info() -> str:

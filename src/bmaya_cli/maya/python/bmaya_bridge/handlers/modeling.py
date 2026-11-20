@@ -200,6 +200,10 @@ def cleanup_mesh(params: dict[str, Any]) -> dict[str, Any]:
     ngons = "1" if bool_param(params, "ngons") else "0"
 
     def cleanup(shape: str) -> dict[str, Any]:
+        # The flag only changes how Maya draws the faces; files get them as stored.
+        opposite = bool(cmds.getAttr(shape + ".opposite"))
+        if opposite:
+            cmds.setAttr(shape + ".opposite", False)
         mesh = om.MFnMesh(dag_path(shape))
         size = max(size_of(read_points(mesh, om.MSpace.kWorld)))
         distance = merge if merge is not None else max(1e-9, size * MERGE_SHARE)
@@ -222,6 +226,9 @@ def cleanup_mesh(params: dict[str, Any]) -> dict[str, Any]:
         reversed_normals = is_inside_out(shape)
         if reversed_normals:
             cmds.polyNormal(shape, normalMode=REVERSE, userNormalMode=0, constructionHistory=False)
-        return {"merge": rnd(distance, 6), "normals_reversed": reversed_normals}
+        result = {"merge": rnd(distance, 6), "normals_reversed": reversed_normals}
+        if opposite:
+            result["opposite_cleared"] = True
+        return result
 
     return edited(name, "cleanup", cleanup)
