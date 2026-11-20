@@ -55,3 +55,22 @@ Maya's FBX plugin keeps baking at the frame rate of an earlier export in the sam
 ## Reading a file
 
 `bmaya inspect FILE` reads binary `.fbx` (7.1 and newer), `.glb` and `.gltf` without Maya: unit, up axis, fps, meshes with counts, UV sets, materials and skin, the skeleton with world positions at bind time (`--axes` adds each joint's axes), takes with frame ranges and curve counts, and textures with whether they are found by their path, relative to the file or next to it. `issues` lists empty meshes, unweighted vertices, joint names used twice, keys baked between the file's frames and missing textures.
+
+## glTF
+
+`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. `bmaya install --gltf` downloads the release bmaya pins, checks its SHA-256 and installs it as the Maya module `maya_glb_io`; `bmaya doctor` reports it. bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install`.
+
+| | glTF |
+|---|---|
+| Up axis | Y. A Z-up scene is not turned; `issues` says so. |
+| Unit | Metres, whatever the scene unit. |
+| Textures | Embedded in `.glb`; copied next to `.gltf` and referenced by name. |
+| Skins, morph targets | Written. |
+| Animation | Every exported node sampled at each whole frame from its matrix, so keys, constraints, IK and expressions all count. Only channels that move, or hold away from the rest pose, are written. |
+| Constraints, IK handles, effectors | Not written as nodes. |
+
+`--animation` writes one animation named after the file, `--clip NAME` one named after the clip, and `--clips` one animation per clip of the scene (Game Exporter rows that export, and bookmarks), ordered by first frame. Two clips with one name and different ranges stop the export: an engine finds animations by name.
+
+The same checks run before writing, and the file is read back after: `written` and `issues` mean what they mean for FBX. `--preset` and `--copy-textures` do not apply.
+
+`bmaya file import FILE.glb` goes through the same library, inside one undo step. The file's node transforms are kept (no drop to the floor, no freeze). Embedded images are written to the project's `sourceimages` folder. All animations land on one timeline at their own times: a file whose animations each start at 0 gets them on top of each other.
