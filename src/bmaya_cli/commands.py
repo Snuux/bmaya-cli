@@ -218,6 +218,7 @@ def cmd_views(args: argparse.Namespace) -> int:
         "section": args.section,
         "light": args.light,
         "max_size": args.size,
+        "compare": args.compare,
     }
     deliver_png(call(args, "get_model_views", params), args.output)
     return EXIT_OK
@@ -229,8 +230,29 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 
 def cmd_diff(args: argparse.Namespace) -> int:
-    params = {"name": args.name, "mark": args.mark, "against": args.against}
-    return forward(args, "diff_mesh", params)
+    if (args.views or args.size) and not args.output:
+        raise usage("--views and --size go with -o.", f"bmaya diff {args.name} -o moved.png")
+    if args.mark and args.output:
+        raise usage(
+            "-o draws the change after the edit, not the mark.",
+            f"bmaya diff {args.name} --mark, edit, then bmaya diff {args.name} -o moved.png",
+        )
+    params = {
+        "name": args.name,
+        "mark": args.mark,
+        "against": args.against,
+        "image": bool(args.output),
+        "views": args.views,
+        "max_size": args.size,
+    }
+    if not args.output:
+        return forward(args, "diff_mesh", params)
+    result = call(args, "diff_mesh", params)
+    if "path" not in result:
+        emit(result)
+        return EXIT_OK
+    deliver_png(result, args.output)
+    return EXIT_OK
 
 
 def cmd_topo(args: argparse.Namespace) -> int:
@@ -515,6 +537,10 @@ def cmd_motion(args: argparse.Namespace) -> int:
 
 
 def cmd_file(args: argparse.Namespace) -> int:
+    if args.action == "status":
+        if args.path or args.force:
+            raise usage("status takes no path and no --force.", "bmaya file status")
+        return forward(args, "scene_status", {})
     params = {
         "action": args.action,
         "path": absolute(args.path) if args.path else "",

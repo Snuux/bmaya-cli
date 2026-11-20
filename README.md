@@ -91,9 +91,9 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya exec [CODE] [-f FILE]` | Runs Python in Maya with `cmds`, `mel` and `om` loaded. Assign to `result` to return data. One undo step per call. Code also comes from stdin. |
 | `bmaya shot [-o FILE] [--camera C] [--frames 1,12,24\|0:30:2\|--clip NAME] [--size N] [--aspect W:H] [--light unlit\|soft\|scene] [--trail A,B] [--fit A,B]` | Writes a PNG of the viewport and prints its path. `--frames` makes a contact sheet (a range is thinned to 12 tiles), `--aspect` sets the frame shape, `--light` the lighting for this shot, `--trail` draws node paths with a dot per frame, `--fit` frames nodes on every frame without moving the camera. |
 | `bmaya playblast OUT.gif\|OUT.mp4\|DIR [--frames\|--clip] [--camera C] [--fit A,B]` | Renders every frame and joins them into a GIF or MP4 with ffmpeg (PNG frames without it). For people to watch. |
-| `bmaya views [NAME ...] [-o FILE] [--views front,right,top,persp\|all] [--style parts\|silhouette\|xray\|weights\|influence\|shaded] [--joint J] [--section x\|y=12.5] [--no-wire] [--size N]` | Draws a model from several sides in one PNG: a color per mesh, edges on top, width and height on the straight-on views. `silhouette` for the shape, `xray` and `--section` for what is inside, `weights --joint J` and `influence` for skin weights, `shaded` for Maya's own render. |
+| `bmaya views [NAME ...] [-o FILE] [--views front,right,top,persp\|all] [--style parts\|silhouette\|xray\|weights\|influence\|shaded] [--joint J] [--section x\|y=12.5] [--no-wire] [--size N] [--compare OTHER\|mark]` | Draws a model from several sides in one PNG: a color per mesh, edges on top, width and height on the straight-on views. `silhouette` for the shape, `xray` and `--section` for what is inside, `weights --joint J` and `influence` for skin weights, `shaded` for Maya's own render. `--compare` puts another mesh, or the mesh before an edit, beside it with both silhouettes overlaid. |
 | `bmaya audit [NAME ...] [--symmetry x\|y\|z]` | Game-readiness check: counts, faces by kind, size, n-gons, non-manifold geometry, flipped or inward normals, UVs and their overlaps, materials, history, transforms, stray and instanced shapes, the opposite flag, skin weights, mirror symmetry. |
-| `bmaya diff NAME [--mark] [--against OTHER]` | What an edit changed in a mesh: counts, size, area, volume, moved vertices and where they are. |
+| `bmaya diff NAME [--mark] [--against OTHER] [-o FILE] [--views A,B] [--size N]` | What an edit changed in a mesh: counts, size, area, volume, moved vertices and where they are. `-o` draws each vertex colored by how far it moved. |
 | `bmaya topo NAME [--ids] [--gap G] [-o FILE [--tubes A,B]]` | Edge flow: shells, valence, closed edge loops around tubes, the tubes, and joint places in the middle of each run of close loops. `-o` draws them over the mesh. |
 | `bmaya uv NAME [--texture PNG] [--against MESH\|FILE] [-o FILE] \| --bake position,normal -o DIR` | UV layout: shells, texel density, coverage, overlaps, stretch, padding, a layout hash, textures, whether each texture fits the layout; a picture of the layout over the textures; position and normal maps baked into UV space. |
 | `bmaya remesh NAME [--to tris --edge L \| --to quads --faces N]` | Rebuilds the topology: even triangles, or quads with Maya's Retopologize. |
@@ -113,6 +113,7 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya export --game-exporter [NODE] [--clip NAME] [--copy-textures]` | Exports the way the scene's Game Exporter nodes are set up: their paths, sets and presets, a file per clip with one take each, every file checked. |
 | `bmaya inspect FILE [--axes] [--limit N]` | Reads an FBX, GLB or glTF file without Maya: unit, up axis, fps, meshes with counts, UV sets, materials and skin, the skeleton with bind positions, takes with frame ranges, textures and whether they are found. |
 | `bmaya file new\|open\|save\|import [PATH] [--force]` | Scene files. |
+| `bmaya file status` | What changed since the scene was opened or saved: nodes added, deleted, renamed and changed, settings, and the bmaya commands that edited. |
 | `bmaya undo [STEPS] [--force]` | Undoes your own last steps, never another client's. |
 | `bmaya sessions`, `bmaya use ID` | Lists the running Mayas, picks the one to talk to. |
 | `bmaya start [--gui] [--scene FILE]`, `bmaya stop [ID]` | Starts a Maya, stops one that runs without a window. |
@@ -134,7 +135,8 @@ Results go to stdout as one line of JSON, errors to stderr as `error: ...` and `
 
 - [Sessions, sharing one Maya, start and stop](docs/sessions.md): several Mayas, who owns which undo step, environment variables, screenshots without a window.
 - [FBX export](docs/export.md): what each preset writes.
-- [Modeling](docs/modeling.md): view sheets and their styles, sections, audit numbers, diff, remesh, reduce, cleanup.
+- [Modeling](docs/modeling.md): view sheets and their styles, sections, comparing shapes, audit numbers, diff, remesh, reduce, cleanup.
+- [Scene changes](docs/scene.md): `file status`, what a snapshot compares, pictures of a change.
 - [Skin weights](docs/skin.md): the skin report, weights files, copy, mirror, prune, weight pictures.
 - [UVs and textures](docs/uv.md): the layout report, texture fit, the layout picture, comparing layouts, baking position and normal maps.
 - [Topology](docs/topology.md): edge loops around tubes, runs of loops, joint places, the loops picture.

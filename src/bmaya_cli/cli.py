@@ -258,7 +258,12 @@ def build_parser() -> argparse.ArgumentParser:
         "a Maya window and change nothing in the scene. Past about 10000 triangles per\n"
         "400 px tile the edges are left out and `note` says so.\n\n"
         "--section cuts the model with a plane across a world axis and adds a tile that\n"
-        "looks at the cut: wall thickness, parts hidden inside, what pokes through.",
+        "looks at the cut: wall thickness, parts hidden inside, what pokes through.\n\n"
+        "--compare OTHER draws the meshes beside OTHER (a mesh or group) in each view, and a\n"
+        "third tile with both silhouettes over each other, centered on the same point: grey\n"
+        "where both cover, blue for the first only, orange for OTHER only. `compare.differ` is\n"
+        "the share of covered pixels where they disagree, per view. `--compare mark` compares\n"
+        "one mesh with its `bmaya diff --mark`, both where they are: what an edit changed.",
         examples(
             "bmaya views crate -o crate.png",
             "bmaya views hand --views all -o hand.png",
@@ -268,6 +273,8 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya views hero --style shaded --light soft -o look.png",
             "bmaya views hand_r --style weights --joint index_01_r -o weights.png",
             "bmaya views hand_r --style influence --views front,persp -o joints.png",
+            "bmaya views crate --compare crate_old --style silhouette -o both.png",
+            "bmaya views hand --compare mark --views front,right -o edit.png",
         ),
     )
     views.add_argument("names", nargs="*", help="mesh or group names")
@@ -299,6 +306,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     views.add_argument(
         "--size", type=int, default=0, help="longest side of the sheet in pixels (default 1600)"
+    )
+    views.add_argument(
+        "--compare",
+        default="",
+        metavar="OTHER|mark",
+        help="draw beside another mesh, or the mark, with an overlay of both",
     )
 
     playblast = add(
@@ -369,10 +382,14 @@ def build_parser() -> argparse.ArgumentParser:
         "so an edit that touched more than it should shows up. `remesh`, `reduce` and\n"
         "`cleanup` mark the mesh themselves before they run.\n\n"
         "A mark is yours alone and lives in that Maya until it stops. --against compares\n"
-        "two meshes as they are now, like a copy made before the edit.",
+        "two meshes as they are now, like a copy made before the edit.\n\n"
+        "-o draws the mesh from several sides like `bmaya views`, each vertex colored by how\n"
+        "far it moved: blue for not at all, through green and yellow, to red for the longest\n"
+        "move. Use it to see that an edit stayed where it should.",
         examples(
             "bmaya diff crate --mark        # before the edit",
             "bmaya diff crate               # after it",
+            "bmaya diff crate -o moved.png --views front,top",
             "bmaya diff crate --against crate_backup",
         ),
     )
@@ -381,6 +398,11 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument(
         "--against", default="", metavar="OTHER", help="compare with this mesh instead of the mark"
     )
+    diff.add_argument(
+        "-o", "--output", default="", metavar="FILE", help="draw the moves into this PNG"
+    )
+    diff.add_argument("--views", default="", metavar="A,B", help="views for -o, as in bmaya views")
+    diff.add_argument("--size", type=int, default=0, help="longest side of the -o sheet")
 
     topo = add(
         "topo",
@@ -955,13 +977,20 @@ def build_parser() -> argparse.ArgumentParser:
     file = add(
         "file",
         "cmd_file",
-        "new, open, save or import a scene file",
+        "new, open, save or import a scene file; status says what changed since the save",
         "new and open replace the scene. They are refused when the scene has unsaved changes,\n"
         "and when another client used this Maya in the last 10 minutes. --force overrides\n"
         "both; use it only when the user asked for it.\n"
         "save without a path saves the current file; with a path it saves as .ma or .mb.\n"
-        "import adds a .ma, .mb, .fbx or .obj file to the scene.",
+        "import adds a .ma, .mb, .fbx or .obj file to the scene.\n\n"
+        "status says what changed since the scene was last opened, created or saved, in this\n"
+        "Maya or by the user in its window: nodes `added`, `deleted` and `renamed`, and\n"
+        "`changed` nodes with what changed (points, uvs, materials, translate, keys, path,\n"
+        "weights...), changed scene `settings`, and the bmaya `commands` other than reads that\n"
+        "ran since, with their client. `same` is true when nothing differs; then a set\n"
+        "`modified` flag comes from a value set back, a selection or an export.",
         examples(
+            "bmaya file status                 # what changed since the last save",
             "bmaya file save",
             "bmaya file save scenes/barrel.ma",
             "bmaya file open scenes/barrel.ma",
@@ -969,7 +998,7 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya file new",
         ),
     )
-    file.add_argument("action", choices=["new", "open", "save", "import"])
+    file.add_argument("action", choices=["new", "open", "save", "import", "status"])
     file.add_argument("path", nargs="?", default="", help="scene or model file")
     file.add_argument("--force", action="store_true", help="discard unsaved changes")
 

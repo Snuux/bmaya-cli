@@ -302,9 +302,11 @@ def test_views_maps_its_flags_and_moves_the_png(
         "section": "x=0.5",
         "light": "",
         "max_size": 1200,
+        "compare": "",
     }
     assert target.read_bytes() == PNG
     assert run(capsys, "views")[1]["got"]["names"] == ""
+    assert run(capsys, "views", "a", "--compare", "mark")[1]["got"]["compare"] == "mark"
 
 
 def test_mesh_edits_map_their_arguments(
@@ -318,7 +320,14 @@ def test_mesh_edits_map_their_arguments(
     }
     one_maya(home, make_bridge, handlers)
     assert run(capsys, "diff", "crate", "--mark")[1] == {
-        "got": {"name": "crate", "mark": True, "against": ""}
+        "got": {
+            "name": "crate",
+            "mark": True,
+            "against": "",
+            "image": False,
+            "views": "",
+            "max_size": 0,
+        }
     }
     assert run(capsys, "diff", "crate", "--against", "old")[1]["got"]["against"] == "old"
     assert run(capsys, "remesh", "rock", "--to", "quads", "--faces", "800")[1] == {
@@ -460,6 +469,28 @@ def test_skeleton_commands_refuse_flags_that_do_not_go_together(
     capsys.readouterr()
 
 
+def test_diff_draws_the_moves_or_says_why_not(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    def picture(params: dict[str, Any]) -> dict[str, Any]:
+        if params["name"] == "remeshed":
+            return {"topology_changed": True, "note": "no picture"}
+        made = tmp_path / "maya_diff.png"
+        made.write_bytes(PNG)
+        return {"path": str(made), "got": params}
+
+    one_maya(home, make_bridge, {"diff_mesh": picture})
+    target = tmp_path / "moved.png"
+    drawn = run(capsys, "diff", "crate", "-o", str(target), "--views", "front")[1]
+    assert drawn["got"]["image"] is True and drawn["got"]["views"] == "front"
+    assert target.read_bytes() == PNG and drawn["path"] == target.resolve().as_posix()
+    assert run(capsys, "diff", "remeshed", "-o", str(tmp_path / "no.png"))[1]["note"]
+    assert not (tmp_path / "no.png").exists()
+    assert main(["diff", "crate", "--views", "front"]) == commands.EXIT_USAGE
+    assert main(["diff", "crate", "--mark", "-o", str(target)]) == commands.EXIT_USAGE
+    capsys.readouterr()
+
+
 def test_topo_report_and_picture(
     home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
 ) -> None:
@@ -525,6 +556,14 @@ def test_uv_refuses_flags_that_do_not_go_together(
     bridge = one_maya(home, make_bridge, {**echo("get_uv"), **echo("bake_uv")})
     assert main(argv) == commands.EXIT_USAGE
     assert bridge.requests == []
+    capsys.readouterr()
+
+
+def test_file_status_asks_the_scene(home: Path, make_bridge: BridgeFactory, capsys: Output) -> None:
+    bridge = one_maya(home, make_bridge, echo("scene_status"))
+    assert run(capsys, "file", "status")[1] == {"got": {}}
+    assert main(["file", "status", "x.ma"]) == commands.EXIT_USAGE
+    assert [request["command"] for request in bridge.requests].count("scene_status") == 1
     capsys.readouterr()
 
 
@@ -704,6 +743,8 @@ def test_guide_and_help_cover_every_command(capsys: Output) -> None:
         assert f"bmaya {name}" in guide
     for name in ("views", "diff", "remesh", "reduce", "cleanup", "topo", "uv"):
         assert f"bmaya {name}" in guide
+    for usage in ("bmaya file status", "--compare mark", "bmaya diff crate -o"):
+        assert usage in guide
     for name in ("sessions", "use", "start", "stop"):
         assert f"bmaya {name}" in guide
 

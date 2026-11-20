@@ -30,6 +30,14 @@ Edges are left out when they would merge into a blob: past about 10000 triangles
 
 `--section x`, `y` or `z` cuts the model with a plane across that world axis, through the middle of the model or at a position (`--section y=12.5`), and adds a tile that looks at the cut from the plus side. The cut line is red. In `shaded` the cut is the camera's near clip plane.
 
+A mesh with no geometry (a skinned mesh whose Orig shape was deleted) is left out with a `note`; when nothing else is named, the error says so.
+
+## Comparing shapes
+
+`bmaya views NAME --compare OTHER -o both.png` draws, for each view, NAME, then OTHER, then both silhouettes over each other: grey where both cover, blue where only NAME does, orange where only OTHER does, the colors of their own tiles. OTHER is moved so the centers of the two boxes meet; `compare.moved` says how far, in scene units. `compare.differ` is, per view, the share of covered pixels where the two disagree: 0 for the same outline. Styles `parts`, `xray` and `silhouette`; no `--section` or `--light`.
+
+`--compare mark` compares one mesh with its `bmaya diff --mark`: the shape before and after an edit, from the same sides, each where it was (nothing is moved).
+
 ## Numbers
 
 `bmaya object NAME` gives the bounding box, the `size` along each axis and the world `pivot`.
@@ -55,6 +63,8 @@ Edges are left out when they would merge into a blob: past about 10000 triangles
 `locked_normals`, `uvs_outside_01`, `flipped_uv_faces` and `color_sets` are reported but are not issues: tiling textures, custom normals and mirrored UV shells are normal on game assets.
 
 `bmaya diff NAME --mark` remembers a mesh. After an edit, `bmaya diff NAME` gives the counts, size, surface area and volume before and after. When the topology is the same it adds `moved`, `max_move`, `mean_move` and `moved_box`, the box around the vertices that moved. `--against OTHER` compares two meshes as they are. A mark belongs to one client and lives in that Maya until it stops.
+
+`-o moved.png` (with `--views` and `--size` as in `views`) draws the mesh with each vertex colored by how far it moved: blue for not at all, through green and yellow, to red for the longest move. The legend gives half and all of `max_move` in scene units. A topology change has no picture; the `note` points to `views --compare mark`.
 
 ## Whole-mesh edits
 
