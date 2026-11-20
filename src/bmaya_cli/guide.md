@@ -10,7 +10,7 @@ Exit codes: `0` done, `1` failed, `2` bad arguments, `3` not ready. Code 3 means
 
 1. `bmaya scene` to see what exists (unit, up axis, fps, nodes). Filter with `--query` and `--type`.
 2. Act: a dedicated command if one fits, otherwise `bmaya exec`.
-3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya views NAME -o views.png` to look at a model from several sides, `bmaya anim` for keys and skeletons, `bmaya motion` for how things move, `bmaya shot -o shot.png` for the viewport. Open the PNG it names.
+3. Verify. `bmaya object NAME` for one node, `bmaya audit` for game readiness, `bmaya inspect FILE.fbx` for a file on disk, `bmaya views NAME -o views.png` to look at a model from several sides, `bmaya anim` for keys and skeletons, `bmaya motion` for how things move, `bmaya shot -o shot.png` for the viewport. Open the PNG it names.
 
 With no Maya running, the first command starts one without a window and says so in a `note:` line on stderr. If it answers with exit code 3, wait about 15 seconds and run it again. A Maya started this way is yours to stop: when the work is done, save with `bmaya file save PATH` and run `bmaya stop`.
 
@@ -44,7 +44,8 @@ bmaya exec -f build_crate.py
 - `bmaya audit [NAME ...]` instead of hand-written topology checks.
 - `bmaya views [NAME ...] -o views.png` instead of several `bmaya shot` calls with moved cameras, when the subject is a model.
 - `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` instead of moving, merging and deleting vertices one by one.
-- `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")`. Add `--selection`, `--animation`, `--start N --end N` (frame 0 works), or `--clip NAME` to bake one clip. Units are not converted; the scene unit is what the importer sees.
+- `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")` or `FBXExport`. Add `--selection`, `--animation`, `--start N --end N` (frame 0 works), or `--clip NAME` to bake one clip into a take of that name. It refuses a mesh with no faces or one that would come out inside out, then reads the written file back: check `issues` in the result before telling the user the export worked. Units are not converted; the scene unit is what the importer sees.
+- `bmaya export --game-exporter [NODE]` when the scene has Game Exporter nodes (File > Game Exporter): it exports as their Export button does, a file per clip with one take each, and checks every file the same way. `--clip NAME` for one clip, `--copy-textures` to put a model's textures next to its FBX. Use it instead of a script that drives the Game Exporter.
 - `bmaya inspect FILE.fbx` (or `.glb`, `.gltf`) reads a model file without Maya: unit, up axis, fps, meshes and their counts, skin, the skeleton with bind positions (`--axes` adds each joint's axes), takes with frame ranges, textures and whether they are found. Use it to check what an export wrote, or to read a file from the game, instead of importing it into the scene or opening Blender.
 - `bmaya file new|open|save|import [PATH]`. `new` and `open` refuse to discard unsaved work, and to replace the scene while another client works in that Maya. Never pass `--force` unless the user asked.
 - `bmaya undo [STEPS]` reverts one of your own `bmaya exec`, `remesh`, `reduce` or `cleanup` calls per step.
@@ -64,7 +65,7 @@ Building geometry is plain `bmaya exec`. What you cannot do is see the model, so
    - `bmaya views NAME -o views.png` and open it: front, right, top and a three-quarter view on one sheet, a color per mesh, edges on top, width and height written on the straight-on views.
    - `bmaya audit NAME`: counts, size, and what is wrong with the geometry.
    - `bmaya diff NAME` when the step was an edit of an existing mesh: what it changed, and whether it touched more than it should (`bmaya diff NAME --mark` first).
-4. Before export: `bmaya cleanup NAME` if the audit lists geometry issues, freeze transforms, delete history, then `bmaya audit` again.
+4. Before export: `bmaya cleanup NAME` if the audit lists geometry issues, freeze transforms, delete history, then `bmaya audit` again. After export, read `issues` in the result; `bmaya inspect FILE` shows what any file holds.
 
 Reading a `views` sheet:
 
@@ -84,7 +85,7 @@ The commands:
 - `bmaya diff NAME --mark` remembers a mesh; `bmaya diff NAME` after the edit gives counts, size, area and volume before and after, and for an unchanged topology how many vertices moved, how far, and the box they are in. `--against OTHER` compares two meshes.
 - `bmaya remesh NAME --to tris --edge 0.5` rebuilds the mesh as even triangles; `--to quads --faces 800` runs Maya's Retopologize for a quad mesh. UVs and skin weights are lost, so remesh before unwrapping and skinning.
 - `bmaya reduce NAME --tris 5000` (or `--percent 50`) lowers the triangle count and keeps the shape; `--keep-uvs`, `--keep-borders`, `--keep-hard-edges`, `--keep-quads` pin what matters.
-- `bmaya cleanup NAME` merges vertices on the same spot, removes zero-area faces, zero-length edges and lamina faces, makes the faces wind one way and turns the normals outward.
+- `bmaya cleanup NAME` merges vertices on the same spot, removes zero-area faces, zero-length edges and lamina faces, makes the faces wind one way and turns the normals outward. It also clears the opposite flag that freezing a negative scale leaves: with it Maya draws a mesh the right way that a game gets inside out.
 
 `remesh`, `reduce` and `cleanup` work on one mesh, are one undo step each (`bmaya undo`), answer with `before`, `after` and the audit `issues` that are left, and mark the mesh first. If one exits with code 3, Maya is still working: do not send it again, wait and run `bmaya diff NAME`.
 
