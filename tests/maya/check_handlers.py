@@ -2383,11 +2383,17 @@ def check_get_uv() -> str:
         slots = {entry["node"]: entry["slot"] for entry in report["textures"]["items"]}
         assert slots == {"uv_paint": "color", "uv_bumps": "normal"}, slots
         assert any("uv_bumps is read as" in issue for issue in report["issues"]), report["issues"]
-        verdicts = {Path(entry["path"]).name: entry["verdict"] for entry in report["fit"]}
+        fitted = report["fit"]["items"]
+        verdicts = {Path(entry["path"]).name: entry["verdict"] for entry in fitted}
         assert verdicts["uv_fits.png"] == "fits", report["fit"]
 
-        stale_fit = call("get_uv", name=mesh, size=256, textures=[stale])["fit"][0]
+        stale_fit = call("get_uv", name=mesh, size=256, textures=[stale])["fit"]["items"][0]
         assert stale_fit["verdict"] == "does not fit", stale_fit
+        many = call(
+            "get_uv", name=mesh, size=256, textures=[stale, fits, "a.png", "b.png", "c.png"]
+        )
+        assert many["fit"]["shown"] == 4 and many["fit"]["total"] == 5, many["fit"]
+        assert any("left out: c.png" in issue for issue in many["issues"]), many["issues"]
 
         twin = cmds.duplicate(mesh, name="uv_twin")[0]
         same = call("get_uv", name=mesh, against_mesh=twin)["against"]
@@ -2395,6 +2401,11 @@ def check_get_uv() -> str:
         cmds.polyEditUV(twin + ".map[0]", uValue=0.05)
         moved = call("get_uv", name=mesh, against_mesh=twin)["against"]
         assert moved["same"] is False and moved["moved_corners"] >= 1, moved
+        cmds.polyEditUV(twin + ".map[0]", uValue=-0.05)
+        cmds.polyTriangulate(twin, constructionHistory=False)
+        split = call("get_uv", name=mesh, against_mesh=twin)["against"]
+        assert split["same"] is None and split["unmatched_uvs"] == [0, 0], split
+        assert split["sets"] == ["map1", "map1"], split
         cmds.delete(twin)
 
         cmds.polyEditUV(mesh + ".map[4:7]", uValue=-0.195)

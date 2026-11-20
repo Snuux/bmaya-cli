@@ -73,8 +73,10 @@ class Contents(NamedTuple):
 
 
 class Layout(NamedTuple):
-    """One mesh's first UV set: the UVs, and each face's UV indices corner by corner."""
+    """One mesh's UV set: the UVs, and each face's UV indices corner by corner (an empty
+    list for a face without UVs)."""
 
     mesh: str
     uvs: list[tuple[float, float]]
     faces: list[list[int]]
+    uv_set: str = ""

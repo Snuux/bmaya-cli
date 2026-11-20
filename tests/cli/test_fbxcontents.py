@@ -243,3 +243,39 @@ def test_a_joint_under_a_null_hangs_under_the_joint_above(tmp_path: Path) -> Non
         ("hand", ""),
         ("finger", "hand"),
     ]
+
+
+def test_layout_picks_the_named_uv_set_and_empties_faces_without_uvs(tmp_path: Path) -> None:
+    from bmaya_cli.fbxcontents import read_fbx_layouts
+
+    def uv_layer(set_name: str, uvs: list[float], index: list[int]) -> N:
+        return N(
+            "LayerElementUV",
+            [0],
+            [
+                N("Name", [set_name]),
+                N("MappingInformationType", ["ByPolygonVertex"]),
+                N("UV", [Arr("d", uvs)]),
+                N("UVIndex", [Arr("i", index)]),
+            ],
+        )
+
+    mesh = geometry(12, [[0, 1, 2], [0, 2, 3]])
+    mesh.children.extend(
+        [
+            uv_layer("map1", [0.0, 0.0, 1.0, 0.0, 1.0, 1.0], [0, 1, 2, -1, -1, -1]),
+            uv_layer("light", [0.5, 0.5, 0.25, 0.25], [0, 1, 0, 1, 0, 1]),
+        ]
+    )
+    objects = [N("Model", [11, name("tri", "Model"), "Mesh"]), mesh]
+    path = tmp_path / "sets.fbx"
+    path.write_bytes(write(build(objects, [("OO", 11, 0), ("OO", 12, 11)])))
+    first = read_fbx_layouts(path)[0]
+    assert (first.uv_set, first.faces) == ("map1", [[0, 1, 2], []])
+    light = read_fbx_layouts(path, "light")[0]
+    assert (light.uv_set, light.faces, light.uvs[1]) == (
+        "light",
+        [[0, 1, 0], [1, 0, 1]],
+        (0.25, 0.25),
+    )
+    assert read_fbx_layouts(path, "nothing")[0].uv_set == "map1"

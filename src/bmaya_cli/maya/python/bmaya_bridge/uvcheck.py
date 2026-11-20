@@ -23,6 +23,7 @@ STRONG_SHARE = 0.03
 BAND = 2
 FITS = 2.5
 MISFITS = 1.5
+CROWDED_BAND = 0.5
 FEW_EDGES = 0.002
 PADDING_CAP = 16.0
 
@@ -53,16 +54,16 @@ def signed_area(corners: Sequence[UV]) -> float:
 
 
 def face_area_3d(points: Sequence[Vec]) -> float:
-    ax, ay, az = points[0]
-    total = 0.0
-    for index in range(1, len(points) - 1):
-        bx, by, bz = points[index]
-        cx, cy, cz = points[index + 1]
-        ux, uy, uz = bx - ax, by - ay, bz - az
-        vx, vy, vz = cx - ax, cy - ay, cz - az
-        nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
-        total += math.sqrt(nx * nx + ny * ny + nz * nz) / 2.0
-    return total
+    """The area of a polygon in space, concave ones too (Newell's vector area)."""
+    nx = ny = nz = 0.0
+    count = len(points)
+    for index in range(count):
+        x0, y0, z0 = points[index]
+        x1, y1, z1 = points[(index + 1) % count]
+        nx += (y0 - y1) * (z0 + z1)
+        ny += (z0 - z1) * (x0 + x1)
+        nz += (x0 - x1) * (y0 + y1)
+    return math.sqrt(nx * nx + ny * ny + nz * nz) / 2.0
 
 
 def shell_faces(face_uvs: Sequence[Sequence[int]]) -> list[list[int]]:
@@ -161,8 +162,64 @@ def fingerprint(uvs: Sequence[UV], face_uvs: Sequence[Sequence[int]]) -> str:
     return hashlib.md5(repr(flat).encode()).hexdigest()[:8]
 
 
-def triangles(corners: Sequence[int]) -> list[tuple[int, int, int]]:
-    return [(0, index, index + 1) for index in range(1, len(corners) - 1)]
+def triangles(spots: Sequence[tuple[float, float]]) -> list[tuple[int, int, int]]:
+    """A polygon's corners as triangles: a fan when it is convex, ears clipped off when it
+    is not, so no triangle covers ground outside the polygon."""
+    count = len(spots)
+    if count < 3:
+        return []
+    fan = [(0, index, index + 1) for index in range(1, count - 1)]
+    if count == 3:
+        return fan
+    turns = [
+        cross(spots[index - 1], spots[index], spots[(index + 1) % count]) for index in range(count)
+    ]
+    if all(turn >= 0.0 for turn in turns) or all(turn <= 0.0 for turn in turns):
+        return fan
+    return ears(spots)
+
+
+def cross(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def ears(spots: Sequence[tuple[float, float]]) -> list[tuple[int, int, int]]:
+    left = list(range(len(spots)))
+    turning = 1.0 if signed_area(spots) >= 0.0 else -1.0
+    out = []
+    while len(left) > 3:
+        for place in range(len(left)):
+            a, b, c = left[place - 1], left[place], left[(place + 1) % len(left)]
+            if cross(spots[a], spots[b], spots[c]) * turning <= 0.0:
+                continue
+            if any(
+                inside(spots[other], spots[a], spots[b], spots[c], turning)
+                for other in left
+                if other not in (a, b, c)
+            ):
+                continue
+            out.append((a, b, c))
+            left.pop(place)
+            break
+        else:
+            out.extend((left[0], left[k], left[k + 1]) for k in range(1, len(left) - 1))
+            return out
+    out.append((left[0], left[1], left[2]))
+    return out
+
+
+def inside(
+    p: tuple[float, float],
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+    turning: float,
+) -> bool:
+    return (
+        cross(a, b, p) * turning >= 0.0
+        and cross(b, c, p) * turning >= 0.0
+        and cross(c, a, p) * turning >= 0.0
+    )
 
 
 def to_canvas(uv: UV, size: int) -> tuple[float, float]:
@@ -175,10 +232,12 @@ def raster(
     shell_of: Sequence[int],
     size: int,
 ) -> Raster:
-    """Paints each face's texels with its index. A texel already painted by a face of another
-    shell, or by a face of the same shell that shares no UV with this one (a fold), is an
-    overlap; faces side by side may both reach a texel on their shared edge, which is not."""
+    """Paints each face's texels with its index. A texel that a second face also covers is
+    used twice: by another shell, or by a fold of the same one. Faces side by side never both
+    take a texel on their shared edge (`covered` gives it to one), so they do not count.
+    `overlap` counts texels used twice or more once."""
     owner = array("i", [-1]) * (size * size)
+    twice = bytearray(size * size)
     overlap = 0
     pairs: set[tuple[int, int]] = set()
     for face, ids in enumerate(face_uvs):
@@ -186,17 +245,16 @@ def raster(
             continue
         spots = [to_canvas(uvs[uv], size) for uv in ids]
         texels: set[int] = set()
-        for first, second, third in triangles(ids):
+        for first, second, third in triangles(spots):
             texels.update(covered(spots[first], spots[second], spots[third], size))
-        mine = set(ids)
         for texel in texels:
             other = owner[texel]
             if other == -1:
                 owner[texel] = face
                 continue
-            if shell_of[other] == shell_of[face] and mine.intersection(face_uvs[other]):
-                continue
-            overlap += 1
+            if not twice[texel]:
+                twice[texel] = 1
+                overlap += 1
             pair = (shell_of[other], shell_of[face])
             pairs.add((min(pair), max(pair)))
     return Raster(owner, overlap, pairs)
@@ -205,28 +263,47 @@ def raster(
 def covered(
     a: tuple[float, float], b: tuple[float, float], c: tuple[float, float], size: int
 ) -> list[int]:
-    """Texels whose centers lie inside the triangle (one edge rule: left-top inclusive)."""
+    """Texels whose centers lie inside the triangle. A center exactly on an edge goes to one
+    of the two triangles that share the edge, never both: the one that runs along the edge
+    downward (or leftward, for a level edge) when its corners are taken counterclockwise."""
     ax, ay = a
     bx, by = b
     cx, cy = c
     det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
     if abs(det) < 1e-12:
         return []
+    sign = 1.0 if det > 0.0 else -1.0
+    if det > 0.0:
+        own_a, own_b, own_c = owns(cx - bx, cy - by), owns(ax - cx, ay - cy), owns(bx - ax, by - ay)
+    else:
+        own_a, own_b, own_c = owns(bx - cx, by - cy), owns(cx - ax, cy - ay), owns(ax - bx, ay - by)
     x0 = max(0, int(math.floor(min(ax, bx, cx))))
     x1 = min(size - 1, int(math.ceil(max(ax, bx, cx))))
     y0 = max(0, int(math.floor(min(ay, by, cy))))
     y1 = min(size - 1, int(math.ceil(max(ay, by, cy))))
     out = []
-    inverse = 1.0 / det
     for y in range(y0, y1 + 1):
         py = y + 0.5
+        row_a = (cx - bx) * (py - by)
+        row_b = (cx - ax) * (py - ay)
+        row_c = (bx - ax) * (py - ay)
         for x in range(x0, x1 + 1):
             px = x + 0.5
-            one = ((px - ax) * (cy - ay) - (cx - ax) * (py - ay)) * inverse
-            two = ((bx - ax) * (py - ay) - (px - ax) * (by - ay)) * inverse
-            if one >= 0.0 and two >= 0.0 and one + two <= 1.0:
-                out.append(y * size + x)
+            wa = (row_a - (cy - by) * (px - bx)) * sign
+            if wa < 0.0 or (wa == 0.0 and not own_a):
+                continue
+            wb = ((px - ax) * (cy - ay) - row_b) * sign
+            if wb < 0.0 or (wb == 0.0 and not own_b):
+                continue
+            wc = (row_c - (px - ax) * (by - ay)) * sign
+            if wc < 0.0 or (wc == 0.0 and not own_c):
+                continue
+            out.append(y * size + x)
     return out
+
+
+def owns(dx: float, dy: float) -> bool:
+    return dy > 0.0 or (dy == 0.0 and dx < 0.0)
 
 
 def border_segments(face_uvs: Sequence[Sequence[int]]) -> list[tuple[int, int]]:
@@ -285,12 +362,12 @@ def padding(
     grid: dict[tuple[int, int], list[int]] = {}
     for index, (one, two) in enumerate(segments):
         (x0, y0), (x1, y1) = spots[one], spots[two]
-        for gx in range(
-            int(math.floor(min(x0, x1) / cell)), int(math.floor(max(x0, x1) / cell)) + 1
-        ):
-            for gy in range(
-                int(math.floor(min(y0, y1) / cell)), int(math.floor(max(y0, y1) / cell)) + 1
-            ):
+        low_x = int(math.floor((min(x0, x1) - cap) / cell))
+        high_x = int(math.floor((max(x0, x1) + cap) / cell))
+        low_y = int(math.floor((min(y0, y1) - cap) / cell))
+        high_y = int(math.floor((max(y0, y1) + cap) / cell))
+        for gx in range(low_x, high_x + 1):
+            for gy in range(low_y, high_y + 1):
                 grid.setdefault((gx, gy), []).append(index)
     between = None
     seen: set[tuple[int, int]] = set()
@@ -312,6 +389,8 @@ def padding(
     edge = None
     for one, two in segments:
         for x, y in (spots[one], spots[two]):
+            if not (0.0 <= x <= size and 0.0 <= y <= size):
+                continue
             gap = min(x, y, size - x, size - y)
             if gap <= cap and (edge is None or gap < edge):
                 edge = gap
@@ -393,9 +472,12 @@ def texture_fit(gray: Sequence[float], size: int, band: bytearray) -> Fit:
         return Fit(None, "unclear", round(edges, 4))
     on = sum(1 for index in strong if band[index]) / float(len(strong))
     lift = on / share
-    if lift >= FITS:
+    if share > CROWDED_BAND:
+        return Fit(lift, "unclear", round(edges, 4))
+    most = 1.0 / share - 1.0
+    if lift >= min(FITS, 1.0 + 0.5 * most):
         verdict = "fits"
-    elif lift <= MISFITS:
+    elif lift <= min(MISFITS, 1.0 + 0.25 * most):
         verdict = "does not fit"
     else:
         verdict = "unclear"
@@ -431,7 +513,7 @@ def bake(
         spots = [to_canvas(uvs[uv], size) for uv in ids]
         corners = [points[point] for point in face_points[face]]
         turns = [normals[index] for index in face_normals[face]]
-        for first, second, third in triangles(ids):
+        for first, second, third in triangles(spots):
             (ax, ay), (bx, by), (cx, cy) = spots[first], spots[second], spots[third]
             det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
             if abs(det) < 1e-12:
@@ -475,3 +557,33 @@ def npy_bytes(values: array, shape: tuple[int, ...]) -> bytes:
         swapped.byteswap()
         raw = swapped.tobytes()
     return b"\x93NUMPY\x01\x00" + struct.pack("<H", len(head)) + head + raw
+
+
+def unmatched(
+    first: Sequence[tuple[float, float]],
+    second: Sequence[tuple[float, float]],
+    tolerance: float = 1e-4,
+) -> int:
+    """How many UVs of `first` have no UV of `second` within `tolerance`: the layouts
+    compared by position alone, for faces split another way (a triangulated export)."""
+    cells: dict[tuple[int, int], list[tuple[float, float]]] = {}
+    for u, v in second:
+        cells.setdefault((math.floor(u / tolerance), math.floor(v / tolerance)), []).append((u, v))
+    missing = 0
+    for u, v in first:
+        cu = math.floor(u / tolerance)
+        cv = math.floor(v / tolerance)
+        near = False
+        for du in (-1, 0, 1):
+            for dv in (-1, 0, 1):
+                for ou, ov in cells.get((cu + du, cv + dv), ()):
+                    if abs(ou - u) <= tolerance and abs(ov - v) <= tolerance:
+                        near = True
+                        break
+                if near:
+                    break
+            if near:
+                break
+        if not near:
+            missing += 1
+    return missing

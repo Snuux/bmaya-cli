@@ -379,6 +379,7 @@ class Mark(NamedTuple):
     tris: int
     uv_set: str
     corners: list[tuple[float, float] | None]
+    unit_cm: float
 
 
 MARKS: dict[tuple[str, str], Mark] = {}
@@ -432,7 +433,17 @@ def read_mark(shape: str) -> Mark:
         int(sum(tri_counts)),
         uv_set,
         corner_uvs(mesh, uv_set),
+        cm_per_unit(),
     )
+
+
+def in_current_unit(mark: Mark) -> Mark:
+    """A mark read before the scene's unit changed, in the unit it has now."""
+    factor = mark.unit_cm / cm_per_unit()
+    if abs(factor - 1.0) < 1e-12:
+        return mark
+    points = [(x * factor, y * factor, z * factor) for x, y, z in mark.points]
+    return mark._replace(points=points, unit_cm=cm_per_unit())
 
 
 def uv_moves(before: Mark, after: Mark) -> dict[str, Any]:
@@ -532,7 +543,7 @@ def diff_mesh(params: dict[str, Any]) -> dict[str, Any]:
                 hint=f"Take one before the edit: bmaya diff {name} --mark. To compare two "
                 f"meshes as they are: bmaya diff {name} --against OTHER.",
             )
-        before = found
+        before = in_current_unit(found)
     result = {"name": after.name, "against": before.name if against else "mark"}
     result.update(compare_marks(before, after))
     return result

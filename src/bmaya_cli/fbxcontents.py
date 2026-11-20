@@ -427,8 +427,24 @@ def read_fbx(path: str | Path) -> Contents:
     )
 
 
-def read_fbx_layouts(path: str | Path) -> list[Layout]:
-    """The first UV set of every mesh, corner by corner as the polygons list them."""
+def layout_faces(indices: list[int], lookup: list[int] | None, by_vertex: bool) -> list[list[int]]:
+    """Each polygon's UV indices corner by corner. The exporter writes UV index -1 for the
+    corners of a face without UVs; such a face gets an empty list, as Maya reports it."""
+    faces: list[list[int]] = []
+    corners: list[int] = []
+    for corner, vertex in enumerate(indices):
+        point = vertex if vertex >= 0 else -vertex - 1
+        spot = point if by_vertex else corner
+        corners.append(lookup[spot] if lookup is not None else spot)
+        if vertex < 0:
+            faces.append([] if min(corners) < 0 else corners)
+            corners = []
+    return faces
+
+
+def read_fbx_layouts(path: str | Path, uv_set: str = "") -> list[Layout]:
+    """The UV set named `uv_set` of every mesh, or its first, corner by corner as the
+    polygons list them."""
     scene = Scene(fbxfile.parse(Path(path).read_bytes()))
     out = []
     for key, model in scene.of("Model", "Mesh"):
@@ -440,21 +456,20 @@ def read_fbx_layouts(path: str | Path) -> list[Layout]:
         indices = array_of(geometry, "PolygonVertexIndex")
         if not layers or indices is None:
             continue
-        values = array_of(layers[0], "UV")
+        names = [layer_name(layer) for layer in layers]
+        layer = layers[names.index(uv_set)] if uv_set in names else layers[0]
+        values = array_of(layer, "UV")
         flat = values.values() if values is not None else []
         uvs = [(flat[k], flat[k + 1]) for k in range(0, len(flat) - 1, 2)]
-        mapping = child(layers[0], "MappingInformationType")
-        by_vertex = mapping is not None and mapping.props and str(mapping.props[0]) == "ByVertice"
-        uv_index = array_of(layers[0], "UVIndex")
+        mapping = child(layer, "MappingInformationType")
+        by_vertex = bool(mapping and mapping.props and str(mapping.props[0]) == "ByVertice")
+        uv_index = array_of(layer, "UVIndex")
         lookup = uv_index.values() if uv_index is not None else None
-        faces: list[list[int]] = []
-        corners: list[int] = []
-        for corner, vertex in enumerate(indices.values()):
-            point = vertex if vertex >= 0 else -vertex - 1
-            spot = point if by_vertex else corner
-            corners.append(lookup[spot] if lookup is not None else spot)
-            if vertex < 0:
-                faces.append(corners)
-                corners = []
-        out.append(Layout(name_of(model), uvs, faces))
+        faces = layout_faces(indices.values(), lookup, by_vertex)
+        out.append(Layout(name_of(model), uvs, faces, layer_name(layer)))
     return out
+
+
+def layer_name(layer: Node) -> str:
+    name = child(layer, "Name")
+    return str(name.props[0]) if name is not None and name.props else ""

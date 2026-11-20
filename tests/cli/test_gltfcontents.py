@@ -176,3 +176,15 @@ def test_layout_turns_v_over_and_lists_triangles(tmp_path: Path) -> None:
     assert layout.mesh == "card"
     assert layout.faces == [[0, 1, 2], [2, 1, 3]]
     assert layout.uvs[0] == (0.0, 1.0) and layout.uvs[3] == (1.0, 0.0)
+
+
+def test_layout_leaves_out_a_mesh_without_uvs(tmp_path: Path) -> None:
+    from bmaya_cli.gltfcontents import read_gltf_layouts
+
+    doc, data = model()
+    for mesh in doc["meshes"]:
+        for primitive in mesh["primitives"]:
+            primitive["attributes"].pop("TEXCOORD_0", None)
+    path = tmp_path / "bare.glb"
+    path.write_bytes(glb(doc, data))
+    assert read_gltf_layouts(path) == []

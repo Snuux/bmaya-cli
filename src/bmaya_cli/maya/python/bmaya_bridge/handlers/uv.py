@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import glob
 import math
 import os
+import re
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import maya.api.OpenMaya as om
@@ -31,6 +33,10 @@ TEXTURES_SHOWN = 10
 WORST_SHOWN = 10
 FIT_SIZE = 1024
 FITS_MOST = 4
+MOST_FACES = 250_000
+BAKE_MOST = 2048
+IMAGE_MEGABYTES = 4096
+TILE_TOKENS = re.compile(r"<udim>|<uvtile>|<u>|<v>|<f>|u<u>_v<v>", re.IGNORECASE)
 DEFAULT_SIZE = 1024
 SHEET = 1600
 STRETCH_LIMIT = 2.0
@@ -91,8 +97,11 @@ def read_layout(shape: str, uv_set: str, points_from: om.MObject | None = None) 
 
 
 def file_nodes(shape: str) -> list[dict[str, Any]]:
-    """The file textures of the mesh's materials, with the slot each one feeds."""
-    engines = cmds.listConnections(shape, type="shadingEngine") or []
+    """The file textures of the materials on this instance of the mesh, with the slot each
+    one feeds."""
+    path = dag_path(shape)
+    sets, _ = om.MFnMesh(path).getConnectedShaders(path.instanceNumber())
+    engines = [om.MFnDependencyNode(sets[index]).name() for index in range(len(sets))]
     found: dict[str, dict[str, Any]] = {}
     for engine in dict.fromkeys(engines):
         shaders = cmds.listConnections(engine + ".surfaceShader", source=True) or []
@@ -113,8 +122,14 @@ def texture_entry(node: str, shader: str) -> dict[str, Any]:
         "slot": slot,
         "found": bool(path) and os.path.isfile(path),
     }
-    if entry["found"]:
-        size = qt_gui().QImageReader(path).size()
+    first = path if entry["found"] else ""
+    if path and (cmds.getAttr(node + ".uvTilingMode") or TILE_TOKENS.search(path)):
+        tiles = sorted(glob.glob(TILE_TOKENS.sub("*", path)))
+        entry["tiles"] = len(tiles)
+        entry["found"] = bool(tiles)
+        first = tiles[0] if tiles else ""
+    if first:
+        size = qt_gui().QImageReader(first).size()
         if size.width() > 0:
             entry["size"] = [size.width(), size.height()]
     entry["color_space"] = cmds.getAttr(node + ".colorSpace")
@@ -129,19 +144,32 @@ def slot_of(node: str, shader: str) -> str:
             return "color" if attr in COLOR_SLOTS else attr
         if cmds.nodeType(owner) in ("bump2d", "aiNormalMap"):
             return "normal"
-    for attr in NORMAL_SLOTS:
-        if cmds.objExists(f"{shader}.{attr}") and cmds.listConnections(f"{shader}.{attr}"):
-            history = cmds.listHistory(f"{shader}.{attr}") or []
-            if node in history:
-                return "normal"
+    for slots, slot in ((NORMAL_SLOTS, "normal"), (COLOR_SLOTS, "color")):
+        for attr in slots:
+            plug = f"{shader}.{attr}"
+            if cmds.objExists(plug) and cmds.listConnections(plug, source=True, destination=False):
+                if node in (cmds.listHistory(plug) or []):
+                    return slot
     return "other"
+
+
+def read_image(path: str) -> QImage:
+    """The image at full size. Qt refuses images over 256 MB unpacked (an 8K 16-bit PNG), so
+    the limit is raised while it reads."""
+    reader = qt_gui().QImageReader
+    limit = reader.allocationLimit()
+    reader.setAllocationLimit(IMAGE_MEGABYTES)
+    try:
+        return qt_gui().QImage(path)
+    finally:
+        reader.setAllocationLimit(limit)
 
 
 def gray_pixels(path: str, size: int) -> list[float] | None:
     """The image as gray values, scaled to `size` by `size`; None when it cannot be read."""
     gui = qt_gui()
     core = qt_core()
-    image = gui.QImage(path)
+    image = read_image(path)
     if image.isNull():
         return None
     image = image.scaled(size, size, core.Qt.IgnoreAspectRatio, core.Qt.SmoothTransformation)
@@ -208,11 +236,14 @@ def stretch_report(layout: Layout) -> dict[str, Any]:
 
 
 def compare_layout(layout: Layout, other: dict[str, Any]) -> dict[str, Any]:
-    """The layout against another one: same faces, same UVs, how far they moved."""
+    """The layout against another one: same faces, same UVs, how far they moved. When the
+    faces have other corner counts (a triangulated export) the UVs are matched by position
+    alone and `same` stays null."""
     theirs_uvs = [(float(u), float(v)) for u, v in other["uvs"]]
     theirs_faces = [list(face) for face in other["faces"]]
     out: dict[str, Any] = {
         "name": other.get("name", ""),
+        "sets": [layout.uv_set, other.get("set", "")],
         "faces": [len(layout.face_uvs), len(theirs_faces)],
         "uvs": [len(layout.uvs), len(theirs_uvs)],
         "uv_area": [
@@ -224,8 +255,14 @@ def compare_layout(layout: Layout, other: dict[str, Any]) -> dict[str, Any]:
         uvcheck.fingerprint(layout.uvs, layout.face_uvs),
         uvcheck.fingerprint(theirs_uvs, theirs_faces),
     ]
-    out["same"] = False
-    if [len(f) for f in layout.face_uvs] == [len(f) for f in theirs_faces]:
+    if [len(f) for f in layout.face_uvs] != [len(f) for f in theirs_faces]:
+        out["same"] = None
+        out["corners"] = "not compared: the faces have other corner counts (triangulated?)"
+        out["unmatched_uvs"] = [
+            uvcheck.unmatched(layout.uvs, theirs_uvs),
+            uvcheck.unmatched(theirs_uvs, layout.uvs),
+        ]
+    else:
         moved = 0
         worst = 0.0
         for face, ids in enumerate(layout.face_uvs):
@@ -258,7 +295,7 @@ def layout_tile(
     try:
         painter.setRenderHint(gui.QPainter.Antialiasing)
         if texture:
-            picture = gui.QImage(texture)
+            picture = read_image(texture)
             if not picture.isNull():
                 painter.drawImage(core.QRectF(0, 0, tile, tile), picture)
         for index, shell in enumerate(found):
@@ -299,8 +336,10 @@ def overlap_faces(raster: uvcheck.Raster, layout: Layout, size: int) -> set[int]
     owner = array_owner(layout, size)
     for face, texels in owner.items():
         for texel in texels:
-            if raster.owner[texel] != face and raster.owner[texel] >= 0:
+            first = raster.owner[texel]
+            if first != face and first >= 0:
                 faces.add(face)
+                faces.add(first)
                 break
     return faces
 
@@ -312,7 +351,7 @@ def array_owner(layout: Layout, size: int) -> dict[int, list[int]]:
             continue
         spots = [uvcheck.to_canvas(layout.uvs[uv], size) for uv in ids]
         texels: list[int] = []
-        for first, second, third in uvcheck.triangles(ids):
+        for first, second, third in uvcheck.triangles(spots):
             texels.extend(uvcheck.covered(spots[first], spots[second], spots[third], size))
         out[face] = texels
     return out
@@ -323,6 +362,13 @@ def get_uv(params: dict[str, Any]) -> dict[str, Any]:
     shape = single_mesh(name)
     uv_set = pick_set(shape, text_param(params, "uv_set"))
     names, current = uv_sets(shape)
+    faces = om.MFnMesh(dag_path(shape)).numPolygons
+    if faces > MOST_FACES:
+        raise BridgeError(
+            f"{faces} faces are more than a UV report reads in time ({MOST_FACES} at most).",
+            hint="Check the game mesh or a lower level of detail, or reduce a copy: "
+            f"bmaya reduce COPY --tris {MOST_FACES}.",
+        )
     layout = read_layout(shape, uv_set)
     textures = file_nodes(shape)
     given = [path for path in (params.get("textures") or []) if path]
@@ -403,11 +449,18 @@ def get_uv(params: dict[str, Any]) -> dict[str, Any]:
         if entry["path"] and not entry["found"]:
             issues.append(f"texture {entry['node']} not found: {entry['path']}")
     fits = []
-    wanted = given + [
-        entry["path"] for entry in textures if entry["slot"] == "color" and entry["found"]
-    ]
+    wanted = list(
+        dict.fromkeys(
+            given
+            + [
+                entry["path"]
+                for entry in textures
+                if entry["slot"] == "color" and entry["found"] and "tiles" not in entry
+            ]
+        )
+    )
     band = qt_band(layout, FIT_SIZE) if wanted else bytearray()
-    for path in list(dict.fromkeys(wanted))[:FITS_MOST]:
+    for path in wanted[:FITS_MOST]:
         gray = gray_pixels(path, FIT_SIZE)
         if gray is None:
             fits.append({"path": path, "verdict": "unreadable"})
@@ -416,7 +469,7 @@ def get_uv(params: dict[str, Any]) -> dict[str, Any]:
         entry = {
             "path": path,
             "verdict": fit.verdict,
-            "lift": rnd(fit.lift, 2) if fit.lift else None,
+            "lift": rnd(fit.lift, 2) if fit.lift is not None else None,
         }
         fits.append(entry)
         if fit.verdict == "does not fit":
@@ -425,17 +478,24 @@ def get_uv(params: dict[str, Any]) -> dict[str, Any]:
                 "it looks painted for another UV layout"
             )
     if fits:
-        result["fit"] = fits
+        result["fit"] = {"items": fits, "shown": len(fits), "total": len(wanted)}
+    if len(wanted) > FITS_MOST:
+        issues.append(
+            f"fit checked {FITS_MOST} of {len(wanted)} textures; left out: "
+            + ", ".join(os.path.basename(path) for path in wanted[FITS_MOST:])
+        )
     against = params.get("against")
     if isinstance(against, dict) and against.get("faces") is not None:
         result["against"] = compare_layout(layout, against)
     elif text_param(params, "against_mesh"):
         other_shape = single_mesh(text_param(params, "against_mesh"))
-        other = read_layout(other_shape, pick_set(other_shape, ""))
+        same_set = uv_set if uv_set in uv_sets(other_shape)[0] else ""
+        other = read_layout(other_shape, pick_set(other_shape, same_set))
         result["against"] = compare_layout(
             layout,
             {
                 "name": display_name(transform_of(other_shape)),
+                "set": other.uv_set,
                 "uvs": other.uvs,
                 "faces": other.face_uvs,
             },
@@ -463,7 +523,7 @@ def draw(
     tile = longest // columns
     overlaps = overlap_faces(raster, layout, int(math.sqrt(len(raster.owner))))
     tiles = []
-    fits = {entry["path"]: entry for entry in result.get("fit", [])}
+    fits = {entry["path"]: entry for entry in result.get("fit", {}).get("items", [])}
     for path in pictures or [""]:
         label = os.path.basename(path) if path else f"{result['name']} {layout.uv_set}"
         if path in fits and fits[path].get("lift") is not None:
@@ -489,7 +549,7 @@ def bake_uv(params: dict[str, Any]) -> dict[str, Any]:
             f"Unknown map '{unknown[0] if unknown else ''}'.",
             hint="--bake takes position, normal or both: --bake position,normal.",
         )
-    size = int_param(params, "size", 2048, 16, 4096)
+    size = int_param(params, "size", BAKE_MOST, 16, BAKE_MOST)
     shape = single_mesh(name)
     uv_set = pick_set(shape, text_param(params, "uv_set"))
     pose = text_param(params, "pose") or "bind"
@@ -500,6 +560,16 @@ def bake_uv(params: dict[str, Any]) -> dict[str, Any]:
         source = fn.inputShapeAtIndex(fn.indexForOutputShape(dag_path(shape).node()))
     elif pose not in ("bind", "current"):
         raise BridgeError(f"Bad --pose '{pose}'.", hint="--pose bind (default) or current.")
+    if source is not None:
+        shown = om.MFnMesh(dag_path(shape))
+        bound = om.MFnMesh(source)
+        if (shown.numVertices, shown.numPolygons) != (bound.numVertices, bound.numPolygons):
+            raise BridgeError(
+                "The mesh's faces changed after it was skinned, so its bind pose does not "
+                "line up with its UVs.",
+                hint=f"Bake the pose it has now: bmaya uv {name} --bake position --pose current "
+                "-o maps.",
+            )
     layout = read_layout(shape, uv_set, source)
     mesh = om.MFnMesh(source if source is not None else dag_path(shape))
     normals = [(n.x, n.y, n.z) for n in mesh.getNormals()]

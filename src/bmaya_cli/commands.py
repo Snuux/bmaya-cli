@@ -257,13 +257,13 @@ def cmd_topo(args: argparse.Namespace) -> int:
 MODEL_SUFFIXES = (".fbx", ".glb", ".gltf")
 
 
-def file_layout(path: str, mesh: str) -> dict[str, Any]:
+def file_layout(path: str, mesh: str, uv_set: str) -> dict[str, Any]:
     """The UV layout of a mesh in a model file, read here where the readers live."""
     from bmaya_cli.contents import ModelFileError
     from bmaya_cli.modelfile import read_layout
 
     try:
-        return read_layout(absolute(path), mesh)
+        return read_layout(absolute(path), mesh, uv_set)
     except ModelFileError as error:
         raise CommandFailed(error.message, error.hint) from error
 
@@ -300,7 +300,7 @@ def cmd_uv(args: argparse.Namespace) -> int:
     }
     if args.against:
         if args.against.lower().endswith(MODEL_SUFFIXES):
-            params["against"] = file_layout(args.against, args.name)
+            params["against"] = file_layout(args.against, args.name, args.uv_set)
         else:
             params["against_mesh"] = args.against
     if not args.output:

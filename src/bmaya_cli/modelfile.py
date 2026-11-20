@@ -34,12 +34,14 @@ def read(path: str | Path) -> Contents:
     raise ModelFileError(f"Not a model file this command reads: {file.name}", f"It reads {READS}.")
 
 
-def read_layout(path: str | Path, mesh: str) -> dict[str, Any]:
-    """The UV layout of the mesh named `mesh` in a model file, or of its only mesh."""
+def read_layout(path: str | Path, mesh: str, uv_set: str = "") -> dict[str, Any]:
+    """The UV layout of the mesh named `mesh` in a model file, or of its only mesh: the UV
+    set named `uv_set` when an FBX has one, else the first. The UVs go out unrounded: the
+    bridge's hash rounds them, and rounding twice moves values that sit near a tie."""
     file = Path(path)
     contents = read(file)
     if contents.format == "fbx":
-        layouts = read_fbx_layouts(file)
+        layouts = read_fbx_layouts(file, uv_set)
     else:
         layouts = read_gltf_layouts(file)
     if not layouts:
@@ -60,7 +62,8 @@ def read_layout(path: str | Path, mesh: str) -> dict[str, Any]:
     return {
         "path": file.as_posix(),
         "name": leaf(layout.mesh),
-        "uvs": [[round(u, 6), round(v, 6)] for u, v in layout.uvs],
+        "set": layout.uv_set,
+        "uvs": [[u, v] for u, v in layout.uvs],
         "faces": layout.faces,
     }
 

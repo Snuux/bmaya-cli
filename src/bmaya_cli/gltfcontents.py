@@ -394,6 +394,8 @@ def read_gltf_layouts(path: str | Path) -> list[Layout]:
                 faces.append(
                     [base + order[start], base + order[start + 1], base + order[start + 2]]
                 )
+        if not faces:
+            continue
         name = node.get("name") or mesh.get("name") or f"node{index}"
-        out.append(Layout(name, uvs, faces))
+        out.append(Layout(name, uvs, faces, "TEXCOORD_0"))
     return out

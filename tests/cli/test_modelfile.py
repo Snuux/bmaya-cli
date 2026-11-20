@@ -123,3 +123,13 @@ def test_read_layout_takes_the_only_mesh_whatever_its_name() -> None:
 
     layout = read_layout(FIXTURES / "walker.fbx", "crate")
     assert layout["name"] != "crate" and layout["faces"]
+
+
+def test_read_layout_sends_the_uvs_unrounded_with_the_set_name() -> None:
+    from bmaya_cli.fbxcontents import read_fbx_layouts
+    from bmaya_cli.modelfile import read_layout
+
+    layout = read_layout(FIXTURES / "crate.fbx", "crate")
+    raw = read_fbx_layouts(FIXTURES / "crate.fbx")[0]
+    assert layout["set"] == "map1"
+    assert layout["uvs"] == [[u, v] for u, v in raw.uvs]
