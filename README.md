@@ -35,7 +35,7 @@ That is enough for a Maya without a window. To also use a Maya you open yourself
 bmaya install
 ```
 
-For `.glb` and `.gltf` export and import, also run `bmaya install --gltf`. It adds the optional [maya-glb-io](docs/export.md#gltf) library; everything else works without it.
+For `.glb` and `.gltf` export and import, also run `bmaya install --gltf`. It adds the optional [maya-glb-io](docs/export.md#gltf) library; everything else works without it. `bmaya install --draco` also adds the decoder for Draco-compressed files.
 
 `bmaya doctor` checks the result. To update: `git pull`, `uv tool install --reinstall ./bmaya-cli`, `bmaya install`, restart Maya.
 

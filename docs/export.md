@@ -58,7 +58,7 @@ Maya's FBX plugin keeps baking at the frame rate of an earlier export in the sam
 
 ## glTF
 
-`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. It is a fork of [annomodtutorials/maya-glb-io](https://github.com/annomodtutorials/maya-glb-io) (MIT) with fixes for skinned export, units and constraint-driven animation.
+`bmaya export FILE.glb` or `FILE.gltf` writes glTF 2.0 through [maya-glb-io](https://github.com/Snuux/maya-glb-io), an optional pure-Python library. It is a fork of [annomodtutorials/maya-glb-io](https://github.com/annomodtutorials/maya-glb-io) (MIT) with fixes for skinned export, units and constraint-driven animation, names kept across import and export, skinned Draco meshes and key reduction.
 
 The library is not installed with bmaya. Install it once:
 
@@ -68,7 +68,15 @@ bmaya install --gltf
 
 That downloads the release bmaya pins, checks its SHA-256 and installs it as the Maya module `maya_glb_io`, next to the bmaya module. It installs only the library: `bmaya install` is still what copies the bridge into a Maya you open yourself. Everything but glTF works without it; `.glb` and `.gltf` export and import stop with a hint to run this command. `bmaya doctor` says whether the library is there and whether it is the pinned release. After updating bmaya, run `bmaya install --gltf` again if `doctor` reports an older one, then restart Maya: a running Maya keeps the version it loaded. `bmaya uninstall --gltf` removes it.
 
-bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install`.
+Files compressed with Draco (common on Sketchfab and in web exports) need a decoder, the compiled [DracoPy](https://pypi.org/project/DracoPy/) wheel:
+
+```bash
+bmaya install --draco
+```
+
+That does what `--gltf` does and then has Maya's own Python `pip install` the decoder into the module's `draco` folder, one subfolder per Python version, so nothing lands in Maya's site-packages and `bmaya uninstall --gltf` takes it away too. It needs a Maya installation (`BMAYA_MAYA` picks one) and PyPI. A later `bmaya install --gltf` keeps the decoder. Without it, importing a Draco file stops with a hint to run this command; `bmaya doctor` says whether it is there. A running Maya picks the decoder up without a restart.
+
+bmaya imports the package directly and never loads its plug-in, which would add a menu and check GitHub for updates. It also sets `MAYA_GLB_IO_OFFLINE=1`, so a Draco file never starts a `pip install` on its own.
 
 | | glTF |
 |---|---|
@@ -76,11 +84,13 @@ bmaya imports the package directly and never loads its plug-in, which would add 
 | Unit | Metres, whatever the scene unit. |
 | Textures | Embedded in `.glb`; copied next to `.gltf` and referenced by name. |
 | Skins, morph targets | Written. |
-| Animation | Every exported node sampled at each whole frame from its matrix, so keys, constraints, IK and expressions all count. Only channels that move, or hold away from the rest pose, are written. |
+| Animation | Every exported node sampled at each whole frame from its matrix, so keys, constraints, IK and expressions all count. Only channels that move, or hold away from the rest pose, are written, and only the keys a player could not interpolate: a hold or an even move is two keys (within 0.01 mm and 0.01 degrees). Interpolation is linear; Maya's tangents are followed by the samples, not written. |
+| Names | A node, material or morph target that came from a glTF with a name Maya cannot hold (`Bone.001`, `mixamorig:Hips`, `Left Arm`, non-ASCII) is written under that name again, as long as it still has the Maya name the import gave it. `expected` and `bones --against FILE.glb` use the same names. |
+| Missing textures | A texture file that is not on disk is left out and named in `issues`. |
 | Constraints, IK handles, effectors | Not written as nodes. |
 
 `--animation` writes one animation named after the file, `--clip NAME` one named after the clip, and `--clips` one animation per clip of the scene (Game Exporter rows that export, and bookmarks), ordered by first frame. Two clips with one name and different ranges stop the export: an engine finds animations by name.
 
 The same checks run before writing, and the file is read back after: `written` and `issues` mean what they mean for FBX. `--preset` and `--copy-textures` do not apply.
 
-`bmaya file import FILE.glb` goes through the same library, inside one undo step. The file's node transforms are kept (no drop to the floor, no freeze). Embedded images are written to the project's `sourceimages` folder. Maya has one timeline: animations that do not overlap in time (a file exported from one timeline, like `--clips` writes) keep their frames; overlapping ones (most files: each starts at 0) are laid out one after another in file order, 10 frames apart, on whole frames. Each gets a time slider bookmark with its name, so `bmaya clip` lists it and `bmaya export --clip NAME` finds it; the result's `clips` lists them, and the animation range grows to hold them.
+`bmaya file import FILE.glb` goes through the same library, inside one undo step. The file's node transforms are kept (no drop to the floor, no freeze). Embedded images are written to the project's `sourceimages` folder; a texture file missing next to a `.gltf` is a warning in the Script Editor, not an error. A name Maya cannot hold is changed (`Bone.001` becomes `Bone_001`) and kept on the node in the `gltfName` attribute for the next export. Draco-compressed meshes come in with their skin once the decoder is installed. Animation with CUBICSPLINE interpolation keeps its tangents for translation, scale and morph weights; its rotation is keyed on every frame. Maya has one timeline: animations that do not overlap in time (a file exported from one timeline, like `--clips` writes) keep their frames; overlapping ones (most files: each starts at 0) are laid out one after another in file order, 10 frames apart, on whole frames. Each gets a time slider bookmark with its name, so `bmaya clip` lists it and `bmaya export --clip NAME` finds it; the result's `clips` lists them, and the animation range grows to hold them.

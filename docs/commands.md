@@ -29,7 +29,7 @@ Every command of `bmaya`. `bmaya COMMAND --help` explains each one with examples
 | `bmaya rig [ROOT]` | A rig's controls: keyable and driven attributes, values, limits, rotate order, keys, IK handles, constraints, ik/fk switches, character sets. |
 | `bmaya motion [NAME ...] [--frames 0:30\|--clip NAME] [--loop] [--contacts A,B] [--values] [--attrs A,B]` | Checks motion frame by frame: pops, flips, foot slide, sinking, loop seam, Euler jumps, keys off frames or outside clips. Reports measurements, and values per frame on request. |
 | `bmaya export FILE.fbx [--preset unity\|unreal\|godot] [--selection] [--animation] [--clip NAME]` | FBX export with an engine preset. `--clip` bakes one clip's frames into its own take. Meshes that would come out empty or inside out stop it; the written file is read back and what it lacks is listed in `issues`. |
-| `bmaya export FILE.glb\|FILE.gltf [--selection] [--animation] [--clip NAME] [--clips]` | glTF export through [maya-glb-io](https://github.com/Snuux/maya-glb-io) (optional, `bmaya install --gltf`): Y-up, metres, skin, morphs, every moving node sampled per frame. `--clips` puts every clip in the one file as a named animation. Read back and checked like FBX. |
+| `bmaya export FILE.glb\|FILE.gltf [--selection] [--animation] [--clip NAME] [--clips]` | glTF export through [maya-glb-io](https://github.com/Snuux/maya-glb-io) (optional, `bmaya install --gltf`): Y-up, metres, skin, morphs, every moving node sampled per frame, redundant keys left out, glTF names of imported nodes written back. `--clips` puts every clip in the one file as a named animation. Read back and checked like FBX. |
 | `bmaya export --game-exporter [NODE] [--clip NAME] [--copy-textures]` | Exports the way the scene's Game Exporter nodes are set up: their paths, sets and presets, a file per clip with one take each, every file checked. |
 | `bmaya inspect FILE [--axes] [--limit N]` | Reads an FBX, GLB or glTF file without Maya: unit, up axis, fps, meshes with counts, UV sets, materials and skin, the skeleton with bind positions, takes with frame ranges, textures and whether they are found. |
 | `bmaya file new\|open\|save\|import [PATH] [--force]` | Scene files. |
@@ -38,7 +38,7 @@ Every command of `bmaya`. `bmaya COMMAND --help` explains each one with examples
 | `bmaya sessions`, `bmaya use ID` | Lists the running Mayas, picks the one to talk to. |
 | `bmaya start [--gui] [--scene FILE]`, `bmaya stop [ID]` | Starts a Maya, stops one that runs without a window. |
 | `bmaya guide` | Prints the manual for agents: working loop, Blender-to-Maya map, recipes. |
-| `bmaya install`, `uninstall`, `doctor`, `logs`, `demo` | Maya module, health check, command journal, demo. `install --gltf` adds the glTF library. |
+| `bmaya install`, `uninstall`, `doctor`, `logs`, `demo` | Maya module, health check, command journal, demo. `install --gltf` adds the glTF library, `install --draco` also its Draco decoder. |
 
 ## Output and exit codes
 
