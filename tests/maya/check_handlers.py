@@ -584,9 +584,20 @@ def check_get_model_views() -> str:
         expect_error("get_model_views", "inside that span", names=names, section="x=5")
         expect_error("get_model_views", "--style shaded", names=names, light="soft")
         expect_error("get_model_views", "bmaya scene", names="missing_mesh")
+
+        cmds.currentUnit(linear="m")
+        try:
+            big = cmds.polyCube(name="views_metres", width=2, height=2, depth=2)[0]
+            metric = call("get_model_views", names=big, views="front", section="x=0.5")
+            assert metric["size"] == [2, 2, 2] and metric["section"]["at"] == 0.5, metric
+            assert color_count(metric["path"], (31, 119, 180), 60) > 0.05 * metric["width"] ** 2
+            Path(metric["path"]).unlink()
+            cmds.delete(big)
+        finally:
+            cmds.currentUnit(linear="cm")
     finally:
         cmds.delete(outer, inner, dense)
-    return "parts, silhouette, section, xray, dense mesh without edges, shaded ok"
+    return "parts, silhouette, section, xray, dense mesh without edges, shaded, metres ok"
 
 
 def check_weight_views() -> str:
@@ -2263,6 +2274,12 @@ def check_get_topology() -> str:
         loose = call("get_topology", name=first, gap=3.5)["tubes"]["items"][0]
         assert [len(run) for run in loose["runs"]] == [7], loose
         expect_error("get_topology", "below 1", name=first, gap=0.5)
+        cmds.currentUnit(linear="m")
+        try:
+            metric = call("get_topology", name=first)["tubes"]["items"][0]
+            assert [joint["at"][1] for joint in metric["joints"]] == [0.0025, 0.0135], metric
+        finally:
+            cmds.currentUnit(linear="cm")
 
         picture = assert_read_only("get_topology", name=first, image=True, views="front")
         assert picture["views"] == ["front"] and picture["width"] > 0, picture

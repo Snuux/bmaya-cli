@@ -9,6 +9,7 @@ from bmaya_bridge import softrender, topology
 from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
+    cm_per_unit,
     display_name,
     float_param,
     int_param,
@@ -32,14 +33,24 @@ NO_LOOPS_HINT = (
 
 
 def mesh_data(shape: str) -> tuple[list[topology.Vec], list[list[int]]]:
+    """World points in centimeters, as the API gives them, and faces."""
     mesh = om.MFnMesh(dag_path(shape))
     points = [(point.x, point.y, point.z) for point in mesh.getPoints(om.MSpace.kWorld)]
     faces = [list(mesh.getPolygonVertices(face)) for face in range(mesh.numPolygons)]
     return points, faces
 
 
+def in_unit(points: list[topology.Vec]) -> list[topology.Vec]:
+    factor = 1.0 / cm_per_unit()
+    return [(point[0] * factor, point[1] * factor, point[2] * factor) for point in points]
+
+
+TUBE_COLORS = tuple(color for index, color in enumerate(softrender.PALETTE) if index not in (0, 7))
+
+
 def tube_color(index: int) -> softrender.Color:
-    return softrender.part_color(index + 1)
+    """Colors apart from the mesh's own fill and from the grey of loops outside tubes."""
+    return TUBE_COLORS[index % len(TUBE_COLORS)]
 
 
 def loop_entries(
@@ -75,7 +86,10 @@ def tube_entry(index: int, tube: topology.Tube, found: list[topology.Loop]) -> d
         "axis": rnd_list(tube.axis),
         "gaps": [rnd(gap) for gap in tube.gaps],
         "runs": tube.runs,
-        "joints": [{"loop": loop, "at": rnd_list(found[loop].center)} for loop in joints],
+        "joints": [
+            {"loops": places, "at": rnd_list(topology.joint_place(places, found))}
+            for places in joints
+        ],
     }
 
 
@@ -98,8 +112,8 @@ def overlay(
     for index, tube in enumerate(tubes):
         if picked is not None and index not in picked:
             continue
-        for loop in topology.joint_loops(tube):
-            centers.append(found[loop].center)
+        for places in topology.joint_loops(tube):
+            centers.append(topology.joint_place(places, found))
         labels.append((found[tube.loops[-1]].center, f"tube {index}", tube_color(index)))
     marks.append(softrender.Mark(centers, JOINT, dots=True))
     return marks, labels
@@ -108,6 +122,10 @@ def overlay(
 def parse_tubes(raw: str, count: int) -> list[int] | None:
     if not raw:
         return None
+    if not raw.replace(",", "").strip():
+        raise BridgeError(
+            "--tubes names no tube.", hint="--tubes takes tube ids from the report, like 0,3."
+        )
     picked = []
     for item in raw.replace(" ", "").split(","):
         if not item:
@@ -139,37 +157,22 @@ def tube_box(
 
 
 def order_ring(loop: topology.Loop, points: list[topology.Vec]) -> list[topology.Vec]:
-    """The loop's points in order around its centre, so the drawn line goes round it."""
-    ring = [points[index] for index in loop.ids]
-    normal = loop.normal
-    reference = topology.sub(ring[0], loop.center)
-    side = (
-        normal[1] * reference[2] - normal[2] * reference[1],
-        normal[2] * reference[0] - normal[0] * reference[2],
-        normal[0] * reference[1] - normal[1] * reference[0],
-    )
-
-    def angle(point: topology.Vec) -> float:
-        offset = topology.sub(point, loop.center)
-        along = sum(offset[k] * reference[k] for k in range(3))
-        across = sum(offset[k] * side[k] for k in range(3))
-        return math.atan2(across, along)
-
-    return sorted(ring, key=angle)
+    return [points[index] for index in loop.walk]
 
 
 def get_topology(params: dict[str, Any]) -> dict[str, Any]:
     name = text_param(params, "name")
     shape = single_mesh(name)
     gap = float_param(params, "gap") or topology.RUN_GAP
-    if gap < 1.0:
+    if not math.isfinite(gap) or gap < 1.0:
         raise BridgeError(
             f"--gap {rnd(gap)} is below 1.",
             hint="It is how many times the closest gap of a tube still counts as one run: "
             "1.2 by default, 1.5 to join looser loops.",
         )
     limit = int_param(params, "limit", LOOPS_SHOWN, 1, 1000)
-    points, faces = mesh_data(shape)
+    raw, faces = mesh_data(shape)
+    points = in_unit(raw)
     found = topology.loops(points, faces)
     tubes = topology.tubes(found, gap)
     owners = {loop: index for index, tube in enumerate(tubes) for loop in tube.loops}
@@ -183,7 +186,8 @@ def get_topology(params: dict[str, Any]) -> dict[str, Any]:
         "valence": {str(count): verts for count, verts in topology.valence(faces).items()},
         "loops": listing(loop_entries(found, owners, bool_param(params, "ids")), limit),
         "tubes": listing(
-            [tube_entry(index, tube, found) for index, tube in enumerate(tubes)], TUBES_SHOWN
+            [tube_entry(index, tube, found) for index, tube in enumerate(tubes)],
+            max(limit, TUBES_SHOWN),
         ),
         "joints": sum(len(topology.joint_loops(tube)) for tube in tubes),
         "gap": rnd(gap),
@@ -192,20 +196,29 @@ def get_topology(params: dict[str, Any]) -> dict[str, Any]:
         result["note"] = NO_LOOPS_HINT
     picked = parse_tubes(text_param(params, "tubes"), len(tubes))
     if bool_param(params, "image"):
-        marks, labels = overlay(found, tubes, owners, points, picked)
-        sheet = get_model_views(
-            {
-                "names": name,
-                "views": text_param(params, "views"),
-                "style": "parts",
-                "max_size": params.get("max_size") or 0,
-            },
-            marks,
-            labels,
-            tube_box(picked, tubes, found, points) if picked else None,
-        )
+        drawn = topology.loops(raw, faces)
+        marks, labels = overlay(drawn, tubes, owners, raw, picked)
+        try:
+            sheet = get_model_views(
+                {
+                    "names": name,
+                    "views": text_param(params, "views"),
+                    "style": "parts",
+                    "max_size": params.get("max_size") or 0,
+                },
+                marks,
+                labels,
+                tube_box(picked, tubes, drawn, raw) if picked else None,
+            )
+        except BridgeError as error:
+            raise BridgeError(
+                error.message,
+                hint=f"Draw fewer views or a smaller sheet: bmaya topo {name} -o loops.png "
+                "--views front --size 1000, or close up on some tubes with --tubes 0,1. "
+                f"The report alone needs no picture: bmaya topo {name}.",
+            ) from None
         for key in ("path", "width", "height", "views"):
             result[key] = sheet[key]
         if sheet.get("note"):
-            result["note"] = sheet["note"]
+            result["note"] = "; ".join(filter(None, [result.get("note"), sheet["note"]]))
     return result

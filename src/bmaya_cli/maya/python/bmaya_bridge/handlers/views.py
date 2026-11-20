@@ -307,6 +307,14 @@ def length_text(value: float, unit: str) -> str:
     return f"{rnd(value, 2)} {unit}"
 
 
+def in_unit(box: Box, scale: float) -> Box:
+    low, high = box
+    return (
+        (low[0] * scale, low[1] * scale, low[2] * scale),
+        (high[0] * scale, high[1] * scale, high[2] * scale),
+    )
+
+
 def draw_measures(
     painter: QPainter, view: View, box: Box, tile: int, unit: str, color: tuple[int, int, int]
 ) -> None:
@@ -317,7 +325,7 @@ def draw_measures(
     xs = [pixel[0] for pixel in pixels if pixel is not None]
     ys = [pixel[1] for pixel in pixels if pixel is not None]
     left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
-    per_pixel = (view.right - view.left) / tile
+    per_pixel = (view.right - view.left) / tile * _sampling.linear_scale()
     painter.setPen(gui.QPen(gui.QColor(*color), 1.2))
     metrics = painter.fontMetrics()
 
@@ -493,7 +501,9 @@ def get_model_views(
     box = frame or softrender.bounds(parts)
     if box is None:
         raise BridgeError("The meshes have no points to draw.", hint="`bmaya audit` shows why.")
-    section = parse_section(section_text, box)
+    per_unit = _sampling.linear_scale()
+    scene_box = in_unit(box, per_unit)
+    section = parse_section(section_text, scene_box)
     tiles = plan_tiles(views, section)
     deadline = time.perf_counter() + DRAW_SECONDS
 
@@ -508,13 +518,17 @@ def get_model_views(
             for name in names[:LEGEND_LIMIT]
         ]
 
-    cut = softrender.cut(parts, section.axis, section.position) if section and drawn else None
+    cut = None
+    if section and drawn:
+        cut = softrender.cut(parts, section.axis, section.position / per_unit)
     offscreen = bool(cmds.about(batch=True))
     images = []
-    with scene_kept(), view_cameras(tiles, box) as cameras:
+    with scene_kept(), view_cameras(tiles, scene_box) as cameras:
         for index, entry in enumerate(tiles):
             camera = cameras[entry.label]
-            seen = cut_box(box, section) if entry.section and section else box
+            seen = box
+            if entry.section and section:
+                seen = cut_box(box, Section(section.axis, section.position / per_unit))
             if drawn and time.perf_counter() > deadline:
                 raise BridgeError(
                     f"Drawing stopped after {DRAW_SECONDS:g} seconds, at view {index + 1} of "
@@ -555,7 +569,7 @@ def get_model_views(
         "views": [entry.label for entry in tiles],
         "style": style,
         "source": source,
-        "size": rnd_list(box[1][axis] - box[0][axis] for axis in range(3)),
+        "size": rnd_list(scene_box[1][axis] - scene_box[0][axis] for axis in range(3)),
         "unit": unit,
         "up": AXES[_sampling.up_index()],
         "meshes": len(names),

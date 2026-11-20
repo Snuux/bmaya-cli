@@ -251,6 +251,8 @@ def place(point: Vec, view: View, width: int, height: int) -> tuple[Spot, Vec] |
     camera = to_camera(point, view.inverse)
     x, y, z = camera
     if view.ortho:
+        if z > -view.near:
+            return None
         nearness = z
     else:
         distance = -z
