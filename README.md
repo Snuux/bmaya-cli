@@ -101,6 +101,7 @@ If a `note:` line says a Maya was started for you, save with `bmaya file save PA
 | `bmaya rig [ROOT]` | A rig's controls: keyable and driven attributes, values, limits, rotate order, keys, IK handles, constraints, ik/fk switches, character sets. |
 | `bmaya motion [NAME ...] [--frames 0:30\|--clip NAME] [--loop] [--contacts A,B] [--values] [--attrs A,B]` | Checks motion frame by frame: pops, flips, foot slide, sinking, loop seam, Euler jumps, keys off frames or outside clips. Reports measurements, and values per frame on request. |
 | `bmaya export FILE.fbx [--preset unity\|unreal\|godot] [--selection] [--animation] [--clip NAME]` | FBX export with an engine preset. `--clip` bakes one clip's frames. |
+| `bmaya inspect FILE [--axes] [--limit N]` | Reads an FBX, GLB or glTF file without Maya: unit, up axis, fps, meshes with counts, UV sets, materials and skin, the skeleton with bind positions, takes with frame ranges, textures and whether they are found. |
 | `bmaya file new\|open\|save\|import [PATH] [--force]` | Scene files. |
 | `bmaya undo [STEPS] [--force]` | Undoes your own last steps, never another client's. |
 | `bmaya sessions`, `bmaya use ID` | Lists the running Mayas, picks the one to talk to. |

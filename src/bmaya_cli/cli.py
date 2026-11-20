@@ -578,6 +578,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="bake the frames of this clip (`bmaya anim` lists them)",
     )
 
+    inspect = add(
+        "inspect",
+        "cmd_inspect",
+        "describe an FBX, GLB or glTF file without Maya: meshes, skeleton, takes, textures",
+        "Reads a model file directly; no Maya is started or needed. Prints the unit, up axis\n"
+        "and fps the file declares, every mesh with its vertex, face and triangle counts, UV\n"
+        "sets, materials and skin, the skeleton with world positions at bind time (`from`\n"
+        "says where they came from), the takes with their frame ranges and curve counts, and\n"
+        "the textures with whether each file is found. `issues` lists empty meshes,\n"
+        "unweighted vertices, joint names used twice and missing textures.\n"
+        "Reads binary .fbx (7.1 and newer), .glb and .gltf. Positions are in the file's unit.",
+        examples(
+            "bmaya inspect hero.fbx",
+            "bmaya inspect game/assets/hands.glb --axes   # joint axes too",
+            "bmaya inspect walk.fbx --limit 200",
+        ),
+        module="modelfile",
+        for_maya=False,
+    )
+    inspect.add_argument("path", metavar="FILE", help=".fbx, .glb or .gltf file")
+    inspect.add_argument(
+        "--axes", action="store_true", help="add the x, y and z axis of every joint"
+    )
+    inspect.add_argument(
+        "--limit", type=int, default=0, help="longest listing (default 50, at most 1000)"
+    )
+
     file = add(
         "file",
         "cmd_file",

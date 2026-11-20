@@ -45,6 +45,7 @@ bmaya exec -f build_crate.py
 - `bmaya views [NAME ...] -o views.png` instead of several `bmaya shot` calls with moved cameras, when the subject is a model.
 - `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` instead of moving, merging and deleting vertices one by one.
 - `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")`. Add `--selection`, `--animation`, `--start N --end N` (frame 0 works), or `--clip NAME` to bake one clip. Units are not converted; the scene unit is what the importer sees.
+- `bmaya inspect FILE.fbx` (or `.glb`, `.gltf`) reads a model file without Maya: unit, up axis, fps, meshes and their counts, skin, the skeleton with bind positions (`--axes` adds each joint's axes), takes with frame ranges, textures and whether they are found. Use it to check what an export wrote, or to read a file from the game, instead of importing it into the scene or opening Blender.
 - `bmaya file new|open|save|import [PATH]`. `new` and `open` refuse to discard unsaved work, and to replace the scene while another client works in that Maya. Never pass `--force` unless the user asked.
 - `bmaya undo [STEPS]` reverts one of your own `bmaya exec`, `remesh`, `reduce` or `cleanup` calls per step.
 - `bmaya shot --frames 1,6,12,18,24 -o walk.png` puts up to 12 frames on one contact sheet. Use it to review animation instead of many single shots. A range like `--frames 0:32` (both ends included) or `0:32:4` is thinned evenly to 12 tiles. `--clip NAME` takes the frames of a clip. `--camera NAME` gives a fixed view.
