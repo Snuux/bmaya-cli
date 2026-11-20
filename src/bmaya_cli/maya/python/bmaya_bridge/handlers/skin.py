@@ -18,6 +18,7 @@ from bmaya_bridge.handlers._common import (
     number_text,
     resolve,
     rnd,
+    select_only,
     short_name,
     text_param,
 )
@@ -301,10 +302,18 @@ def overlap_or_fail(points: list[om.MPoint], sampler: Sampler, what: str) -> Non
         )
 
 
-def joint_paths(names: list[str]) -> list[str]:
+def joint_paths(names: list[str], cluster: str) -> list[str]:
+    """Full paths of the influences the weights name: the cluster's own, else joints by name."""
+    own = {}
+    if cluster:
+        for path in skin_fn(cluster).influenceObjects():
+            own[path.partialPathName()] = path.fullPathName()
     missing = []
     found = []
     for name in names:
+        if name in own:
+            found.append(own[name])
+            continue
         matches = cmds.ls(name, long=True, type="joint") or []
         if len(matches) == 1:
             found.append(matches[0])
@@ -321,7 +330,7 @@ def joint_paths(names: list[str]) -> list[str]:
         more = f" and {len(missing) - NAMES_SHOWN} more" if len(missing) > NAMES_SHOWN else ""
         raise BridgeError(
             f"{len(missing)} joints in the weights are not in the scene: {shown}{more}.",
-            hint="Map the names with --rename: {}_r adds a suffix, rig:{} a namespace, "
+            hint='Map the names with --rename: "{}_r" adds a suffix, "rig:{}" a namespace, '
             "arm=forearm_r one name. `bmaya scene --type joint` lists the joints.",
         )
     return found
@@ -472,7 +481,8 @@ def edit_skin(params: dict[str, Any]) -> dict[str, Any]:
         }
 
     wanted = needed_names(after, touched)
-    paths = joint_paths(wanted)
+    paths = joint_paths(wanted, cluster)
+    selection = cmds.ls(selection=True, long=True) or []
     if not cluster:
         if not wanted:
             raise BridgeError(
@@ -494,6 +504,7 @@ def edit_skin(params: dict[str, Any]) -> dict[str, Any]:
         if extra:
             cmds.skinCluster(cluster, edit=True, addInfluence=extra, weight=0.0, lockWeights=False)
             result["added"] = listing([short_name(path) for path in extra], NAMES_SHOWN)
+    select_only([node for node in selection if cmds.objExists(node)])
 
     finished = skinweights.finish(before, after, touched, prune, most)
     write_undoable(cluster, shape, before, finished.rows)

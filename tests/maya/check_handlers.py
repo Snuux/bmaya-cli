@@ -1766,8 +1766,10 @@ def check_edit_load(saved: Path, original: list[dict[str, float]], made: list[st
     fresh = arm_mesh("arm_fresh", 6)
     made.append(fresh)
     cmds.flushUndo()
+    cmds.select("skin_plain", replace=True)
     bound = call("edit_skin", name=fresh, load=str(saved), max=3)
     assert bound["bound"] == "arm_fresh_skin", bound
+    assert cmds.ls(selection=True, long=True) == ["|skin_plain"], "the bind changed the selection"
     assert worst_gap(skin_rows(fresh), original) < 1e-5
     assert cmds.getAttr("arm_fresh_skin.maxInfluences") == 3
     cmds.undo()
@@ -1886,6 +1888,15 @@ def check_edit_trim() -> str:
     assert trimmed["after"]["most_per_vertex"] <= 2, trimmed
     same = call("edit_skin", name="arm_r", normalize=True)
     assert same["changed"] == 0, same
+
+    handle = cmds.spaceLocator(name="skin_handle")[0]
+    try:
+        cmds.skinCluster(cluster, edit=True, addInfluence=handle, weight=0.0)
+        kept = call("edit_skin", name="arm_r", prune="0.01")
+        assert "influence 'skin_handle' is not a joint" in kept["issues"], kept
+    finally:
+        cmds.skinCluster(cluster, edit=True, removeInfluence=handle)
+        cmds.delete(handle)
     return f"prune and --max 2 cut {trimmed['capped']} verts"
 
 
