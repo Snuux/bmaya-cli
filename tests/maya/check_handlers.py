@@ -946,6 +946,14 @@ def check_plan_game_export() -> str:
         expect_error("plan_game_export", "game_clips", node="missing_node")
         expect_error("plan_game_export", "no clip named 'walk'", node="game_clips", clip="walk")
         assert not cmds.file(query=True, modified=True), "planning marked the scene modified"
+        cmds.setAttr("game_clips.fileSplitType", 1)
+        together = call("plan_game_export", node="game_clips")
+        assert [job["kind"] for job in together["jobs"]] == ["clips"], together
+        assert together["jobs"][0]["path"].endswith("/hero_.fbx"), together["jobs"][0]
+        cmds.setAttr("game_clips.exportFilename", "", type="string")
+        apart = call("plan_game_export", node="game_clips")
+        assert [job["clip"] for job in apart["jobs"]] == ["spin", "nod"], apart
+        assert "each clip went to its own file" in apart["issues"][0], apart["issues"]
     finally:
         cmds.delete(
             [

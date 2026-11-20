@@ -202,9 +202,7 @@ def jobs_of(node: str, only_clip: str) -> tuple[list[dict[str, Any]], str]:
             [],
             f"it has no clip named '{only_clip}'" if only_clip else "it has no clips to export",
         )
-    if number(node, "fileSplitType") == ONE_FILE:
-        if not file_name:
-            return [], "it writes all clips to one file and has no file name"
+    if number(node, "fileSplitType") == ONE_FILE and file_name:
         takes = [{"name": name, "frames": [frame(start), frame(end)]} for name, start, end in rows]
         job = {
             "node": node,
@@ -251,6 +249,11 @@ def plan_game_export(params: dict[str, Any]) -> dict[str, Any]:
         if found[0]["kind"] == "model":
             members, _ = members_of(node)
             issues += check_shapes(members, bool_param(params, "ignore_checks"))
+        if found[0]["kind"] == "clip" and number(node, "fileSplitType") == ONE_FILE:
+            issues.append(
+                f"{display_name(node)}: set to write all clips to one file but has no file name, "
+                "so each clip went to its own file"
+            )
         jobs += found
     if not jobs:
         reasons = "; ".join(f"{item['node']}: {item['reason']}" for item in skipped)
