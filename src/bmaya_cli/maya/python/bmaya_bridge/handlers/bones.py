@@ -154,13 +154,34 @@ def read_skeleton(joints: list[str]) -> Skeleton:
         if joint in bind:
             out[joint] = bind[joint]
             continue
-        parent = cmds.listRelatives(joint, parent=True, fullPath=True)
-        local = om.MMatrix(cmds.getAttr(joint + ".matrix"))
-        if parent and parent[0] in out:
-            out[joint] = local * out[parent[0]]
+        parent = joint_parent(joint)
+        if parent in out:
+            local = world_matrix(joint) * world_matrix(parent).inverse()
+            out[joint] = local * out[parent]
         else:
             out[joint] = world_matrix(joint)
     return Skeleton(joints, out, True, clusters)
+
+
+def joint_parent(node: str) -> str:
+    """The nearest joint above the node, past any plain transforms in between; '' for none."""
+    parent = cmds.listRelatives(node, parent=True, fullPath=True)
+    while parent:
+        if cmds.nodeType(parent[0]) == "joint":
+            return parent[0]
+        parent = cmds.listRelatives(parent[0], parent=True, fullPath=True)
+    return ""
+
+
+def between(joints: list[str]) -> list[str]:
+    """Plain transforms that sit between a joint and its nearest joint above."""
+    found: dict[str, None] = {}
+    for joint in joints:
+        parent = cmds.listRelatives(joint, parent=True, fullPath=True)
+        while parent and cmds.nodeType(parent[0]) != "joint" and joint_parent(joint):
+            found[parent[0]] = None
+            parent = cmds.listRelatives(parent[0], parent=True, fullPath=True)
+    return list(found)
 
 
 def point_of(matrix: om.MMatrix) -> skeleton.Vec:
@@ -252,7 +273,9 @@ def joint_entry(
     matrix = found.bind[joint]
     at = point_of(matrix)
     axes = axes_of(matrix)
-    parent = (cmds.listRelatives(joint, parent=True, fullPath=True) or [""])[0]
+    parent = joint_parent(joint)
+    if not parent:
+        parent = (cmds.listRelatives(joint, parent=True, fullPath=True) or [""])[0]
     entry: dict[str, Any] = {"name": names[joint]}
     if parent:
         entry["parent"] = display_name(parent)
@@ -263,11 +286,7 @@ def joint_entry(
         values = cmds.getAttr(f"{joint}.{attr}")[0]
         if nonzero(values):
             entry[key] = rnd_list(values, 3)
-    children = [
-        child
-        for child in cmds.listRelatives(joint, children=True, type="joint", fullPath=True) or []
-        if child in found.bind
-    ]
+    children = [child for child in joint_children_of(joint) if child in found.bind]
     if len(children) == 1:
         entry["aim"] = aim_of(axes, skeleton.sub(point_of(found.bind[children[0]]), at)) or "none"
     if with_axes:
@@ -280,7 +299,7 @@ def joint_entry(
 def scene_bones(joints: list[str], found: Skeleton, names: dict[str, str]) -> list[Bone]:
     bones = []
     for joint in joints:
-        parent = (cmds.listRelatives(joint, parent=True, fullPath=True) or [""])[0]
+        parent = joint_parent(joint)
         matrix = found.bind[joint]
         bones.append(Bone(names[joint], names.get(parent, ""), point_of(matrix), axes_of(matrix)))
     return bones
@@ -329,6 +348,13 @@ def get_bones(params: dict[str, Any]) -> dict[str, Any]:
                 f"{len(bad)} joints have a negative or uneven scale, which engines skin "
                 "differently: " + skeleton.some([names[joint] for joint in bad])
             )
+    extra = between(joints)
+    if extra:
+        result["between"] = listing([display_name(node) for node in extra], NAMES_SHOWN)
+        issues.append(
+            f"{len(extra)} plain transforms sit between joints, and FBX writes each as a node "
+            "of its own: " + skeleton.some([display_name(node) for node in extra])
+        )
     flat = [entry["name"] for entry in entries if entry.get("length", 1) == 0]
     if flat:
         result["zero_length"] = listing(flat, NAMES_SHOWN)
@@ -378,8 +404,7 @@ def against_file(
 
 
 def parent_in(joint: str, known: dict[str, om.MMatrix]) -> bool:
-    parent = cmds.listRelatives(joint, parent=True, fullPath=True)
-    return bool(parent) and parent[0] in known
+    return joint_parent(joint) in known
 
 
 def pair_report(bones: list[Bone], mirror: Mirror) -> tuple[dict[str, Any], str]:
@@ -591,7 +616,15 @@ def aim_child(joint: str, at: skeleton.Vec) -> str:
 
 
 def joint_children_of(joint: str) -> list[str]:
-    return cmds.listRelatives(joint, children=True, type="joint", fullPath=True) or []
+    """The joints right below, past any plain transforms in between, in their order."""
+    found = []
+    for child in cmds.listRelatives(joint, children=True, type="transform", fullPath=True) or []:
+        kind = cmds.nodeType(child)
+        if kind == "joint":
+            found.append(child)
+        elif kind == "transform":
+            found.extend(joint_children_of(child))
+    return found
 
 
 def axes_matrix(axes: skeleton.Axes, at: skeleton.Vec) -> om.MMatrix:

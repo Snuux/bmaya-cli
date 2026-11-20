@@ -2156,6 +2156,8 @@ def check_mirror_node() -> str:
         assert result["weights"]["unpaired"]["items"] == ["mr_root"], result["weights"]
         assert result["issues"] == [], result["issues"]
         assert abs(cmds.getAttr("mr_lo_r.rotateZ") - 35) < 1e-6, "the source pose was not put back"
+        kinds = call("get_bones", names="mr_root")["pairs"]["mirror"]["kinds"]
+        assert kinds == {"behavior": 3}, kinds
         assert cmds.getAttr(cmds.listRelatives("mr_arm_l", shapes=True)[0] + ".opposite") is False
         cmds.undo()
         assert not cmds.objExists("mr_arm_l") and not cmds.objExists("mr_up_l"), "undo left parts"
@@ -2195,6 +2197,22 @@ def check_mirror_node() -> str:
         cmds.delete("mr_up_l")
     finally:
         cmds.delete([node for node in made + ["mr_arm_l"] if cmds.objExists(node)])
+
+    sheared = side_rig("ms")
+    try:
+        holder = cmds.group(empty=True, name="ms_gap", parent="ms_up_r")
+        cmds.parent("ms_lo_r", holder)
+        report = call("get_bones", names="ms_root")
+        assert report["between"]["items"] == ["ms_gap"], report.get("between")
+        assert any("plain transforms sit between" in issue for issue in report["issues"])
+        lo = {entry["name"]: entry for entry in report["joints"]["items"]}["ms_lo_r"]
+        assert lo["parent"] == "ms_up_r" and lo["length"] > 3.9, lo
+        result = call("mirror_node", name="ms_arm_r")
+        assert sorted(result["joints"]["made"]["items"]) == ["ms_end_l", "ms_lo_l", "ms_up_l"]
+        kinds = call("get_bones", names="ms_root")["pairs"]["mirror"]["kinds"]
+        assert kinds == {"behavior": 3}, kinds
+    finally:
+        cmds.delete([node for node in sheared + ["ms_arm_l"] if cmds.objExists(node)])
 
     off = side_rig("mo", parent_at=(5.0, 0.0, 0.0))
     try:

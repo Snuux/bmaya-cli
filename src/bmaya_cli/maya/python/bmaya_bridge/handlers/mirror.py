@@ -26,7 +26,7 @@ from bmaya_bridge.handlers._skin import (
     skin_fn,
     write_undoable,
 )
-from bmaya_bridge.handlers.bones import at_bind, point_of, world_matrix
+from bmaya_bridge.handlers.bones import at_bind, joint_parent, point_of, world_matrix
 from bmaya_bridge.handlers.mesh import audit_one, single_mesh, transform_of
 from bmaya_bridge.handlers.skin import skin_input_points
 
@@ -52,15 +52,15 @@ def twin_path(joint: str) -> str:
     return found[0] if found else ""
 
 
-def joint_children(joint: str) -> list[str]:
-    return cmds.listRelatives(joint, children=True, type="joint", fullPath=True) or []
+def chain_children(node: str) -> list[str]:
+    """Child joints and the plain transforms that sit between joints, in their order."""
+    children = cmds.listRelatives(node, children=True, type="transform", fullPath=True) or []
+    return [child for child in children if cmds.nodeType(child) in ("joint", "transform")]
 
 
 def subtree(joint: str) -> list[str]:
-    out = [joint]
-    for child in joint_children(joint):
-        out.extend(subtree(child))
-    return out
+    below = cmds.listRelatives(joint, allDescendents=True, type="joint", fullPath=True) or []
+    return [joint] + sorted(below)
 
 
 def chain_roots(joints: list[str]) -> list[str]:
@@ -71,16 +71,16 @@ def chain_roots(joints: list[str]) -> list[str]:
             continue
         top = joint
         while True:
-            parent = cmds.listRelatives(top, parent=True, fullPath=True, type="joint")
-            if not parent or twin_path(parent[0]) == parent[0]:
+            parent = joint_parent(top)
+            if not parent or twin_path(parent) == parent:
                 break
-            if twin_path(parent[0]):
+            if twin_path(parent):
                 raise BridgeError(
-                    f"'{display_name(parent[0])}' has a twin but '{display_name(top)}' under "
+                    f"'{display_name(parent)}' has a twin but '{display_name(top)}' under "
                     "it has none, so the other side is half built.",
                     hint="Delete the half-built side, or finish it, then mirror again.",
                 )
-            top = parent[0]
+            top = parent
         if top not in roots:
             roots.append(top)
     for root in roots:
@@ -95,9 +95,11 @@ def chain_roots(joints: list[str]) -> list[str]:
 
 
 def pair_copies(source: str, copy: str, pairs: list[tuple[str, str]]) -> None:
-    pairs.append((source, copy))
-    ours = joint_children(source)
-    theirs = joint_children(copy)
+    """Pairs each joint with its mirrorJoint copy by position in the hierarchy."""
+    if cmds.nodeType(source) == "joint":
+        pairs.append((source, copy))
+    ours = chain_children(source)
+    theirs = chain_children(copy)
     for index in range(min(len(ours), len(theirs))):
         pair_copies(ours[index], theirs[index], pairs)
 
