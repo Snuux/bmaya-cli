@@ -286,6 +286,58 @@ def cmd_rig(args: argparse.Namespace) -> int:
     return forward(args, "get_rig_info", {"root": args.root})
 
 
+def usage(message: str, hint: str) -> CommandFailed:
+    return CommandFailed(message, hint=hint, code=EXIT_USAGE)
+
+
+def cmd_skin(args: argparse.Namespace) -> int:
+    editing = bool(args.load or args.copy_from or args.mirror or args.prune or args.normalize)
+    name = args.names[0] if args.names else "MESH"
+    if (editing or args.save) and len(args.names) != 1:
+        raise usage(
+            "--save and the edits work on one mesh.", f"Name it: bmaya skin {name} --save w.json"
+        )
+    if (editing or args.save) and (args.verts or args.limit):
+        raise usage("--verts and --limit go with the report.", f"bmaya skin {name} --verts 0:20")
+    if args.save and (editing or args.max):
+        raise usage(
+            "--save writes the weights as they are; it takes no other flag.",
+            f"Save first, then edit in a second call: bmaya skin {name} --prune.",
+        )
+    if args.rename and not (args.load or args.copy_from):
+        raise usage(
+            "--rename maps the joint names of --load or --copy-from.",
+            f"bmaya skin {name} --load weights.json --rename {{}}_r",
+        )
+    if args.mirror and args.load:
+        raise usage(
+            "--mirror does not go with --load.",
+            f"Load first, then mirror: bmaya skin {name} --mirror +x.",
+        )
+    if args.save:
+        params = {"name": name, "path": absolute(args.save)}
+        return forward(args, "save_skin_weights", params)
+    if editing:
+        params = {
+            "name": name,
+            "load": absolute(args.load) if args.load else "",
+            "copy_from": args.copy_from,
+            "mirror": args.mirror,
+            "rename": args.rename,
+            "prune": args.prune,
+            "normalize": args.normalize,
+            "max": args.max,
+        }
+        return forward(args, "edit_skin", params)
+    params = {
+        "names": ",".join(args.names),
+        "max": args.max,
+        "verts": args.verts,
+        "limit": args.limit,
+    }
+    return forward(args, "get_skin_info", params)
+
+
 def cmd_motion(args: argparse.Namespace) -> int:
     params = {
         "names": ",".join(args.names),

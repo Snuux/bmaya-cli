@@ -501,6 +501,75 @@ def build_parser() -> argparse.ArgumentParser:
     )
     rig.add_argument("root", nargs="?", default="", help="top node of the rig")
 
+    skin = add(
+        "skin",
+        "cmd_skin",
+        "report skin weights, save and load them, copy, mirror, prune",
+        "Without an edit flag it reports the skin of each mesh: the skin cluster, its\n"
+        "influences with how many vertices each moves, the most influences on one vertex,\n"
+        "influences with no weight (`unused`), whether the skeleton stands at the bind pose,\n"
+        "and the issues a game engine trips on: vertices over --max influences (default 4),\n"
+        "weights that do not add up to 1, unweighted vertices, dual quaternion skinning,\n"
+        "influences that are not joints. `sample` lists a few vertex numbers per issue;\n"
+        "--verts 0:20 prints those vertices' weights. With no names it reports the\n"
+        "selection, or every skinned mesh.\n\n"
+        "Weights go to and from a JSON file of one {joint: weight} object per vertex:\n"
+        "  --save FILE       write the mesh's weights\n"
+        '  --load FILE       set them from such a list, or from a file whose "weights"\n'
+        '                    holds it; {"12": {...}} sets only the vertices it names\n'
+        "  --copy-from SRC   every vertex takes the weights of the closest point on SRC's\n"
+        "                    surface at its bind pose: for a remeshed or edited copy\n"
+        "  --mirror AXIS     with --copy-from: take them from the mirror image of SRC (the\n"
+        "                    left arm from the right one). Alone: copy one half of the mesh\n"
+        "                    onto the other, +x onto -x with --mirror +x. Joints swap sides\n"
+        "                    by name (hand_r/hand_l, L_hand, LeftHand). The plane goes\n"
+        "                    through 0; +x=12.5 moves it\n"
+        "  --rename MAP      joint names of the file or SRC: {}_r adds a suffix, rig:{} a\n"
+        "                    namespace, arm=forearm_r maps one name\n"
+        "  --prune [MIN]     drop weights under MIN (default 0.01)\n"
+        "  --normalize       make every vertex's weights add up to 1\n"
+        "  --max N           with an edit: keep the N biggest weights per vertex\n"
+        "A mesh with no skin is bound to the joints the weights name. Changed vertices are\n"
+        "normalized. Each edit is one undo step; the result has `changed`, the counts that\n"
+        "were pruned, capped or normalized, and the issues left.",
+        examples(
+            "bmaya skin",
+            "bmaya skin hand_r --verts 0:10",
+            "bmaya skin hand_r --save hand_r_weights.json",
+            "bmaya skin hand_r --load fit.json --rename {}_r",
+            "bmaya skin hand_l --copy-from hand_r --mirror x",
+            "bmaya skin body_new --copy-from body --prune --max 4",
+            "bmaya skin body --mirror +x",
+        ),
+    )
+    skin.add_argument("names", nargs="*", help="meshes; an edit takes one")
+    skin.add_argument(
+        "--max", type=int, default=0, metavar="N", help="influences allowed per vertex"
+    )
+    skin.add_argument("--verts", default="", metavar="SPEC", help="print these vertices' weights")
+    skin.add_argument(
+        "--limit", type=int, default=0, metavar="N", help="influences listed per mesh (default 30)"
+    )
+    source = skin.add_mutually_exclusive_group()
+    source.add_argument("--save", default="", metavar="FILE", help="write the weights to a file")
+    source.add_argument("--load", default="", metavar="FILE", help="set the weights from a file")
+    source.add_argument(
+        "--copy-from", default="", metavar="SRC", help="take the weights from a skinned mesh"
+    )
+    skin.add_argument(
+        "--mirror", default="", metavar="AXIS", help="mirror across x, y or z (+x, -x=2.5)"
+    )
+    skin.add_argument("--rename", default="", metavar="MAP", help="map joint names: {}_r, a=b")
+    skin.add_argument(
+        "--prune",
+        nargs="?",
+        const="0.01",
+        default="",
+        metavar="MIN",
+        help="drop weights below MIN (default 0.01)",
+    )
+    skin.add_argument("--normalize", action="store_true", help="make weights add up to 1")
+
     motion = add(
         "motion",
         "cmd_motion",

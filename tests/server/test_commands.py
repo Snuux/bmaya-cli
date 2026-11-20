@@ -340,6 +340,59 @@ def test_mesh_edits_map_their_arguments(
     }
 
 
+def test_skin_reports_saves_and_edits(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, tmp_path: Path
+) -> None:
+    handlers = {**echo("get_skin_info"), **echo("save_skin_weights"), **echo("edit_skin")}
+    one_maya(home, make_bridge, handlers)
+    assert run(capsys, "skin", "hand", "glove", "--max", "8")[1] == {
+        "got": {"names": "hand,glove", "max": 8, "verts": "", "limit": 0}
+    }
+    saved = run(capsys, "skin", "hand", "--save", str(tmp_path / "w.json"))[1]
+    assert saved == {"got": {"name": "hand", "path": (tmp_path / "w.json").resolve().as_posix()}}
+    loaded = run(capsys, "skin", "hand", "--load", "fit.json", "--rename", "{}_r", "--prune")
+    assert loaded[1]["got"] == {
+        "name": "hand",
+        "load": (Path.cwd() / "fit.json").resolve().as_posix(),
+        "copy_from": "",
+        "mirror": "",
+        "rename": "{}_r",
+        "prune": "0.01",
+        "normalize": False,
+        "max": 0,
+    }
+    mirrored = run(capsys, "skin", "hand_l", "--copy-from", "hand_r", "--mirror", "x")[1]["got"]
+    assert (mirrored["copy_from"], mirrored["mirror"], mirrored["load"]) == ("hand_r", "x", "")
+    capped = run(capsys, "skin", "body", "--normalize", "--max", "4")[1]["got"]
+    assert capped["normalize"] is True and capped["max"] == 4
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["skin", "a", "b", "--prune"],
+        ["skin", "--save", "w.json"],
+        ["skin", "a", "--save", "w.json", "--prune"],
+        ["skin", "a", "--save", "w.json", "--max", "4"],
+        ["skin", "a", "--normalize", "--verts", "0"],
+        ["skin", "a", "--rename", "{}_r"],
+        ["skin", "a", "--load", "w.json", "--mirror", "x"],
+        ["skin", "a", "--load", "w.json", "--copy-from", "b"],
+    ],
+)
+def test_skin_refuses_flags_that_do_not_go_together(
+    home: Path, make_bridge: BridgeFactory, capsys: Output, argv: list[str]
+) -> None:
+    bridge = one_maya(home, make_bridge, echo("edit_skin"))
+    try:
+        code = main(argv)
+    except SystemExit as exit_info:
+        code = exit_info.code
+    assert code == commands.EXIT_USAGE
+    assert bridge.requests == []
+    capsys.readouterr()
+
+
 def test_expected_failure_goes_to_stderr_with_its_hint(
     home: Path, make_bridge: BridgeFactory, capsys: Output
 ) -> None:
