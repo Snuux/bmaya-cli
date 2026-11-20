@@ -20,9 +20,11 @@ The default is `front,right,top,persp`; `--views all` draws all eight. In a Z-up
 | `parts` (default) | A color per mesh, edges on top. `parts` in the result maps names to colors. A face seen from behind is dark, so reversed normals stand out. |
 | `silhouette` | The outline alone, black on light. |
 | `xray` | Pale surfaces and every edge, hidden ones too. |
+| `weights` | One joint's skin weights (`--joint J`), blue for none to red for all. See [skin weights](skin.md). |
+| `influence` | A color per joint, blended where joints share a vertex. |
 | `shaded` | Maya's own render with materials and textures; `--light unlit\|soft\|scene` as in `bmaya shot`. |
 
-`parts`, `silhouette` and `xray` are drawn by bmaya itself with a depth buffer, from the mesh data. They look the same in a Maya with or without a window, need no GPU, and leave the scene untouched. They draw only the named meshes. `shaded` goes through the viewport renderer, so it shows the whole scene, framed on the named nodes.
+All styles but `shaded` are drawn by bmaya itself with a depth buffer, from the mesh data. They look the same in a Maya with or without a window, need no GPU, and leave the scene untouched. They draw only the named meshes. `shaded` goes through the viewport renderer, so it shows the whole scene, framed on the named nodes.
 
 Edges are left out when they would merge into a blob: past about 10000 triangles for a 400 px tile, 40000 for an 800 px one. The result then has `wire: false` and a `note`. `--no-wire` leaves them out on purpose. Drawing is refused above 3 million triangles times views, and stops with an error after 30 seconds; `shaded` has no such limit.
 

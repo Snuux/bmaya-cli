@@ -44,6 +44,7 @@ bmaya exec -f build_crate.py
 - `bmaya audit [NAME ...]` instead of hand-written topology checks.
 - `bmaya views [NAME ...] -o views.png` instead of several `bmaya shot` calls with moved cameras, when the subject is a model.
 - `bmaya remesh`, `bmaya reduce`, `bmaya cleanup` instead of moving, merging and deleting vertices one by one.
+- `bmaya skin NAME --load weights.json` instead of `skinPercent` per vertex, `--copy-from OLD` instead of `copySkinWeights`, and `bmaya skin` to check weights.
 - `bmaya export FILE.fbx --preset unity|unreal|godot` instead of `cmds.file(type="FBX export")` or `FBXExport`. Add `--selection`, `--animation`, `--start N --end N` (frame 0 works), or `--clip NAME` to bake one clip into a take of that name. It refuses a mesh with no faces or one that would come out inside out, then reads the written file back: check `issues` in the result before telling the user the export worked. Units are not converted; the scene unit is what the importer sees.
 - `bmaya export --game-exporter [NODE]` when the scene has Game Exporter nodes (File > Game Exporter): it exports as their Export button does, a file per clip with one take each, and checks every file the same way. `--clip NAME` for one clip, `--copy-textures` to put a model's textures next to its FBX. Use it instead of a script that drives the Game Exporter.
 - `bmaya inspect FILE.fbx` (or `.glb`, `.gltf`) reads a model file without Maya: unit, up axis, fps, meshes and their counts, skin, the skeleton with bind positions (`--axes` adds each joint's axes), takes with frame ranges, textures and whether they are found. Use it to check what an export wrote, or to read a file from the game, instead of importing it into the scene or opening Blender.
@@ -83,11 +84,22 @@ The commands:
 
 - `bmaya audit NAME --symmetry x` checks that every vertex has a twin across the plane through the mesh's pivot, and gives the positions of a few that have none. Run it after editing one side of a mirrored model.
 - `bmaya diff NAME --mark` remembers a mesh; `bmaya diff NAME` after the edit gives counts, size, area and volume before and after, and for an unchanged topology how many vertices moved, how far, and the box they are in. `--against OTHER` compares two meshes.
-- `bmaya remesh NAME --to tris --edge 0.5` rebuilds the mesh as even triangles; `--to quads --faces 800` runs Maya's Retopologize for a quad mesh. UVs and skin weights are lost, so remesh before unwrapping and skinning.
+- `bmaya remesh NAME --to tris --edge 0.5` rebuilds the mesh as even triangles; `--to quads --faces 800` runs Maya's Retopologize for a quad mesh. UVs and skin weights are lost, so remesh before unwrapping and skinning; to skin the new mesh like the old one, remesh a copy and run `bmaya skin COPY --copy-from OLD`.
 - `bmaya reduce NAME --tris 5000` (or `--percent 50`) lowers the triangle count and keeps the shape; `--keep-uvs`, `--keep-borders`, `--keep-hard-edges`, `--keep-quads` pin what matters.
 - `bmaya cleanup NAME` merges vertices on the same spot, removes zero-area faces, zero-length edges and lamina faces, makes the faces wind one way and turns the normals outward. It also clears the opposite flag that freezing a negative scale leaves: with it Maya draws a mesh the right way that a game gets inside out.
 
 `remesh`, `reduce` and `cleanup` work on one mesh, are one undo step each (`bmaya undo`), answer with `before`, `after` and the audit `issues` that are left, and mark the mesh first. If one exits with code 3, Maya is still working: do not send it again, wait and run `bmaya diff NAME`.
+
+## Skinning
+
+Bind with `cmds.skinCluster` (recipe below) or let `bmaya skin --load` bind for you. Never set weights with `skinPercent` vertex by vertex: it takes about 10 ms a vertex, and it leaves the default bind's small weights on the vertices it sets, so a vertex ends up with more influences than you gave it.
+
+- `bmaya skin [NAME ...]` reports the skin of each mesh: influences with how many vertices each moves, the most influences on one vertex, influences with no weight, whether the skeleton stands at the bind pose, and the issues a game engine trips on (over `--max` influences, default 4; weights that do not add up to 1; unweighted vertices; dual quaternion skinning; influences that are not joints). `sample` gives vertex numbers per issue and `--verts 0:20` prints those vertices' weights.
+- `bmaya skin NAME --save w.json` writes one `{joint: weight}` object per vertex. `--load w.json` sets the weights from such a list in one undo step; a file whose `"weights"` holds the list works too, and `{"weights": {"12": {...}}}` sets only the vertices it names. A mesh with no skin is bound to the joints the file names. `--rename {}_r` (or `rig:{}`, or `arm=forearm_r`) maps the names in the file to the scene's joints. Write weights you compute yourself to such a file and load it.
+- `bmaya skin NEW --copy-from OLD` gives a remeshed or edited mesh the weights of the closest point on the old one, taken at the bind pose whatever pose the skeleton is in. `--mirror x` with it takes them from the mirror image: `bmaya skin hand_l --copy-from hand_r --mirror x` skins a mirrored copy, pairing joints by name (hand_r/hand_l, L_hand, LeftHand). Alone, `--mirror +x` copies the +x half of one mesh onto its -x half.
+- `--prune` drops weights under 0.01 (`--prune 0.05` for another floor), `--max 4` keeps the 4 biggest weights per vertex, `--normalize` makes them add up to 1. They combine with each other and with the edits above.
+- `bmaya views NAME --style weights --joint J -o w.png` draws one joint's weights, blue for none to red for all; `--style influence` gives each joint a color. Pose the skeleton with `bmaya exec` first to see the deformation too.
+- `bmaya audit` lists the same skin issues, and `bmaya export` reports them before writing.
 
 ## Animating
 
@@ -300,7 +312,8 @@ cmds.joint(joints[0], edit=True, orientJoint="xyz", secondaryAxisOrient="yup",
 # freeze the mesh and delete its history before binding
 skin = cmds.skinCluster(joints, "body", toSelectedBones=True, maximumInfluences=4,
                         normalizeWeights=1, name="body_skin")[0]
-cmds.skinPercent(skin, "body.vtx[0]", transformValue=[(joints[0], 0.5), (joints[1], 0.5)])
+# set weights in one call, not with skinPercent per vertex:
+#   bmaya skin body --load weights.json   (one {"joint": weight} object per vertex)
 ```
 
 ```python
