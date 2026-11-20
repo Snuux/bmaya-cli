@@ -1,6 +1,6 @@
 import logging
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 # stderr carries the error and hint lines of a command; log records must not join them.
 logging.getLogger(__name__).addHandler(logging.NullHandler())
