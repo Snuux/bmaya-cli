@@ -9,15 +9,20 @@ from bmaya_bridge.errors import BridgeError
 from bmaya_bridge.handlers._common import (
     bool_param,
     display_name,
+    fps,
     frame,
     listing,
     number_text,
+    rnd,
     select_only,
     text_param,
 )
+from bmaya_bridge.handlers._shapes import mesh_transforms, preflight
 from bmaya_bridge.handlers._timeline import find_clip
 
 NODE_LIMIT = 30
+EXPECTED_LIMIT = 500
+REFUSALS_SHOWN = 3
 
 # Units are not converted: FBXExportConvertUnitString has no effect in Maya 2027, and the
 # engines read UnitScaleFactor, which follows the scene's linear unit.
@@ -60,6 +65,18 @@ COMMON_OPTIONS = {
 
 def mel_bool(value: bool) -> str:
     return "true" if value else "false"
+
+
+def reload_fbx_plugin() -> bool:
+    """The plugin keeps baking at the frame rate of an earlier export until it is reloaded."""
+    if not cmds.pluginInfo("fbxmaya", query=True, loaded=True):
+        return False
+    try:
+        cmds.unloadPlugin("fbxmaya")
+    except RuntimeError:
+        return False
+    ensure_fbx_plugin()
+    return True
 
 
 def ensure_fbx_plugin() -> None:
@@ -140,17 +157,101 @@ def apply_options(options: dict[str, Any]) -> None:
         "FBXProperty Export|IncludeGrp|Animation -v " + mel_bool(options["animation"]),
         f"FBXExportBakeComplexAnimation -v {mel_bool(options['animation'])}",
     ]
+    commands.append("FBXExportSplitAnimationIntoTakes -clear")
     if options["animation"]:
         start, end = options["bake"]
+        # Without its own take the file's take spans the playback range, not the baked frames.
         commands += [
             f"FBXExportBakeComplexStart -v {start}",
             f"FBXExportBakeComplexEnd -v {end}",
             "FBXExportBakeComplexStep -v 1",
             "FBXExportBakeResampleAnimation -v true",
             "FBXExportApplyConstantKeyReducer -v false",
+            "FBXExportDeleteOriginalTakeOnSplitAnimation -v true",
+            f'FBXExportSplitAnimationIntoTakes -v "{options["take"]}" {start} {end}',
         ]
     for command in commands:
         mel.eval(command)
+
+
+def file_stamp(path: str) -> tuple[int, int] | None:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def run_fbx_export(path: str, selection_only: bool) -> bool:
+    """Writes the file; True when a first attempt failed and a second one was needed."""
+    before = file_stamp(path)
+    command = f'FBXExport -f "{path}"' + (" -s" if selection_only else "")
+    retried = False
+    try:
+        mel.eval(command)
+    except RuntimeError:
+        # Without a window the first export after a texture change can fail in a UI
+        # callback; the second one goes through.
+        if not cmds.about(batch=True):
+            raise
+        retried = True
+        mel.eval(command)
+    after = file_stamp(path)
+    if after is None:
+        raise BridgeError(
+            f"FBX export did not write {path}.",
+            hint="Check the Script Editor for FBX errors and that the folder is writable.",
+        )
+    if after == before:
+        raise BridgeError(
+            f"FBX export left {path} as it was.",
+            hint="The file may be read-only or open in another program. Close it and export again.",
+        )
+    return retried
+
+
+def leaf(node: str) -> str:
+    return node.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
+
+
+def expectation(nodes: list[str], options: dict[str, Any]) -> dict[str, Any]:
+    """What the written file should hold; the command line reads the file and compares."""
+    meshes = [leaf(transform) for transform in mesh_transforms(nodes)]
+    joints = []
+    for node in nodes:
+        found = cmds.listRelatives(node, allDescendents=True, type="joint", fullPath=True) or []
+        if cmds.nodeType(node) == "joint":
+            found.append(node)
+        for joint in reversed(found):
+            name = leaf(joint)
+            if name not in joints:
+                joints.append(name)
+    takes = []
+    if options["animation"]:
+        takes.append({"name": options["take"], "frames": options["bake"]})
+    return {
+        "meshes": meshes[:EXPECTED_LIMIT],
+        "joints": joints[:EXPECTED_LIMIT],
+        "takes": takes,
+        "fps": rnd(fps(), 3),
+        "up": options["up_axis"],
+    }
+
+
+def check_shapes(nodes: list[str], ignore: bool) -> list[str]:
+    blocking, issues = preflight(nodes)
+    if blocking and not ignore:
+        shown = "; ".join(blocking[:REFUSALS_SHOWN])
+        more = len(blocking) - REFUSALS_SHOWN
+        if more > 0:
+            shown += f"; and {more} more"
+        raise BridgeError(
+            f"Export refused: {shown}.",
+            hint="`bmaya cleanup NAME` turns inside-out faces out and clears the opposite flag; "
+            "delete meshes with no faces. `bmaya audit NAME` lists every problem. "
+            "--ignore-checks writes the file anyway.",
+        )
+    return blocking + issues
 
 
 def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
@@ -186,28 +287,33 @@ def export_fbx(params: dict[str, Any]) -> dict[str, Any]:
     if animation:
         start, end = bake_range(params)
         options["bake"] = [frame(start), frame(end)]
+        options["take"] = clip or os.path.splitext(os.path.basename(path))[0]
         if clip:
             options["clip"] = clip
 
+    issues = check_shapes(nodes, bool_param(params, "ignore_checks"))
+    expected = expectation(nodes, options)
     ensure_fbx_plugin()
+    if animation:
+        reload_fbx_plugin()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         apply_options(options)
-        flag = " -s" if selection_only else ""
-        mel.eval(f'FBXExport -f "{path}"{flag}')
+        retried = run_fbx_export(path, selection_only)
     finally:
+        mel.eval("FBXExportSplitAnimationIntoTakes -clear")
         select_only(selection)
 
-    if not os.path.isfile(path):
-        raise BridgeError(
-            f"FBX export did not write {path}.",
-            hint="Check the Script Editor for FBX errors and that the folder is writable.",
-        )
     exported = [display_name(node) for node in nodes]
-    return {
+    result: dict[str, Any] = {
         "path": path,
         "size": os.path.getsize(path),
         "preset": preset,
         "options": options,
         "nodes": listing(exported, NODE_LIMIT),
+        "issues": issues,
+        "expected": expected,
     }
+    if retried:
+        result["retried"] = True
+    return result

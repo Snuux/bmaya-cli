@@ -27,7 +27,10 @@ def facts_of(shape: str) -> ShapeFacts:
     intermediate = bool(cmds.getAttr(shape + ".intermediateObject"))
     selection = om.MSelectionList()
     selection.add(shape)
-    faces = om.MFnMesh(selection.getDagPath(0)).numPolygons
+    try:
+        faces = om.MFnMesh(selection.getDagPath(0)).numPolygons
+    except ValueError:
+        faces = 0
     feeds = False
     if intermediate:
         readers = cmds.listConnections(

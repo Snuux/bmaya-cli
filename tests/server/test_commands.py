@@ -31,6 +31,13 @@ def echo(command: str) -> dict[str, Any]:
     return {command: lambda params: {"got": params}}
 
 
+def written_crate(params: dict[str, Any]) -> dict[str, Any]:
+    target = Path(params["path"])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes((Path(__file__).parents[1] / "fixtures" / "crate.fbx").read_bytes())
+    return {"path": params["path"], "got": params}
+
+
 def one_maya(home: Path, make_bridge: BridgeFactory, handlers: dict[str, Any]) -> FakeBridge:
     bridge = make_bridge(handlers)
     bridge.write_registry(home, 111)
@@ -151,7 +158,7 @@ def test_relative_paths_are_resolved_where_the_command_runs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    one_maya(home, make_bridge, {**echo("scene_file"), **echo("export_fbx")})
+    one_maya(home, make_bridge, {**echo("scene_file"), "export_fbx": written_crate})
     monkeypatch.chdir(tmp_path)
     here = tmp_path.resolve().as_posix()
     saved = run(capsys, "file", "save", "scenes/a.ma")[1]["got"]
@@ -170,6 +177,7 @@ def test_relative_paths_are_resolved_where_the_command_runs(
         "start": "",
         "end": "",
         "clip": "",
+        "ignore_checks": False,
     }
     exported = run(capsys, "export", "walk.fbx", "--animation", "--start", "0", "--end", "30")[1]
     assert (exported["got"]["start"], exported["got"]["end"]) == ("0", "30")

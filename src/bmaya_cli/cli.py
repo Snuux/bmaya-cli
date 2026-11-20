@@ -554,16 +554,22 @@ def build_parser() -> argparse.ArgumentParser:
     export = add(
         "export",
         "cmd_export",
-        "export FBX with a Unity, Unreal or Godot preset",
+        "export FBX with a Unity, Unreal or Godot preset, then check the written file",
         "Writes an FBX file. Units are not converted: the scene unit is what the importer\n"
         "sees. The unreal preset triangulates and writes smoothing groups. --animation bakes\n"
         "the playback range, or --start/--end, or the frames of --clip (which implies\n"
-        "--animation).",
+        "--animation), into one take named after the clip or the file.\n"
+        "Before writing, the meshes are checked: a mesh with no faces, or one whose opposite\n"
+        "flag hides inside-out faces, stops the export (--ignore-checks writes it anyway).\n"
+        "After writing, the file is read back: `written` says what it holds, and `issues`\n"
+        "lists what is missing or wrong in it, like a mesh that came out empty, joints that\n"
+        "are not there, a take with the wrong frames or keys baked at another frame rate.",
         examples(
             "bmaya export hero.fbx",
             "bmaya export out/walk.fbx --preset unreal --selection --animation --start 0 --end 24",
             "bmaya export out/walk.fbx --preset godot --selection --clip zombie_walk",
         ),
+        module="exporting",
     )
     export.add_argument("path", metavar="FILE.fbx", help="target file")
     export.add_argument("--preset", default="", help="unity (default), unreal or godot")
@@ -576,6 +582,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         metavar="NAME",
         help="bake the frames of this clip (`bmaya anim` lists them)",
+    )
+    export.add_argument(
+        "--ignore-checks",
+        action="store_true",
+        help="write the file even when the checks before export find a mesh that would come out "
+        "broken",
     )
 
     inspect = add(

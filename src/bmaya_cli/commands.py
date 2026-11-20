@@ -300,19 +300,6 @@ def cmd_motion(args: argparse.Namespace) -> int:
     return forward(args, "get_motion", params)
 
 
-def cmd_export(args: argparse.Namespace) -> int:
-    params = {
-        "path": absolute(args.path),
-        "preset": args.preset,
-        "selection_only": args.selection,
-        "animation": args.animation,
-        "start": args.start,
-        "end": args.end,
-        "clip": args.clip,
-    }
-    return forward(args, "export_fbx", params)
-
-
 def cmd_file(args: argparse.Namespace) -> int:
     params = {
         "action": args.action,

@@ -134,6 +134,105 @@ def report(contents: Contents, limit: int = DEFAULT_LIMIT, axes: bool = False) -
     return out
 
 
+FRAME_TOLERANCE = 0.5
+RATE_TOLERANCE = 0.01
+
+
+def leaf(name: str) -> str:
+    return name.rsplit("|", 1)[-1].rsplit(":", 1)[-1]
+
+
+def some(names: list[str]) -> str:
+    shown = ", ".join(names[:NAMES_IN_ISSUE])
+    if len(names) > NAMES_IN_ISSUE:
+        shown += f" and {len(names) - NAMES_IN_ISSUE} more"
+    return shown
+
+
+def written_entry(contents: Contents) -> dict[str, Any]:
+    takes = []
+    for take in contents.takes:
+        entry: dict[str, Any] = {"name": take.name}
+        frames = frames_of(take.seconds, contents.fps)
+        entry["frames" if frames is not None else "seconds"] = frames or rounded(take.seconds)
+        takes.append(entry)
+    return {
+        "path": contents.path,
+        "size": contents.size,
+        "meshes": len(contents.meshes),
+        "joints": len(contents.joints),
+        "takes": takes,
+    }
+
+
+def compare_takes(contents: Contents, wanted: list[dict[str, Any]], fps: float) -> list[str]:
+    out = []
+    by_name = {take.name: take for take in contents.takes}
+    for want in wanted:
+        take = by_name.get(want["name"])
+        if take is None:
+            found = ", ".join(t.name for t in contents.takes) or "none"
+            out.append(f"no take named '{want['name']}' in the file (takes: {found})")
+            continue
+        first, last = want["frames"]
+        frames = [round(s * fps, 3) for s in take.seconds]
+        if abs(frames[0] - first) > FRAME_TOLERANCE or abs(frames[1] - last) > FRAME_TOLERANCE:
+            out.append(
+                f"take '{take.name}' covers frames {frames[0]:g}:{frames[1]:g}, "
+                f"the scene asked for {first:g}:{last:g}"
+            )
+        if take.curves == 0:
+            out.append(f"take '{take.name}' has no animation curves")
+        elif take.key_step:
+            baked = 1.0 / take.key_step
+            if abs(baked - fps) > RATE_TOLERANCE * fps:
+                out.append(
+                    f"take '{take.name}' is baked at {baked:.3g} fps, the scene runs at {fps:g}: "
+                    "export it again; if this stays, restart that Maya"
+                )
+    return out
+
+
+def compare(contents: Contents, expected: dict[str, Any]) -> list[str]:
+    """What the written file lacks or got wrong, against what the scene meant to export."""
+    out = []
+    meshes = {leaf(mesh.name): mesh for mesh in contents.meshes}
+    missing = [name for name in expected.get("meshes", []) if name not in meshes]
+    if missing:
+        out.append(f"{len(missing)} meshes are not in the file: {some(missing)}")
+    empty = [
+        name for name in expected.get("meshes", []) if name in meshes and meshes[name].polys == 0
+    ]
+    if empty:
+        out.append(f"{len(empty)} meshes are empty in the file: {some(empty)}")
+    joints = {leaf(joint.name) for joint in contents.joints}
+    wanted = expected.get("joints", [])
+    lost = [name for name in wanted if name not in joints]
+    if lost:
+        out.append(f"{len(lost)} of {len(wanted)} scene joints are not in the file: {some(lost)}")
+    fps = expected.get("fps")
+    if fps and contents.fps and abs(contents.fps - fps) > RATE_TOLERANCE * fps:
+        out.append(f"the file says {contents.fps:g} fps, the scene runs at {fps:g}")
+    if expected.get("takes"):
+        out.extend(compare_takes(contents, expected["takes"], fps or contents.fps or 0.0))
+    up = expected.get("up")
+    if up and contents.up != up:
+        out.append(f"the file's up axis is {contents.up}, the export asked for {up}")
+    return out
+
+
+def read_back(path: str, expected: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
+    """The written file as `written` reports it, and the issues found by comparing it."""
+    try:
+        contents = read(path)
+    except ModelFileError as error:
+        return {"path": path}, [f"{Path(path).name}: could not read it back: {error.message}"]
+    issues = issues_of(contents)
+    if expected is not None:
+        issues += compare(contents, expected)
+    return written_entry(contents), issues
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     from bmaya_cli.commands import EXIT_OK, CommandFailed, emit
 

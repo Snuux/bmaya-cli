@@ -815,12 +815,93 @@ def check_export_fbx() -> str:
     assert clip["options"]["bake"] == [2, 4] and clip["options"]["clip"] == "nod", clip
     assert clip["options"]["animation"] is True, clip["options"]
     expect_error("export_fbx", "not both", path=str(target), clip="nod", start="1")
+    read_back = check_export_read_back(target, clip)
+    refused = check_export_refusals(target)
 
     cmds.select(clear=True)
     expect_error("export_fbx", "nothing is selected", path=str(target), selection_only=True)
     expect_error("export_fbx", ".fbx", path=str(WORK_DIR / "x.obj"))
     expect_error("export_fbx", "unity", path=str(target), preset="cryengine")
-    return f"unreal+anim {result['size']} bytes, selection-only and errors ok"
+    return (
+        f"unreal+anim {result['size']} bytes, selection-only and errors ok; {read_back}; {refused}"
+    )
+
+
+def check_export_read_back(target: Path, clip: dict[str, Any]) -> str:
+    from bmaya_cli.modelfile import compare, read
+
+    contents = read(target)
+    assert [take.name for take in contents.takes] == ["nod"], contents.takes
+    assert compare(contents, clip["expected"]) == [], compare(contents, clip["expected"])
+    assert set(clip["expected"]["joints"]) == {"root", "spine", "head"}, clip["expected"]
+    assert "body" in clip["expected"]["meshes"] and "crate" in clip["expected"]["meshes"]
+    named = call("export_fbx", path=str(WORK_DIR / "spin_all.fbx"), animation=True)
+    assert [t.name for t in read(WORK_DIR / "spin_all.fbx").takes] == ["spin_all"], named
+    return "file read back matches, one take named after the clip or the file"
+
+
+def check_export_refusals(target: Path) -> str:
+    from bmaya_bridge.handlers import export as exporting
+
+    holder = cmds.group(empty=True, name="export_ghost")
+    cmds.createNode("mesh", name="export_ghostShape", parent=holder)
+    flagged = mirrored_box("export_flagged")
+    try:
+        expect_error("export_fbx", "export_ghostShape has no faces", path=str(target))
+        forced = call("export_fbx", path=str(target), ignore_checks=True)
+        assert any("has no faces" in issue for issue in forced["issues"]), forced["issues"]
+        cmds.delete(holder)
+        expect_error("export_fbx", "opposite flag over inside-out faces", path=str(target))
+        call("cleanup_mesh", name=flagged)
+        call("export_fbx", path=str(target))
+    finally:
+        cmds.delete([node for node in (holder, flagged) if cmds.objExists(node)])
+
+    real = exporting.mel
+    calls = []
+
+    class Flaky:
+        @staticmethod
+        def eval(command: str) -> object:
+            if command.startswith("FBXExport -f"):
+                calls.append(command)
+                if len(calls) == 1:
+                    raise RuntimeError("UI callback failed")
+                if mode == "silent":
+                    return None
+            return real.eval(command)
+
+    try:
+        exporting.mel = Flaky
+        mode = "retry"
+        retried = call("export_fbx", path=str(target))
+        assert retried["retried"] is True and len(calls) == 2, (retried, calls)
+        calls.clear()
+        mode = "silent"
+        expect_error("export_fbx", "left", path=str(target))
+    finally:
+        exporting.mel = real
+    return "empty and inside-out meshes refused, retry once, unchanged file caught"
+
+
+def check_fbx_frame_rate() -> str:
+    from bmaya_cli.modelfile import compare, read
+
+    found = []
+    for unit, rate in (("film", 24.0), ("ntsc", 30.0)):
+        cmds.file(new=True, force=True)
+        cmds.currentUnit(time=unit)
+        cube = cmds.polyCube(name="paced")[0]
+        cmds.setKeyframe(cube, attribute="translateY", time=0, value=0)
+        cmds.setKeyframe(cube, attribute="translateY", time=16, value=5)
+        path = WORK_DIR / f"paced_{unit}.fbx"
+        reply = call("export_fbx", path=str(path), animation=True, start="0", end="16")
+        contents = read(path)
+        (take,) = contents.takes
+        assert abs(1.0 / take.key_step - rate) < 0.01, (unit, 1.0 / take.key_step)
+        assert compare(contents, reply["expected"]) == [], compare(contents, reply["expected"])
+        found.append(f"{unit} {rate:g}")
+    return "keys baked at the scene rate after another rate: " + ", ".join(found)
 
 
 def build_walker() -> None:
@@ -1362,6 +1443,7 @@ EXTRA_CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("bridge dispatch", check_bridge_dispatch),
     ("shared maya", check_shared_maya),
     ("screenshot looks", check_screenshot_looks),
+    ("fbx frame rate", check_fbx_frame_rate),
 ]
 
 CHECKS: list[tuple[str, Callable[[], str]]] = [
@@ -1401,6 +1483,7 @@ def run_checks() -> int:
     global cmds, om, mel, COMMANDS, NO_UNDO_CHUNK, BridgeError
 
     sys.path.insert(0, str(BRIDGE_PATH))
+    sys.path.insert(0, str(REPO / "src"))
 
     import maya.api.OpenMaya as openmaya
     from bmaya_bridge.errors import BridgeError as bridge_error
