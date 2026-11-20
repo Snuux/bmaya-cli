@@ -386,6 +386,16 @@ def file_skeleton(path: str) -> dict[str, Any]:
 
 
 def cmd_bones(args: argparse.Namespace) -> int:
+    if args.up and not args.orient:
+        raise usage("--up goes with --orient.", "bmaya bones arm_r --orient xy --up z")
+    if args.orient:
+        if args.against or args.axes or args.limit or args.mirror or args.rename:
+            raise usage(
+                "--orient changes the joints; it takes no report flag but --up.",
+                "Orient first, then look: bmaya bones ROOT --axes",
+            )
+        params = {"names": ",".join(args.names), "orient": args.orient, "up": args.up}
+        return forward(args, "orient_joints", params)
     if args.rename and not args.against:
         raise usage(
             "--rename maps the joint names of --against FILE.",

@@ -606,13 +606,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--against FILE compares the skeleton with an .fbx, .glb or .gltf, read without\n"
         "Maya: names (map them with --rename), parents, positions in the scene's unit, axes\n"
         "and bone proportions. A skeleton that is the same but scaled, turned or moved shows\n"
-        "as one `fit`; joints off after that are listed under `moved`.",
+        "as one `fit`; joints off after that are listed under `moved`.\n\n"
+        "--orient changes the joints' axes and keeps every joint where it is: `world` gives\n"
+        "them the world's axes (no turn at rest, as some engines want), xy points +x at\n"
+        "the child and +y toward --up, --orient=-zy points -z at the child (a minus needs\n"
+        "the =). Rotate goes to 0 and the turn into jointOrient. Every skin on these joints\n"
+        "is compensated, so the mesh does not move (`mesh_moved` says by how much). A joint\n"
+        "with several children aims at the first one away from it (`aimed` names it); an\n"
+        "end joint takes its parent's axes. Refused for joints whose rotations have keys.\n"
+        "One undo step.",
         examples(
             "bmaya bones",
             "bmaya bones hand_r --axes",
             "bmaya bones hand --against game/assets/models/zombie_hand/zombie_hand.fbx",
             'bmaya bones hand_r --against hands.glb --rename "{}_r"',
             "bmaya bones fp_zombie_arm_r          # the joints that skin this mesh",
+            "bmaya bones hand --orient world",
+            "bmaya bones arm_r --orient xy --up z",
+            "bmaya bones i1 --orient=-zy          # -z down each finger bone, +y up",
         ),
     )
     bones.add_argument("names", nargs="*", help="joints, groups or skinned meshes")
@@ -631,6 +642,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bones.add_argument(
         "--rename", default="", metavar="MAP", help='map the file joint names: "{}_r", a=b'
+    )
+    bones.add_argument(
+        "--orient",
+        default="",
+        metavar="AXES",
+        help="give the joints new axes: world, xy or =-zy (the axis at the child, the one up)",
+    )
+    bones.add_argument(
+        "--up", default="", metavar="AXIS", help="with --orient: the world up, y (default) or z"
     )
 
     pose = add(

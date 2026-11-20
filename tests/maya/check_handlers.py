@@ -2094,6 +2094,51 @@ def check_rebind_skin() -> str:
     return f"posed rebind kept the mesh within {gap:.1e}, keep-shape, blendShape chain ok"
 
 
+def joint_axes(joint: str) -> list[list[float]]:
+    matrix = cmds.xform(joint, query=True, worldSpace=True, matrix=True)
+    rows = [matrix[0:3], matrix[4:7], matrix[8:11]]
+    return [[value / max(1e-12, sum(v * v for v in row) ** 0.5) for value in row] for row in rows]
+
+
+def check_orient_joints() -> str:
+    made = side_rig("or")
+    try:
+        cmds.setAttr("or_lo_r.rotateZ", 25)
+        shown = shape_points("or_arm_r")
+        places = {joint: world_at(joint) for joint in ("or_up_r", "or_lo_r", "or_end_r")}
+        cmds.flushUndo()
+        world = call("orient_joints", names="or_root", orient="world")
+        assert world["mesh_moved"] < 1e-4, world
+        for joint, at in places.items():
+            assert max(abs(a - b) for a, b in zip(world_at(joint), at, strict=True)) < 1e-4, joint
+            axes = joint_axes(joint)
+            assert max(abs(axes[r][c] - (r == c)) for r in range(3) for c in range(3)) < 1e-6, axes
+            assert cmds.getAttr(joint + ".rotate")[0] == (0.0, 0.0, 0.0), joint
+        gap = max(p.distanceTo(q) for p, q in zip(shape_points("or_arm_r"), shown, strict=True))
+        assert gap < 1e-4, gap
+        cmds.undo()
+        assert abs(cmds.getAttr("or_lo_r.rotateZ") - 25) < 1e-6, "undo did not put rotate back"
+
+        aimed = call("orient_joints", names="or_up_r", orient="-zy")
+        bones = {e["name"]: e for e in call("get_bones", names="or_up_r")["joints"]["items"]}
+        assert bones["or_up_r"]["aim"] == "-z" and bones["or_lo_r"]["aim"] == "-z", bones
+        lo = joint_axes("or_lo_r")
+        assert lo[1][1] > 0.9, f"+y should stay up: {lo}"
+        end = joint_axes("or_end_r")
+        assert max(abs(a - b) for a, b in zip(end[2], lo[2], strict=True)) < 1e-6, (end, lo)
+        assert aimed["mesh_moved"] < 1e-4, aimed
+        moved = max(p.distanceTo(q) for p, q in zip(shape_points("or_arm_r"), shown, strict=True))
+        assert moved < 1e-4, moved
+
+        cmds.setKeyframe("or_lo_r", attribute="rotateX", time=1, value=5)
+        expect_error("orient_joints", "keys", names="or_root", orient="world")
+        expect_error("orient_joints", "Bad --orient", names="or_root", orient="xx")
+        expect_error("orient_joints", "Bad --up", names="or_root", orient="xy", up="w")
+    finally:
+        cmds.delete([node for node in made if cmds.objExists(node)])
+    return f"world axes and -z down the bone, mesh kept within {gap:.1e}, keys refused, undo ok"
+
+
 def check_mirror_node() -> str:
     made = side_rig("mr")
     try:
@@ -2204,6 +2249,7 @@ CHECKS: list[tuple[str, Callable[[], str]]] = [
     ("rebind_skin", check_rebind_skin),
     ("get_bones", check_get_bones),
     ("set_pose", check_set_pose),
+    ("orient_joints", check_orient_joints),
     ("mirror_node", check_mirror_node),
     ("undo", check_undo),
     ("stop", check_stop),

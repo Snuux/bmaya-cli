@@ -74,6 +74,7 @@ COMMANDS: dict[str, Handler] = {
     "edit_skin": skin.edit_skin,
     "rebind_skin": skin.rebind_skin,
     "set_pose": bones.set_pose,
+    "orient_joints": bones.orient_joints,
     "mirror_node": mirror.mirror_node,
     "scene_file": scene.scene_file,
     "undo": scene.undo,

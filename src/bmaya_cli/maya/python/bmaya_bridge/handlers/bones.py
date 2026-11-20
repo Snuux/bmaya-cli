@@ -52,6 +52,11 @@ AXIS_NAMES = ("+x", "+y", "+z", "-x", "-y", "-z")
 POSE_ATTRS = ("translate", "rotate")
 KEPT_ATTRS = ("translate", "rotate", "scale", "shear")
 JOINT_VALUES = (("orient", "jointOrient"), ("rotate", "rotate"), ("rotate_axis", "rotateAxis"))
+ORIENT_HINT = (
+    "--orient world gives every joint the world's axes. Otherwise name the axis that points "
+    "at the child and the one that points toward --up: xy (+x at the child, +y up), -zy, "
+    "yz. --up takes x, y, z or -x, -y, -z (default y)."
+)
 BONES_MIRROR_HINT = (
     "--mirror names the plane twins should mirror across: x, y or z through 0, or x=12.5."
 )
@@ -506,3 +511,200 @@ def at_bind(joints: list[str]) -> Iterator[list[str]]:
         for joint, values in saved.items():
             for attr, value in values.items():
                 cmds.setAttr(f"{joint}.{attr}", *value)
+
+
+class Orient(NamedTuple):
+    """`world`, or which of the joint's axes points at its child and which toward `up`."""
+
+    world: bool
+    aim: int
+    aim_sign: float
+    side: int
+    side_sign: float
+    up: skeleton.Vec
+
+
+def signed_axis(text: str) -> tuple[int, float, str]:
+    sign = -1.0 if text.startswith("-") else 1.0
+    letter = text.lstrip("+-")[:1]
+    if letter not in AXES:
+        return -1, sign, text
+    return AXES.index(letter), sign, text[len(text) - len(text.lstrip("+-")) + 1 :]
+
+
+def parse_orient(raw: str, up_raw: str) -> Orient:
+    text = raw.strip().lower().replace(" ", "")
+    up_text = (up_raw or "+y").strip().lower()
+    up_axis, up_sign, rest = signed_axis(up_text)
+    if up_axis < 0 or rest:
+        raise BridgeError(f"Bad --up '{up_raw}'.", hint=ORIENT_HINT)
+    up = [0.0, 0.0, 0.0]
+    up[up_axis] = up_sign
+    if text == "world":
+        return Orient(True, 0, 1.0, 1, 1.0, (up[0], up[1], up[2]))
+    aim, aim_sign, rest = signed_axis(text)
+    side, side_sign, rest = signed_axis(rest)
+    if aim < 0 or side < 0 or aim == side or rest not in ("", AXES[3 - aim - side]):
+        raise BridgeError(f"Bad --orient '{raw}'.", hint=ORIENT_HINT)
+    return Orient(False, aim, aim_sign, side, side_sign, (up[0], up[1], up[2]))
+
+
+def normalized(vector: skeleton.Vec) -> skeleton.Vec:
+    size = skeleton.length(vector)
+    return (vector[0] / size, vector[1] / size, vector[2] / size)
+
+
+def cross(a: skeleton.Vec, b: skeleton.Vec) -> skeleton.Vec:
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def aimed_axes(direction: skeleton.Vec, orient: Orient) -> skeleton.Axes:
+    """Axes with `orient.aim` along `direction` and `orient.side` as near `orient.up` as it goes."""
+    first = normalized(direction)
+    first = (first[0] * orient.aim_sign, first[1] * orient.aim_sign, first[2] * orient.aim_sign)
+    along = skeleton.dot(orient.up, first)
+    flat = skeleton.sub(orient.up, (first[0] * along, first[1] * along, first[2] * along))
+    if skeleton.length(flat) < 1e-6:
+        spare = (orient.up[1], orient.up[2], orient.up[0])
+        along = skeleton.dot(spare, first)
+        flat = skeleton.sub(spare, (first[0] * along, first[1] * along, first[2] * along))
+    unit = normalized(flat)
+    sign = orient.side_sign
+    second = (unit[0] * sign, unit[1] * sign, unit[2] * sign)
+    axes: list[skeleton.Vec] = [(0.0, 0.0, 0.0)] * 3
+    axes[orient.aim] = first
+    axes[orient.side] = second
+    third = 3 - orient.aim - orient.side
+    if (orient.side - orient.aim) % 3 == 1:
+        axes[third] = cross(first, second)
+    else:
+        axes[third] = cross(second, first)
+    return (axes[0], axes[1], axes[2])
+
+
+def aim_child(joint: str, at: skeleton.Vec) -> str:
+    """The first child joint that stands away from the joint, as Maya's orientJoint takes it."""
+    for child in joint_children_of(joint):
+        if skeleton.length(skeleton.sub(point_of(world_matrix(child)), at)) > ZERO:
+            return child
+    return ""
+
+
+def joint_children_of(joint: str) -> list[str]:
+    return cmds.listRelatives(joint, children=True, type="joint", fullPath=True) or []
+
+
+def axes_matrix(axes: skeleton.Axes, at: skeleton.Vec) -> om.MMatrix:
+    return om.MMatrix([*axes[0], 0.0, *axes[1], 0.0, *axes[2], 0.0, *at, 1.0])
+
+
+def keyed_turns(joints: list[str]) -> list[str]:
+    found = []
+    for joint in joints:
+        for attr in ("rotate", "jointOrient", "rotateAxis"):
+            plugs = [attr] + [attr + axis for axis in "XYZ"]
+            if any(
+                cmds.listConnections(f"{joint}.{plug}", source=True, destination=False)
+                for plug in plugs
+            ):
+                found.append(display_name(joint))
+                break
+    return found
+
+
+def skinned_points(clusters: list[str]) -> dict[str, list[om.MPoint]]:
+    out = {}
+    for cluster in clusters:
+        for shape in cmds.ls(cmds.skinCluster(cluster, query=True, geometry=True) or [], long=True):
+            if cmds.nodeType(shape) == "mesh":
+                path = om.MSelectionList().add(shape).getDagPath(0)
+                out[shape] = [om.MPoint(point) for point in om.MFnMesh(path).getPoints()]
+    return out
+
+
+def orient_joints(params: dict[str, Any]) -> dict[str, Any]:
+    orient = parse_orient(text_param(params, "orient"), text_param(params, "up"))
+    joints, source = pick_joints(text_param(params, "names"))
+    held = keyed_turns(joints)
+    if held:
+        raise BridgeError(
+            f"{len(held)} joints have keys or inputs on their rotations: "
+            + skeleton.some(held)
+            + ". New axes would change what those keys mean.",
+            hint="Orient a skeleton before animating it, or cut its rotation keys first.",
+        )
+    _, clusters = bind_matrices(joints)
+    before_points = skinned_points(clusters)
+    old = {joint: world_matrix(joint) for joint in joints}
+    others = {}
+    for joint in joints:
+        children = cmds.listRelatives(joint, children=True, type="transform", fullPath=True)
+        for child in children or []:
+            if cmds.nodeType(child) == "transform":
+                others[child] = world_matrix(child)
+    new_axes: dict[str, skeleton.Axes] = {}
+    aimed = []
+    for joint in sorted(joints):
+        at = point_of(old[joint])
+        parent = (cmds.listRelatives(joint, parent=True, fullPath=True) or [""])[0]
+        if orient.world:
+            axes: skeleton.Axes = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+        else:
+            child = aim_child(joint, at)
+            if child:
+                axes = aimed_axes(skeleton.sub(point_of(old[child]), at), orient)
+                if len(joint_children_of(joint)) > 1:
+                    aimed.append({"name": display_name(joint), "at": display_name(child)})
+            elif parent in new_axes:
+                axes = new_axes[parent]
+            else:
+                axes = axes_of(old[joint])
+        new_axes[joint] = axes
+        target = axes_matrix(axes, at)
+        parent_now = world_matrix(parent) if parent else om.MMatrix()
+        local = om.MTransformationMatrix(target * parent_now.inverse())
+        turn = local.rotation()
+        cmds.setAttr(joint + ".rotate", 0.0, 0.0, 0.0)
+        cmds.setAttr(joint + ".rotateAxis", 0.0, 0.0, 0.0)
+        cmds.setAttr(
+            joint + ".jointOrient",
+            math.degrees(turn.x),
+            math.degrees(turn.y),
+            math.degrees(turn.z),
+        )
+        cmds.xform(joint, worldSpace=True, translation=at)
+    for child, matrix in others.items():
+        cmds.xform(child, worldSpace=True, matrix=list(matrix))
+    for cluster in clusters:
+        fn = skin_fn(cluster)
+        for path in fn.influenceObjects():
+            full = path.fullPathName()
+            if full not in old:
+                continue
+            index = fn.indexForInfluenceObject(path)
+            pre = om.MMatrix(cmds.getAttr(f"{cluster}.bindPreMatrix[{index}]"))
+            fixed = pre * old[full] * world_matrix(full).inverse()
+            cmds.setAttr(f"{cluster}.bindPreMatrix[{index}]", list(fixed), type="matrix")
+    worst = 0.0
+    for shape, points in skinned_points(clusters).items():
+        for index, point in enumerate(points):
+            worst = max(worst, point.distanceTo(before_points[shape][index]))
+    turned = [
+        display_name(joint)
+        for joint in joints
+        if skeleton.angle_between(axes_of(old[joint]), axes_of(world_matrix(joint)))
+        > skeleton.TURN_TOLERANCE
+    ]
+    result: dict[str, Any] = {
+        "source": source,
+        "orient": "world" if orient.world else text_param(params, "orient"),
+        "joints": len(joints),
+        "turned": listing(turned, NAMES_SHOWN),
+    }
+    if aimed:
+        result["aimed"] = listing(aimed, NAMES_SHOWN)
+    if clusters:
+        result["skins"] = len(clusters)
+        result["mesh_moved"] = rnd(worst)
+    result["next"] = "`bmaya bones ROOT --axes` shows the new axes, `bmaya undo` takes them back"
+    return result

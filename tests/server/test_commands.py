@@ -423,7 +423,10 @@ def test_pose_mirror_and_rebind_send_their_params(
     home: Path, make_bridge: BridgeFactory, capsys: Output
 ) -> None:
     handlers = {**echo("set_pose"), **echo("mirror_node"), **echo("rebind_skin")}
-    one_maya(home, make_bridge, handlers)
+    one_maya(home, make_bridge, {**handlers, **echo("orient_joints")})
+    assert run(capsys, "bones", "hand", "--orient=-zy", "--up", "z")[1] == {
+        "got": {"names": "hand", "orient": "-zy", "up": "z"}
+    }
     assert run(capsys, "pose", "fp_root", "--bind")[1] == {
         "got": {"names": "fp_root", "bind": True}
     }
@@ -444,6 +447,8 @@ def test_pose_mirror_and_rebind_send_their_params(
         ["skin", "--rebind"],
         ["skin", "hand", "--rebind", "--prune"],
         ["skin", "hand", "--rebind", "--max", "4"],
+        ["bones", "hand", "--up", "z"],
+        ["bones", "hand", "--orient", "world", "--axes"],
     ],
 )
 def test_skeleton_commands_refuse_flags_that_do_not_go_together(
