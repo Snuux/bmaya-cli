@@ -297,6 +297,12 @@ def read_takes(doc: dict[str, Any], buffers: Buffers) -> list[Take]:
     return out
 
 
+def rate_of(takes: list[Take]) -> float | None:
+    """A glTF has no frame rate: the step every take's keys sit on stands in for it."""
+    step = shared_gap({round(take.key_step, 6): 1 for take in takes if take.key_step})
+    return round(1.0 / step, 3) if step else None
+
+
 def read_textures(doc: dict[str, Any], folder: Path) -> list[Texture]:
     textures = doc.get("textures", [])
     images = doc.get("images", [])
@@ -339,8 +345,7 @@ def read_gltf(path: str | Path) -> Contents:
     buffers = Buffers(doc, file.parent, binary)
     joints, joints_from = read_skeleton(doc, buffers)
     takes = read_takes(doc, buffers)
-    steps = [take.key_step for take in takes if take.key_step]
-    fps = round(1.0 / min(steps), 3) if steps else None
+    fps = rate_of(takes)
     return Contents(
         path=file.resolve().as_posix(),
         format="glb" if data[:4] == GLB_MAGIC else "gltf",

@@ -5,6 +5,7 @@ import pytest
 
 from bmaya_cli import cli, sessions
 from bmaya_cli.contents import Contents, Joint, Mesh, Take, Texture, shared_gap
+from bmaya_cli.gltfcontents import rate_of
 from bmaya_cli.modelfile import at_scene_rate, compare, issues_of, report
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -74,6 +75,16 @@ def test_thinned_keys_still_give_the_frame_step() -> None:
     )
     assert shared_gap({round(10 * frame, 6): 1}) == pytest.approx(10 * frame, abs=1e-5)
     assert shared_gap({}) is None
+
+
+def test_takes_thinned_to_other_steps_share_one_rate() -> None:
+    walk = Take("walk", (0.0, 1.0), 3, 1, (0.0, 1.0), 2 / 30)
+    run = Take("run", (2.0, 3.0), 3, 1, (2.0, 3.0), 3 / 30)
+    fps = rate_of([walk, run])
+    assert fps == pytest.approx(30.0, abs=0.01)
+    both = contents(format="glb", fps=fps, fps_from="keys", takes=[walk, run])
+    assert issues_of(both) == []
+    assert rate_of([]) is None
 
 
 def test_a_gltf_with_few_keys_is_read_at_the_scene_rate() -> None:
