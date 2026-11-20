@@ -576,6 +576,8 @@ def check_get_model_views() -> str:
         assert sorted(cmds.ls()) == nodes, "views left nodes behind"
         assert not cmds.file(query=True, modified=True), "views marked the scene modified"
 
+        check_weight_views()
+
         expect_error("get_model_views", "--views", names=names, views="front,under")
         expect_error("get_model_views", "--style", names=names, style="clay")
         expect_error("get_model_views", "--section", names=names, section="w")
@@ -585,6 +587,36 @@ def check_get_model_views() -> str:
     finally:
         cmds.delete(outer, inner, dense)
     return "parts, silhouette, section, xray, dense mesh without edges, shaded ok"
+
+
+def check_weight_views() -> str:
+    weights = assert_read_only(
+        "get_model_views",
+        names="body",
+        style="weights",
+        joint="head",
+        views="front",
+        no_wire=True,
+        max_size=400,
+    )
+    assert weights["joint"] == "head" and "parts" not in weights, weights
+    top = pixel(weights["path"], 200, 55)
+    bottom = pixel(weights["path"], 200, 340)
+    assert top[1] > bottom[1] + 50, f"the top is not warmer than the bottom: {top} {bottom}"
+    assert bottom[2] > bottom[0] + 30, f"the bottom shows head weights: {bottom}"
+
+    mixed = assert_read_only(
+        "get_model_views", names="body,clean_box", style="influence", max_size=400
+    )
+    names = [item["name"] for item in mixed["influences"]["items"]]
+    assert sorted(names) == ["head", "root", "spine"], mixed
+    assert mixed["influences"]["total"] == 3, mixed
+
+    expect_error("get_model_views", "--joint spine", names="body", style="weights")
+    expect_error("get_model_views", "not an influence", names="body", style="weights", joint="x")
+    expect_error("get_model_views", "--style weights", names="body", joint="head")
+    expect_error("get_model_views", "None of these", names="clean_box", style="influence")
+    return "weights and influence ok"
 
 
 def check_diff_mesh() -> str:

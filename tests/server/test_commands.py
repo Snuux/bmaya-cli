@@ -297,6 +297,7 @@ def test_views_maps_its_flags_and_moves_the_png(
         "names": "hand,glove",
         "views": "front,persp",
         "style": "xray",
+        "joint": "",
         "no_wire": True,
         "section": "x=0.5",
         "light": "",

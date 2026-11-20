@@ -114,6 +114,28 @@ def test_a_cut_keeps_the_low_side_and_reports_the_outline() -> None:
     assert abs(area - 1.25) < 1e-9
 
 
+def test_colors_by_point_blend_across_the_faces() -> None:
+    plain = facing_quad(-0.9, 0.9, -1.0, RED)
+    part = plain._replace(colors=[RED, BLUE, BLUE, RED])
+    canvas = softrender.render([part], ORTHO, SIZE, SIZE, style="weights", wire=False)
+    left, middle, right = (canvas.color_at(x, 50) for x in (8, 50, 92))
+    assert left[0] > 150 and left[2] < 40, left
+    assert right[2] > 150 and right[0] < 40, right
+    assert 60 < middle[0] < 140 and 60 < middle[2] < 140, middle
+    flat = softrender.render([plain], ORTHO, SIZE, SIZE, style="weights", wire=False)
+    assert flat.color_at(50, 50) == softrender.mix(RED, BACKGROUND, 0.72)
+
+
+def test_a_cut_blends_the_colors_of_the_points_it_adds() -> None:
+    corners = [(-1.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)]
+    part = quad(corners, RED)._replace(
+        colors=[(0, 0, 0), (200, 200, 200), (200, 200, 200), (0, 0, 0)]
+    )
+    kept = softrender.cut([part], 0, 0.0).parts[0]
+    assert kept.colors is not None and len(kept.colors) == len(kept.points)
+    assert kept.colors[len(corners)] == (100, 100, 100)
+
+
 def test_bounds_and_counts() -> None:
     parts = [facing_quad(-0.5, 0.5, -1.0, RED), facing_quad(0.0, 2.0, 3.0, BLUE)]
     assert softrender.bounds(parts) == ((-0.5, -0.5, -1.0), (2.0, 2.0, 3.0))

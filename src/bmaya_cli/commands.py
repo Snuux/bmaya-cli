@@ -208,6 +208,7 @@ def cmd_views(args: argparse.Namespace) -> int:
         "names": ",".join(args.names),
         "views": args.views,
         "style": args.style,
+        "joint": args.joint,
         "no_wire": args.no_wire,
         "section": args.section,
         "light": args.light,

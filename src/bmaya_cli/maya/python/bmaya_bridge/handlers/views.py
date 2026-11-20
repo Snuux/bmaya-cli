@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import maya.api.OpenMaya as om
 from maya import cmds
 
-from bmaya_bridge import softrender
+from bmaya_bridge import skinweights, softrender
 from bmaya_bridge.errors import BridgeError
-from bmaya_bridge.handlers import _sampling, viewport
+from bmaya_bridge.handlers import _sampling, skin, viewport
 from bmaya_bridge.handlers._common import (
     bool_param,
     display_name,
@@ -93,9 +93,97 @@ def parse_style(raw: str) -> str:
         raise BridgeError(
             f"Unknown style '{raw}'.",
             hint="Use --style parts (a color per mesh, edges on top), silhouette, xray "
-            "(see through to the inside) or shaded (Maya's own render with materials).",
+            "(see through to the inside), weights --joint J (one joint's skin weights), "
+            "influence (a color per joint) or shaded (Maya's own render with materials).",
         )
     return style
+
+
+def skin_rows(shape: str) -> list[skinweights.Row] | None:
+    clusters = skin.clusters_of(shape)
+    if not clusters:
+        return None
+    return skin.read_skin(clusters[0], shape).rows
+
+
+def joint_named(joint: str, counts: dict[str, int]) -> str:
+    if joint in counts:
+        return joint
+    matches = [name for name in counts if name.rsplit("|", 1)[-1].rsplit(":", 1)[-1] == joint]
+    if len(matches) == 1:
+        return matches[0]
+    ranked = sorted(counts, key=lambda name: (-counts[name], name))
+    raise BridgeError(
+        f"'{joint}' is not an influence of these meshes." if joint else "Which joint?",
+        hint="--style weights shows one joint's weights: --joint "
+        + (ranked[0] if ranked else "NAME")
+        + ". The influences, most vertices first: "
+        + ", ".join(ranked[:LEGEND_LIMIT])
+        + (f" and {len(ranked) - LEGEND_LIMIT} more" if len(ranked) > LEGEND_LIMIT else "")
+        + ".",
+    )
+
+
+def hex_color(color: softrender.Color) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*color)
+
+
+def colored_parts(
+    meshes: list[str], parts: list[softrender.Part], style: str, joint: str
+) -> tuple[list[softrender.Part], list[dict[str, Any]], dict[str, Any]]:
+    """Parts painted with skin weights, the legend for them and what the result reports."""
+    rows_by_mesh = [skin_rows(shape) for shape in meshes]
+    if all(rows is None for rows in rows_by_mesh):
+        raise BridgeError(
+            "None of these meshes is skinned.",
+            hint="`bmaya skin` lists the skinned meshes; --style parts draws any mesh.",
+        )
+    counts: dict[str, int] = {}
+    for rows in rows_by_mesh:
+        for row in rows or []:
+            for name in row:
+                counts[name] = counts.get(name, 0) + 1
+    ranked = sorted(counts, key=lambda name: (-counts[name], name))
+    unskinned = any(rows is None for rows in rows_by_mesh)
+    painted = []
+    report: dict[str, Any] = {}
+    if style == "weights":
+        joint = joint_named(joint, counts)
+        for index, rows in enumerate(rows_by_mesh):
+            if rows is None:
+                colors = [skinweights.NO_SKIN] * len(parts[index].points)
+            else:
+                colors = [skinweights.heat(row.get(joint, 0.0)) for row in rows]
+            painted.append(parts[index]._replace(colors=colors))
+        legend = [
+            {"name": f"{joint} {share:g}", "color": hex_color(skinweights.heat(share))}
+            for share in (1.0, 0.75, 0.5, 0.25, 0.0)
+        ]
+        report["joint"] = joint
+    else:
+        palette = {name: softrender.part_color(index) for index, name in enumerate(ranked)}
+        for index, rows in enumerate(rows_by_mesh):
+            if rows is None:
+                colors = [skinweights.NO_SKIN] * len(parts[index].points)
+            else:
+                colors = [skinweights.mixed_color(row, palette) for row in rows]
+            painted.append(parts[index]._replace(colors=colors))
+        legend = [
+            {"name": name, "color": hex_color(palette[name])} for name in ranked[:LEGEND_LIMIT]
+        ]
+        report["influences"] = {
+            "items": legend,
+            "shown": len(legend),
+            "total": len(ranked),
+        }
+        if len(ranked) > len(softrender.PALETTE):
+            report["note"] = (
+                f"{len(ranked)} influences share {len(softrender.PALETTE)} colors; "
+                "name fewer meshes or use --style weights --joint J for one joint"
+            )
+    if unskinned:
+        legend = legend + [{"name": "no skin", "color": hex_color(skinweights.NO_SKIN)}]
+    return painted, legend, report
 
 
 def parse_section(raw: str, box: Box) -> Section | None:
@@ -341,6 +429,12 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
             "--light goes with --style shaded; the other styles are drawn without lights.",
             hint="bmaya views NAME --style shaded --light soft",
         )
+    joint = text_param(params, "joint")
+    if joint and style != "weights":
+        raise BridgeError(
+            "--joint goes with --style weights.",
+            hint=f"bmaya views NAME --style weights --joint {joint}",
+        )
     meshes, source = shown_meshes(text_param(params, "names"))
     section_text = text_param(params, "section")
     tile_count = len(views) + (1 if section_text else 0)
@@ -366,6 +460,10 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
     scale = 2 if tile <= SMOOTH_TILE and work <= SMOOTH_WORK else 1
 
     parts = [read_part(shape, index, wire) for index, shape in enumerate(meshes)]
+    painted: dict[str, Any] = {}
+    legend: list[dict[str, Any]] = []
+    if style in softrender.COLORED:
+        parts, legend, painted = colored_parts(meshes, parts, style, joint)
     box = softrender.bounds(parts)
     if box is None:
         raise BridgeError("The meshes have no points to draw.", hint="`bmaya audit` shows why.")
@@ -375,8 +473,7 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
 
     unit = cmds.currentUnit(query=True, linear=True)
     names = list(dict.fromkeys(part_name(shape) for shape in meshes))
-    legend = []
-    if drawn and style != "silhouette":
+    if drawn and style in ("parts", "xray"):
         colors: dict[str, softrender.Color] = {}
         for index, shape in enumerate(meshes):
             colors.setdefault(part_name(shape), parts[index].color)
@@ -439,7 +536,12 @@ def get_model_views(params: dict[str, Any]) -> dict[str, Any]:
     }
     if drawn:
         result["wire"] = wire
-    if legend:
+    if painted:
+        note = painted.pop("note", "")
+        if note:
+            notes.append(note)
+        result.update(painted)
+    elif legend:
         result["parts"] = legend
         result["shown"] = len(legend)
         result["total"] = len(names)

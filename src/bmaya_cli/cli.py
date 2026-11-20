@@ -249,9 +249,12 @@ def build_parser() -> argparse.ArgumentParser:
         "              A face seen from behind is dark: reversed normals show at once\n"
         "  silhouette  the outline alone, to judge the shape\n"
         "  xray        pale surfaces with every edge, hidden ones too: what is inside\n"
+        "  weights     one joint's skin weights (--joint J), blue for none to red for all;\n"
+        "              unskinned meshes are grey\n"
+        "  influence   a color per joint, blended where joints share a vertex\n"
         "  shaded      Maya's own render with materials and textures; takes --light. It\n"
         "              shows the whole scene, framed on the named nodes\n"
-        "The first three are drawn by bmaya itself, so they look the same with or without\n"
+        "All but shaded are drawn by bmaya itself, so they look the same with or without\n"
         "a Maya window and change nothing in the scene. Past about 10000 triangles per\n"
         "400 px tile the edges are left out and `note` says so.\n\n"
         "--section cuts the model with a plane across a world axis and adds a tile that\n"
@@ -263,6 +266,8 @@ def build_parser() -> argparse.ArgumentParser:
             "bmaya views engine --style xray --section x -o inside.png",
             "bmaya views engine --section y=12.5 -o cut.png",
             "bmaya views hero --style shaded --light soft -o look.png",
+            "bmaya views hand_r --style weights --joint index_01_r -o weights.png",
+            "bmaya views hand_r --style influence --views front,persp -o joints.png",
         ),
     )
     views.add_argument("names", nargs="*", help="mesh or group names")
@@ -273,8 +278,11 @@ def build_parser() -> argparse.ArgumentParser:
     views.add_argument(
         "--style",
         default="",
-        choices=("parts", "silhouette", "xray", "shaded"),
+        choices=("parts", "silhouette", "xray", "weights", "influence", "shaded"),
         help="how to draw (default parts)",
+    )
+    views.add_argument(
+        "--joint", default="", metavar="J", help="the joint whose weights --style weights shows"
     )
     views.add_argument("--no-wire", action="store_true", help="leave the edges out")
     views.add_argument(
